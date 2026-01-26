@@ -1,6 +1,7 @@
 # tmux-session-manager
 
-A simple tmux session manager that combines the best of [tmuxinator](https://github.com/tmuxinator/tmuxinator) and [tmux-sessionizer](https://github.com/ThePrimeagen/tmux-sessionizer).
+A simple tmux session manager that combines the best of [tmuxinator](https://github.com/tmuxinator/tmuxinator) and
+[tmux-sessionizer](https://github.com/ThePrimeagen/tmux-sessionizer).
 
 Manage your tmux sessions with configuration scripts or create quick sessions from any directory.
 
@@ -45,8 +46,6 @@ tsm -k, --kill [name]   # Kill a session (runs cleanup script if present)
 tsm -d, --dir [path]    # Browse directories with fzf, or start session at path if provided
 tsm -h, --help          # Show help message
 ```
-
-### Interactive Mode & Scripting
 
 When arguments are omitted, `tsm` uses fzf for interactive selection.
 When arguments are provided, commands execute directly without prompts.
@@ -123,7 +122,7 @@ Session configurations are stored in `~/.config/tsm/<session-name>/`.
 Each session directory can contain:
 
 - `start.sh` (required): Script that runs when starting the session
-- `kill.sh` (optional): Script that runs before killing the session
+- `kill.sh` (optional): Script that runs asynchronously just before session is killed
 
 ### Example Session Configuration
 
@@ -174,10 +173,15 @@ fi
 
 Optionally create `~/.config/tsm/myproject/kill.sh` for cleanup:
 
+> **Note:** The `kill.sh` script runs in the background, allowing the tmux session to be killed immediately
+without waiting for cleanup tasks to complete. This provides a snappier user experience, especially when
+cleanup involves slow operations like stopping services or terminating remote connections.
+
 ```bash
 #!/bin/bash
 # Stop the docker compose service that was started earlier.
-docker compose down
+ROOT="$HOME/projects/myproject"
+docker compose --project-directory "$ROOT" down
 ```
 
 This scripting approach is slightly more verbose than tmuxinator's YAML configuration,

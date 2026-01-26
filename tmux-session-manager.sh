@@ -14,7 +14,7 @@ tsm() {
     echo "Options:"
     echo "  -h, --help         Show this help message"
     echo "  -l, --list         List available sessions"
-    echo "  -k, --kill [name]  Kill session and run kill.sh if it exists"
+    echo "  -k, --kill [name]  Run kill.sh, if it exists, and kill the session"
     echo "  -d, --dir [path]   Browse directories with fzf, or start session at path if provided"
     echo ""
     echo "Examples:"
@@ -32,7 +32,7 @@ tsm() {
     echo "  start.sh  Required script that runs when starting a session."
     echo "            Use this to create tmux windows, panes, and run commands."
     echo ""
-    echo "  kill.sh   Optional script that runs before killing a session."
+    echo "  kill.sh   Optional script that runs asynchronously when session is killed."
     echo "            Use this for cleanup tasks like stopping services."
     echo ""
     echo "Environment Variables:"
@@ -109,9 +109,9 @@ tsm() {
       return 1
     fi
 
-    # Run kill.sh if it exists
+    # Run kill.sh in background if it exists
     if [ -f "$session_dir/kill.sh" ]; then
-      bash "$session_dir/kill.sh"
+      nohup bash "$session_dir/kill.sh" >/dev/null 2>&1 &
     fi
 
     tmux kill-session -t "$session"
