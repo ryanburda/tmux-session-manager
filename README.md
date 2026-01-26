@@ -101,6 +101,39 @@ This maps:
 
 Modify these keybindings as needed.
 
+> **Note:** tmux's `run-shell` and `popup -E` commands execute in a non-interactive, non-login shell.
+> For `tsm` to be found, it must be in your PATH when this shell starts.
+>
+> **For zsh users:** Add your PATH configuration to `~/.zshenv` (not `.zshrc`).
+>
+> **For bash users:** Set the `BASH_ENV` environment variable to point to a file that configures your PATH,
+> or add your PATH to `/etc/environment`.
+>
+> **Shell startup file precedence:**
+>
+> | Shell | Login | Interactive | Non-interactive |
+> |-------|-------|-------------|-----------------|
+> | **zsh** | zshenv → zprofile → zshrc → zlogin | zshenv → zshrc | zshenv only |
+> | **bash** | /etc/profile → (~/.bash_profile OR ~/.bash_login OR ~/.profile) | ~/.bashrc | $BASH_ENV only (if set) |
+>
+> Since tmux runs commands non-interactively, zsh only sources `~/.zshenv` and bash only sources the file
+> specified by `$BASH_ENV` (if set). This is why PATH modifications in `.zshrc` or `.bashrc` won't apply.
+>
+> **Fallback:** If configuring shell startup files isn't working, you can execute `tsm` using its full path
+> in your keybindings:
+>
+> ```bash
+> bind-key s popup -h 16 -w 40 -E "~/git/ryanburda/tmux-session-manager/tsm"
+> bind-key d popup -h 24 -w 80 -E "~/git/ryanburda/tmux-session-manager/tsm -d"
+> bind-key X run-shell "~/git/ryanburda/tmux-session-manager/tsm -k #{session_name}"
+> ```
+>
+> Adjust the path to match where you cloned the repository.
+
+> **Note:** If you use `TSM_DIRS_CMD`, add it to the same file where you configure your PATH
+> (e.g., `~/.zshenv` for zsh). Otherwise, `tsm -d` will use the default directory list in a tmux popup
+> but a different custom list from an interactive shell, leading to inconsistent behavior.
+
 ## Session Types
 
 tsm supports two types of sessions:
