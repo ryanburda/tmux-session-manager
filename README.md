@@ -3,7 +3,7 @@
 A simple tmux session manager that combines the best of [tmuxinator](https://github.com/tmuxinator/tmuxinator) and
 [tmux-sessionizer](https://github.com/ThePrimeagen/tmux-sessionizer).
 
-Manage your tmux sessions with configuration scripts or create quick sessions from any directory.
+Manage your tmux sessions with configuration scripts or quickly create sessions rooted at specific directories.
 
 ## Features
 
@@ -225,7 +225,7 @@ See `man tmux` for a full list of available tmux commands.
 
 ## Directory Sessions
 
-Use the `-d` flag to create a quick session from a directory:
+Use the `-d` flag to quickly create a session rooted at a specific directory:
 
 ```bash
 tsm -d              # Browse directories with fzf and start session from selection
