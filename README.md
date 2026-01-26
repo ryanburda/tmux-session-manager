@@ -23,17 +23,18 @@ Manage your tmux sessions with configuration scripts or create quick sessions fr
 
 1. Clone the repository:
    ```bash
-   git clone https://github.com/ryanburda/tmux-session-manager.git ~/.tmux-session-manager
+   git clone https://github.com/ryanburda/tmux-session-manager.git ~/git/ryanburda/tmux-session-manager
    ```
 
-2. Add the `tsm` function to your shell by sourcing the script in your `.bashrc` or `.zshrc`:
+2. Symlink the `tsm` script to a directory in your PATH:
    ```bash
-   source ~/.tmux-session-manager/tmux-session-manager.sh
+   mkdir -p ~/.local/bin
+   ln -s ~/git/ryanburda/tmux-session-manager/tsm ~/.local/bin/tsm
    ```
 
-3. Reload your shell configuration:
+3. Ensure `~/.local/bin` is in your PATH. Add this to your `.bashrc` or `.zshrc` if needed:
    ```bash
-   source ~/.bashrc  # or source ~/.zshrc
+   export PATH="$HOME/.local/bin:$PATH"
    ```
 
 ## Usage
@@ -88,9 +89,9 @@ done
 Add these to your `~/.tmux.conf` to access tsm directly from within tmux using popup windows:
 
 ```bash
-bind-key s popup -h 16 -w 40 -E "source ~/.zshrc; tsm"
-bind-key d popup -h 24 -w 80 -E "source ~/.zshrc; tsm -d"
-bind-key X run-shell "zsh -ic 'tsm -k #{session_name}'"
+bind-key s popup -h 16 -w 40 -E "tsm"
+bind-key d popup -h 24 -w 80 -E "tsm -d"
+bind-key X run-shell "tsm -k #{session_name}"
 ```
 
 This maps:
