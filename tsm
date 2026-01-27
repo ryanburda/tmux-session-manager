@@ -3,6 +3,11 @@
 CONFIG_DIR="$HOME/.config/tsm"
 mkdir -p "$CONFIG_DIR"
 
+TSM_DIRS_CMD_DEFAULT='{
+    echo "$HOME"
+    find "$HOME" -maxdepth 4 -name .git -type d 2>/dev/null | sed "s|/.git$||"
+}'
+
 usage() {
   echo "Tmux Session Manager"
   echo ""
@@ -193,12 +198,8 @@ dir_session() {
     fi
   else
     # No path provided, use fzf to select from TSM_DIRS_CMD or default
-    if [ -n "$TSM_DIRS_CMD" ]; then
-      selected=$(eval "$TSM_DIRS_CMD" | fzf --prompt "> " --header "Select directory")
-    else
-      # Default: HOME + git repos within 3 levels
-      selected=$({ echo "$HOME"; find "$HOME" -maxdepth 3 -type d -exec test -d '{}/.git' \; -print -prune 2>/dev/null; } | fzf --prompt "> " --header "Select directory")
-    fi
+    local dirs_cmd="${TSM_DIRS_CMD:-$TSM_DIRS_CMD_DEFAULT}"
+    selected=$(eval "$dirs_cmd" | fzf --prompt "> " --header "Select directory")
 
     if [ -z "$selected" ]; then
       echo "No directory selected"
