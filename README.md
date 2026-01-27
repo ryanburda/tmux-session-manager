@@ -1,17 +1,17 @@
 # tmux-session-manager
 
-A simple tmux session manager that combines the best of [tmuxinator](https://github.com/tmuxinator/tmuxinator) and
-[tmux-sessionizer](https://github.com/ThePrimeagen/tmux-sessionizer).
+A simple tmux session manager that lets you:
 
-Manage your tmux sessions with configuration scripts or quickly create sessions rooted at specific directories.
+- **Create** sessions rooted at any directory
+- **Start** configured sessions with custom startup scripts
+- **Switch** between active tmux sessions
+- **Kill** sessions (with optional cleanup scripts)
 
 ## Features
 
-- **Configured Sessions**: Define sessions with custom startup and cleanup scripts
 - **Interactive Selection**: Use fzf to fuzzy-find and select sessions
-- **Directory-based Sessions**: Create on-the-fly sessions from any directory
-- **Smart Attachment**: Automatically attaches to existing sessions or switches clients when inside tmux
-- **Session Lifecycle**: Run initialization scripts on start and cleanup scripts on kill
+- **Configured Sessions**: Define sessions with custom startup and cleanup scripts (Similar to [tmuxinator](https://github.com/tmuxinator/tmuxinator))
+- **Directory-based Sessions**: Create sessions rooted at a specific directory (Similar to [tmux-sessionizer](https://github.com/ThePrimeagen/tmux-sessionizer))
 
 ## Dependencies
 
@@ -40,12 +40,11 @@ Manage your tmux sessions with configuration scripts or quickly create sessions 
 ## Usage
 
 ```bash
-tsm                      # Interactive configured/active session selection with fzf
-tsm <session>            # Start or attach to a specific configured/active session
-tsm -l, --list           # List configured sessions
-tsm -k, --kill [session] # Kill a session (runs cleanup script if present)
-tsm -d, --dir [path]     # Browse directories with fzf, or start session at path if provided
-tsm -h, --help           # Show help message
+tsm [session]                  # Browse active sessions with fzf, or switch to session if provided
+tsm -c, --configured [session] # Browse configured sessions with fzf, or start session if provided
+tsm -d, --dir [path]           # Browse directories with fzf, or start session at path if provided
+tsm -k, --kill [session]       # Kill a session (runs cleanup script if present)
+tsm -h, --help                 # Show help message
 ```
 
 When session/path arguments are omitted, `tsm` uses fzf for interactive selection.
@@ -56,14 +55,18 @@ This makes `tsm` both user-friendly for daily use and suitable for scripting.
 
 Interactive use:
 ```bash
-tsm        # Opens fzf → select a session → attaches
+tsm        # Opens fzf → select an active session → attaches
+tsm -c     # Opens fzf → select a configured session → starts it
 tsm -d     # Opens fzf → select a directory → creates session
 tsm -k     # Opens fzf → select a session → kills it
 ```
 
 Scripted use:
 ```bash
-# Start a specific session
+# Start a configured session
+tsm -c myproject
+
+# Switch to an active session
 tsm myproject
 
 # Create a session rooted at a specific path
@@ -84,12 +87,15 @@ Add these to your `~/.tmux.conf` to access tsm directly from within tmux using p
 
 ```bash
 bind-key s popup -h 24 -w 60 -E "tsm"
+bind-key c popup -h 24 -w 80 -E "tsm -c"
 bind-key d popup -h 24 -w 80 -E "tsm -d"
+bind-key k popup -h 24 -w 60 -E "tsm -k"
 bind-key X run-shell "tsm -k #{session_name}"
 ```
 
 This maps:
-- `prefix + s` - Open configured/active session selector
+- `prefix + s` - Open active session selector
+- `prefix + c` - Open configured session selector
 - `prefix + d` - Create a session rooted at a specific directory
 - `prefix + X` - Kill the current session and run kill script
 
@@ -117,7 +123,7 @@ Modify these keybindings as needed.
 > in your keybindings:
 >
 > ```bash
-> bind-key s popup -h 16 -w 40 -E "~/git/ryanburda/tmux-session-manager/tsm"
+> bind-key s popup -h 24 -w 60 -E "~/git/ryanburda/tmux-session-manager/tsm"
 > bind-key d popup -h 24 -w 80 -E "~/git/ryanburda/tmux-session-manager/tsm -d"
 > bind-key X run-shell "~/git/ryanburda/tmux-session-manager/tsm -k #{session_name}"
 > ```

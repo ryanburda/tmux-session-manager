@@ -11,24 +11,23 @@ TSM_DIRS_CMD_DEFAULT='{
 usage() {
   echo "Tmux Session Manager"
   echo ""
-  echo "A combination of tmuxinator and tmux sessionizer"
-  echo ""
-  echo "Usage: tsm [session-name]"
+  echo "Usage: tsm [session] [options]"
   echo ""
   echo "Options:"
-  echo "  -h, --help         Show this help message"
-  echo "  -l, --list         List available sessions"
-  echo "  -k, --kill [name]  Run kill.sh, if it exists, and kill the session"
-  echo "  -d, --dir [path]   Browse directories with fzf, or start session at path if provided"
+  echo "  -h, --help              Show this help message"
+  echo "  -c, --configured [name] Browse configured sessions with fzf, or start session if provided"
+  echo "  -d, --dir [path]        Browse directories with fzf, or start session at path if provided"
+  echo "  -k, --kill [name]       Run kill.sh, if it exists, and kill the session"
   echo ""
   echo "Examples:"
-  echo "  tsm                Select from configured/active sessions with fzf"
-  echo "  tsm myproject      Start or attach to session"
-  echo "  tsm -k             Select session to kill with fzf"
-  echo "  tsm -k myproject   Kill session"
+  echo "  tsm                Browse active sessions with fzf"
+  echo "  tsm myproject      Switch to active session"
+  echo "  tsm -c             Browse configured sessions with fzf"
+  echo "  tsm -c myproject   Start configured session"
   echo "  tsm -d             Browse directories with fzf (\$HOME + git repos)"
   echo "  tsm -d ~/projects  Start session at ~/projects"
-  echo "  tsm -l             List available sessions"
+  echo "  tsm -k             Select session to kill with fzf"
+  echo "  tsm -k myproject   Kill session"
   echo ""
   echo "Configuration:"
   echo "  Sessions are configured in \$HOME/.config/tsm/<session-name>/"
@@ -46,42 +45,40 @@ usage() {
   echo "                Default (when unset): \$HOME + git repos within 3 levels"
 }
 
-list_sessions() {
-  if [ ! -d "$CONFIG_DIR" ]; then
-    echo "No sessions configured. Create directories in $CONFIG_DIR"
-    exit 1
-  fi
-
-  for dir in "$CONFIG_DIR"/*/; do
-    [ -d "$dir" ] && echo "$(basename "$dir")"
-  done
+get_active_sessions() {
+  tmux ls 2>/dev/null | awk -F: '{print $1}'
 }
 
-start_session() {
+active_session() {
   local session="$1"
-  local session_dir="$CONFIG_DIR/$session"
 
-  if [ ! -d "$session_dir" ]; then
-    echo "Error: Session '$session' not found in $CONFIG_DIR"
-    exit 1
-  fi
+  # If no session provided, use fzf to select from active sessions
+  if [ -z "$session" ]; then
+    local active_sessions
+    active_sessions=$(get_active_sessions)
 
-  if [ ! -f "$session_dir/start.sh" ]; then
-    echo "Error: No start.sh found for session '$session'"
-    exit 1
-  fi
-
-  # Check if session already exists
-  if tmux has-session -t "$session" 2>/dev/null; then
-    echo "Session '$session' already running, switching..."
-    if [ -n "$TMUX" ]; then
-      tmux switch-client -t "$session"
-    else
-      tmux attach-session -t "$session"
+    if [ -z "$active_sessions" ]; then
+      echo "No active sessions"
+      exit 1
     fi
+
+    session=$(echo "$active_sessions" | fzf --prompt "> " --header "Select active session")
+
+    if [ -z "$session" ]; then
+      echo "No session selected"
+      exit 0
+    fi
+  fi
+
+  if ! tmux has-session -t "$session" 2>/dev/null; then
+    echo "Error: Session '$session' is not running"
+    exit 1
+  fi
+
+  if [ -n "$TMUX" ]; then
+    tmux switch-client -t "$session"
   else
-    echo "Starting session '$session'..."
-    bash "$session_dir/start.sh"
+    tmux attach-session -t "$session"
   fi
 }
 
@@ -91,7 +88,7 @@ stop_session() {
   # If no session provided, use fzf to select from active sessions
   if [ -z "$session" ]; then
     local active_sessions
-    active_sessions=$(tmux ls 2>/dev/null | awk -F: '{print $1}')
+    active_sessions=$(get_active_sessions)
 
     if [ -z "$active_sessions" ]; then
       echo "No active sessions to kill"
@@ -121,65 +118,55 @@ stop_session() {
   tmux kill-session -t "$session"
 }
 
-format_sessions() {
-  local configured_sessions
-  configured_sessions=$(list_sessions 2>/dev/null)
+configured_session() {
+  local session="$1"
 
-  local active_sessions
-  active_sessions=$(tmux ls 2>/dev/null | awk -F: '{print $1}')
-
-  local all_sessions
-  all_sessions=$(printf "%s\n%s" "$configured_sessions" "$active_sessions" | sort -u | grep -v '^$')
-
-  local BLUE=$'\033[34m'
-  local RESET=$'\033[0m'
-
-  echo "$all_sessions" | while read -r session; do
-    [ -z "$session" ] && continue
-    if echo "$active_sessions" | grep -q "^${session}$"; then
-      printf '%s|%s%s%s\n' "$session" "$BLUE" "$session" "$RESET"
-    else
-      printf '%s|%s\n' "$session" "$session"
-    fi
-  done
-}
-
-fzf_session() {
-  local formatted
-  formatted=$(format_sessions)
-
-  if [ -z "$formatted" ]; then
-    echo "No sessions available"
+  if [ ! -d "$CONFIG_DIR" ]; then
+    echo "No sessions configured. Create directories in $CONFIG_DIR"
     exit 1
   fi
 
-  local selected
-  selected=$(echo "$formatted" | fzf \
-    --cycle \
-    --prompt "> " \
-    --header "Select session" \
-    --ansi \
-    --with-nth 2 \
-    --delimiter '|')
+  # If no session provided, use fzf to select from configured sessions
+  if [ -z "$session" ]; then
+    local configured_sessions
+    configured_sessions=$(for dir in "$CONFIG_DIR"/*/; do [ -d "$dir" ] && echo "$(basename "$dir")"; done)
 
-  if [ -z "$selected" ]; then
-    echo "No session selected"
-    exit 0
+    if [ -z "$configured_sessions" ]; then
+      echo "No configured sessions"
+      exit 1
+    fi
+
+    session=$(echo "$configured_sessions" | fzf --prompt "> " --header "Select configured session")
+
+    if [ -z "$session" ]; then
+      echo "No session selected"
+      exit 0
+    fi
   fi
 
-  # Extract session name from delimiter format
-  selected=$(echo "$selected" | awk -F'|' '{print $1}')
+  local session_dir="$CONFIG_DIR/$session"
 
-  # Check if it's a configured session
-  if [ -d "$CONFIG_DIR/$selected" ]; then
-    start_session "$selected"
-  else
-    # It's an active but unconfigured session, just switch to it
+  if [ ! -d "$session_dir" ]; then
+    echo "Error: Session '$session' not found in $CONFIG_DIR"
+    exit 1
+  fi
+
+  if [ ! -f "$session_dir/start.sh" ]; then
+    echo "Error: No start.sh found for session '$session'"
+    exit 1
+  fi
+
+  # Check if session already exists
+  if tmux has-session -t "$session" 2>/dev/null; then
+    echo "Session '$session' already running, switching..."
     if [ -n "$TMUX" ]; then
-      tmux switch-client -t "$selected"
+      tmux switch-client -t "$session"
     else
-      tmux attach-session -t "$selected"
+      tmux attach-session -t "$session"
     fi
+  else
+    echo "Starting session '$session'..."
+    bash "$session_dir/start.sh"
   fi
 }
 
@@ -235,13 +222,13 @@ dir_session() {
 
 # Parse arguments
 if [ $# -eq 0 ]; then
-  fzf_session
+  active_session
   exit 0
 fi
 
 case "$1" in
-  -l|--list)
-    list_sessions
+  -c|--configured)
+    configured_session "$2"
     ;;
   -k|--kill)
     stop_session "$2"
@@ -258,6 +245,6 @@ case "$1" in
     exit 1
     ;;
   *)
-    start_session "$1"
+    active_session "$1"
     ;;
 esac
