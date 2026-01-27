@@ -1,6 +1,6 @@
 #!/bin/bash
 
-CONFIG_DIR="$HOME/.config/tsm"
+CONFIG_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/tsm"
 mkdir -p "$CONFIG_DIR"
 
 TSM_DIRS_CMD_DEFAULT='{
