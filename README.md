@@ -40,23 +40,17 @@ Manage your tmux sessions with configuration scripts or quickly create sessions 
 ## Usage
 
 ```bash
-tsm                     # Interactive configured/active session selection with fzf
-tsm <session-name>      # Start or attach to a specific configured/active session
-tsm -l, --list          # List configured sessions
-tsm -k, --kill [name]   # Kill a session (runs cleanup script if present)
-tsm -d, --dir [path]    # Browse directories with fzf, or start session at path if provided
-tsm -h, --help          # Show help message
+tsm                      # Interactive configured/active session selection with fzf
+tsm <session>            # Start or attach to a specific configured/active session
+tsm -l, --list           # List configured sessions
+tsm -k, --kill [session] # Kill a session (runs cleanup script if present)
+tsm -d, --dir [path]     # Browse directories with fzf, or start session at path if provided
+tsm -h, --help           # Show help message
 ```
 
-When arguments are omitted, `tsm` uses fzf for interactive selection.
-When arguments are provided, commands execute directly without prompts.
+When session/path arguments are omitted, `tsm` uses fzf for interactive selection.
+When session/path arguments are provided, commands execute directly without prompts.
 This makes `tsm` both user-friendly for daily use and suitable for scripting.
-
-| Command | Interactive (no argument) | Scripted (with argument) |
-|---------|---------------------------|--------------------------|
-| `tsm` | fzf picker for configured sessions | `tsm myproject` - starts/attaches directly |
-| `tsm -d` | fzf picker for directories | `tsm -d ~/code/app` - starts session at path |
-| `tsm -k` | fzf picker for running sessions | `tsm -k myproject` - kills session directly |
 
 ### Examples
 
@@ -72,7 +66,7 @@ Scripted use:
 # Start a specific session
 tsm myproject
 
-# Create a session at a known path
+# Create a session rooted at a specific path
 tsm -d ~/projects/webapp
 
 # Kill a session by name
@@ -89,14 +83,14 @@ done
 Add these to your `~/.tmux.conf` to access tsm directly from within tmux using popup windows:
 
 ```bash
-bind-key s popup -h 16 -w 40 -E "tsm"
+bind-key s popup -h 24 -w 60 -E "tsm"
 bind-key d popup -h 24 -w 80 -E "tsm -d"
 bind-key X run-shell "tsm -k #{session_name}"
 ```
 
 This maps:
 - `prefix + s` - Open configured/active session selector
-- `prefix + d` - Create a directory session
+- `prefix + d` - Create a session rooted at a specific directory
 - `prefix + X` - Kill the current session and run kill script
 
 Modify these keybindings as needed.
@@ -130,7 +124,7 @@ Modify these keybindings as needed.
 >
 > Adjust the path to match where you cloned the repository.
 
-> **Note:** If you use `TSM_DIRS_CMD`, add it to the same file where you configure your PATH
+> **Note:** If you specify a custom `TSM_DIRS_CMD`, add it to the same file where you configure your PATH
 > (e.g., `~/.zshenv` for zsh). Otherwise, `tsm -d` will use the default directory list in a tmux popup
 > but a different custom list from an interactive shell, leading to inconsistent behavior.
 
@@ -138,11 +132,11 @@ Modify these keybindings as needed.
 
 tsm supports two types of sessions:
 
-- **Configured Sessions**: Predefined sessions stored in `~/.config/tsm/`.
+- **Configured Sessions**: Predefined sessions stored in `${XDG_CONFIG_HOME:-~/.config}/tsm/`.
 These use startup scripts to create a customized tmux environment with specific windows, panes, and commands.
 Ideal for projects you work on regularly that benefit from a consistent workspace setup.
 
-- **Directory Sessions**: Quick, on-the-fly sessions created from any directory using the `-d` flag.
+- **Directory Sessions**: Quick, on-the-fly sessions rooted at any directory using the `-d` flag.
 These simply open a new tmux session with the working directory set to your selection.
 Ideal for quickly jumping into a project without any predefined configuration.
 
@@ -151,7 +145,7 @@ Ideal for quickly jumping into a project without any predefined configuration.
 Configured sessions work like tmuxinator sessions, but use shell scripts instead of YAML configuration files.
 This gives you full control over your session setup using familiar bash/zsh commands.
 
-Session configurations are stored in `~/.config/tsm/<session-name>/`.
+Session configurations are stored in `${XDG_CONFIG_HOME:-~/.config}/tsm/<session-name>/`.
 
 Each session directory can contain:
 
@@ -163,7 +157,7 @@ Each session directory can contain:
 Create a session configuration for a project:
 
 ```bash
-mkdir -p ~/.config/tsm/myproject
+mkdir -p "${XDG_CONFIG_HOME:-$HOME/.config}/tsm/myproject"
 ```
 
 Create `~/.config/tsm/myproject/start.sh`:
@@ -225,16 +219,28 @@ See `man tmux` for a full list of available tmux commands.
 
 ## Directory Sessions
 
-Use the `-d` flag to quickly create a session rooted at a specific directory:
+Use the `-d` flag to create a session rooted at a specific directory:
 
 ```bash
 tsm -d              # Browse directories with fzf and start session from selection
 tsm -d ~/projects   # Start a session directly at ~/projects
 ```
 
-When no path is provided, fzf displays your home directory and git repositories within 3 levels.
-Customize this by setting the `TSM_DIRS_CMD` environment variable in your `.bashrc/.zshrc`:
+When no path is provided, fzf displays your home directory and any directories that contain git repositories
+within 3 levels deep of your $HOME directory.
+
+This can be customized by setting the `TSM_DIRS_CMD` environment variable in your `.bashrc/.zshrc`:
+
+The following is a slight variation the default that returns:
+- the $HOME directory
+- directories in your `$HOME` directory that contain git repos (1 level deep)
+- directories in your `$HOME/projects` directory that contain git repos (up to 3 levels deep)
 
 ```bash
-export TSM_DIRS_CMD="find ~/projects -maxdepth 2 -type d"
+export TSM_DIRS_CMD='{
+    echo "$HOME"
+    find "$HOME" -maxdepth 2 -name .git -type d 2>/dev/null | sed "s|/.git$||"
+    find "$HOME/projects" -maxdepth 4 -name .git -type d 2>/dev/null | sed "s|/.git$||"
+}'
 ```
+This is a more targeted search which may be slightly faster as a result.
