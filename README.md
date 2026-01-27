@@ -2,7 +2,7 @@
 
 A simple tmux session manager that lets you:
 
-- **Create** sessions rooted at any directory
+- **Create** sessions rooted at a directory
 - **Start** configured sessions with custom startup scripts
 - **Switch** between active tmux sessions
 - **Kill** sessions (with optional cleanup scripts)
@@ -97,6 +97,7 @@ This maps:
 - `prefix + s` - Open active session selector
 - `prefix + c` - Open configured session selector
 - `prefix + d` - Create a session rooted at a specific directory
+- `prefix + k` - Open kill session selector
 - `prefix + X` - Kill the current session and run kill script
 
 Modify these keybindings as needed.

@@ -103,12 +103,12 @@ stop_session() {
     fi
   fi
 
-  local session_dir="$CONFIG_DIR/$session"
-
   if ! tmux has-session -t "$session" 2>/dev/null; then
     echo "Error: Session '$session' is not running"
     exit 1
   fi
+
+  local session_dir="$CONFIG_DIR/$session"
 
   # Run kill.sh in background if it exists
   if [ -f "$session_dir/kill.sh" ]; then
