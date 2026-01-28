@@ -2,22 +2,24 @@
 
 A simple tmux session manager that lets you:
 
+- **Switch** between active tmux sessions
 - **Create** sessions rooted at a directory
 - **Start** configured sessions with custom startup scripts
-- **Switch** between active tmux sessions
 - **Kill** sessions (with optional cleanup scripts)
 
 ## Features
 
-- **Interactive Selection**: Use fzf to fuzzy-find and select sessions
-- **Configured Sessions**: Define sessions with custom startup and cleanup scripts (Similar to [tmuxinator](https://github.com/tmuxinator/tmuxinator))
-- **Directory-based Sessions**: Create sessions rooted at a specific directory (Similar to [tmux-sessionizer](https://github.com/ThePrimeagen/tmux-sessionizer))
+- **Interactive Selection**: Use `fzf` to fuzzy-find and select sessions
+- **Configured Sessions**: Define sessions with custom startup and cleanup scripts (Similar to **[tmuxinator](https://github.com/tmuxinator/tmuxinator)**)
+- **Directory-based Sessions**: Create sessions rooted at a specific directory (Similar to **[tmux-sessionizer](https://github.com/ThePrimeagen/tmux-sessionizer)**)
+    - Optional **[Zoxide](https://github.com/ajeetdsouza/zoxide)** support
 
 ## Dependencies
 
 - `bash/zsh`
 - `tmux`
 - `fzf`
+- `zoxide` (optional, for `-z` flag)
 
 ## Installation
 
@@ -43,6 +45,7 @@ A simple tmux session manager that lets you:
 tsm [session]                  # Browse active sessions with fzf, or switch to session if provided
 tsm -c, --configured [session] # Browse configured sessions with fzf, or start session if provided
 tsm -d, --dir [path]           # Browse directories with fzf, or start session at path if provided
+tsm -z, --zoxide [query]       # Browse zoxide entries with fzf, or start session at best match if provided
 tsm -k, --kill [session]       # Kill a session (runs cleanup script if present)
 tsm -h, --help                 # Show help message
 ```
@@ -58,6 +61,7 @@ Interactive use:
 tsm        # Opens fzf → select an active session → attaches
 tsm -c     # Opens fzf → select a configured session → starts it
 tsm -d     # Opens fzf → select a directory → creates session
+tsm -z     # Opens fzf → select from zoxide entries → creates session
 tsm -k     # Opens fzf → select a session → kills it
 ```
 
@@ -72,6 +76,9 @@ tsm myproject
 # Create a session rooted at a specific path
 tsm -d ~/projects/webapp
 
+# Create a session using zoxide's best match
+tsm -z proj
+
 # Kill a session by name
 tsm -k myproject
 
@@ -81,9 +88,10 @@ for project in api frontend backend; do
 done
 ```
 
-## Optional tmux Keybindings
+## tmux Keybindings
 
-Add these to your `~/.tmux.conf` to access tsm directly from within tmux using popup windows:
+The real power of `tsm` is when it's used with tmux keybindings to launch fuzzy finding switchers and launchers.
+Add the following to your `~/.tmux.conf`:
 
 ```bash
 bind-key s popup -h 24 -w 60 -E "tsm"
@@ -91,13 +99,17 @@ bind-key c popup -h 24 -w 80 -E "tsm -c"
 bind-key d popup -h 24 -w 80 -E "tsm -d"
 bind-key k popup -h 24 -w 60 -E "tsm -k"
 bind-key X run-shell "tsm -k #{session_name}"
+
+# OPTIONAL
+bind-key z popup -h 24 -w 80 -E "tsm -z"
 ```
 
 This maps:
-- `prefix + s` - Open active session selector
-- `prefix + c` - Open configured session selector
-- `prefix + d` - Create a session rooted at a specific directory
-- `prefix + k` - Open kill session selector
+- `prefix + s` - Active session switcher
+- `prefix + c` - Configured session launcher
+- `prefix + d` - Directory rooted session launcher
+- `prefix + z` - Zoxide directory rooted session launcher (Optional)
+- `prefix + k` - Kill session selector
 - `prefix + X` - Kill the current session and run kill script
 
 Modify these keybindings as needed.
@@ -149,8 +161,8 @@ Ideal for quickly jumping into a project without any predefined configuration.
 
 ## Configured Sessions
 
-Configured sessions work like tmuxinator sessions, but use shell scripts instead of YAML configuration files.
-This gives you full control over your session setup using familiar bash/zsh commands.
+Configured sessions work like [tmuxinator](https://github.com/tmuxinator/tmuxinator) sessions, but use shell scripts
+instead of YAML configuration files. This gives you full control over your session setup using familiar bash/zsh commands.
 
 Session configurations are stored in `${XDG_CONFIG_HOME:-~/.config}/tsm/<session-name>/`.
 
@@ -251,3 +263,16 @@ export TSM_DIRS_CMD='{
 }'
 ```
 This is a more targeted search which may be slightly faster as a result.
+
+### Zoxide Integration (Optional)
+
+If you have **[zoxide](https://github.com/ajeetdsouza/zoxide)** installed, you can use the `-z` flag to create sessions from your zoxide directory history:
+
+```bash
+tsm -z              # Browse zoxide entries interactively and start session from selection
+tsm -z proj         # Start a session at the best zoxide match for "proj"
+```
+
+Zoxide tracks directories you visit frequently, ranking them by "frecency" (frequency + recency). This makes it easy to jump to projects with just a few characters of the directory name.
+
+When no query is provided, `tsm -z` uses `zoxide query -i` for interactive selection with fzf. When a query is provided, it uses `zoxide query` to find the best match directly.

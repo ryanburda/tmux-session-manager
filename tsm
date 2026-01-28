@@ -17,6 +17,7 @@ usage() {
   echo "  -h, --help              Show this help message"
   echo "  -c, --configured [name] Browse configured sessions with fzf, or start session if provided"
   echo "  -d, --dir [path]        Browse directories with fzf, or start session at path if provided"
+  echo "  -z, --zoxide [query]    Browse zoxide entries with fzf, or query zoxide if provided"
   echo "  -k, --kill [name]       Run kill.sh, if it exists, and kill the session"
   echo ""
   echo "Examples:"
@@ -26,6 +27,8 @@ usage() {
   echo "  tsm -c myproject   Start configured session"
   echo "  tsm -d             Browse directories with fzf (\$HOME + git repos)"
   echo "  tsm -d ~/projects  Start session at ~/projects"
+  echo "  tsm -z             Browse zoxide entries interactively"
+  echo "  tsm -z proj        Start session at best zoxide match for 'proj'"
   echo "  tsm -k             Select session to kill with fzf"
   echo "  tsm -k myproject   Kill session"
   echo ""
@@ -220,6 +223,59 @@ dir_session() {
   fi
 }
 
+zoxide_dir_session() {
+  local query="$1"
+  local selected
+
+  if ! command -v zoxide &> /dev/null; then
+    echo "Error: zoxide is not installed"
+    exit 1
+  fi
+
+  if [ -n "$query" ]; then
+    # Query provided, use zoxide query directly
+    selected=$(zoxide query "$query" 2>/dev/null)
+
+    if [ -z "$selected" ]; then
+      echo "Error: No zoxide match found for '$query'"
+      exit 1
+    fi
+  else
+    # No query provided, use zoxide query -i for interactive selection
+    selected=$(zoxide query -i 2>/dev/null)
+
+    if [ -z "$selected" ]; then
+      echo "No directory selected"
+      exit 0
+    fi
+  fi
+
+  # Resolve to absolute path
+  selected=$(cd "$selected" && pwd -P)
+
+  local session_name
+  # Only allow alphanumeric, dash, underscore (avoid tmux parsing issues with dots, colons, etc.)
+  session_name=$(basename "$selected" | tr -c 'a-zA-Z0-9_-\n' '_')
+
+  # Check if session already exists
+  if tmux has-session -t "$session_name" 2>/dev/null; then
+    echo "Session '$session_name' already running, switching..."
+    if [ -n "$TMUX" ]; then
+      tmux switch-client -t "$session_name"
+    else
+      tmux attach-session -t "$session_name"
+    fi
+  else
+    echo "Starting new session '$session_name' in $selected..."
+    if [ -n "$TMUX" ]; then
+      tmux new-session -d -s "$session_name" -c "$selected"
+      tmux switch-client -t "$session_name"
+    else
+      tmux new-session -s "$session_name" -c "$selected"
+    fi
+  fi
+}
+
 # Parse arguments
 if [ $# -eq 0 ]; then
   active_session
@@ -235,6 +291,9 @@ case "$1" in
     ;;
   -d|--dir)
     dir_session "$2"
+    ;;
+  -z|--zoxide)
+    zoxide_dir_session "$2"
     ;;
   -h|--help)
     usage
