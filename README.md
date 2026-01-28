@@ -39,6 +39,30 @@ A simple tmux session manager that lets you:
    export PATH="$HOME/.local/bin:$PATH"
    ```
 
+4. (Optional) Install shell completions:
+
+   **Bash** - Add to your `~/.bashrc`:
+   ```bash
+   source ~/git/ryanburda/tmux-session-manager/completions/tsm.bash
+   ```
+
+   **Zsh** - Add to your `~/.zshrc`:
+   ```bash
+   fpath=(~/git/ryanburda/tmux-session-manager/completions $fpath)
+   autoload -Uz compinit && compinit
+   ```
+   Or rename `tsm.zsh` to `_tsm` and place in an existing fpath directory.
+
+   **Fish** - Symlink to fish completions directory:
+   ```bash
+   ln -s ~/git/ryanburda/tmux-session-manager/completions/tsm.fish ~/.config/fish/completions/
+   ```
+
+   Completions provide:
+   - Active session names for `tsm` and `tsm -k`
+   - Configured session names for `tsm -c`
+   - Directory completion for `tsm -d`
+
 ## Usage
 
 ```bash
