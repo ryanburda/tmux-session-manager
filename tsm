@@ -189,7 +189,14 @@ dir_session() {
   else
     # No path provided, use fzf to select from TSM_DIRS_CMD or default
     local dirs_cmd="${TSM_DIRS_CMD:-$TSM_DIRS_CMD_DEFAULT}"
-    selected=$(eval "$dirs_cmd" | fzf --prompt "> " --header "Select directory")
+
+    # Use process substitution to allow killing the directory generator after fzf exits
+    exec 3< <(eval "$dirs_cmd")
+    local dirs_pid=$!
+    selected=$(fzf --prompt "> " --header "Select directory" <&3)
+    kill "$dirs_pid" 2>/dev/null
+    wait "$dirs_pid" 2>/dev/null
+    exec 3<&-
 
     if [ -z "$selected" ]; then
       echo "No directory selected"
