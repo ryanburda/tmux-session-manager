@@ -65,7 +65,7 @@ active_session() {
       exit 1
     fi
 
-    session=$(echo "$active_sessions" | fzf --prompt "> " --header "Select active session")
+    session=$(echo "$active_sessions" | fzf --cycle --prompt "> " --header "Select active session")
 
     if [ -z "$session" ]; then
       echo "No session selected"
@@ -98,7 +98,7 @@ stop_session() {
       exit 1
     fi
 
-    session=$(echo "$active_sessions" | fzf --prompt "> " --header "Kill session")
+    session=$(echo "$active_sessions" | fzf --cycle --prompt "> " --header "Kill session")
 
     if [ -z "$session" ]; then
       echo "No session selected"
@@ -139,7 +139,7 @@ configured_session() {
       exit 1
     fi
 
-    session=$(echo "$configured_sessions" | fzf --prompt "> " --header "Select configured session")
+    session=$(echo "$configured_sessions" | fzf --cycle --prompt "> " --header "Select configured session")
 
     if [ -z "$session" ]; then
       echo "No session selected"
@@ -193,7 +193,7 @@ dir_session() {
     # Use process substitution to allow killing the directory generator after fzf exits
     exec 3< <(eval "$dirs_cmd")
     local dirs_pid=$!
-    selected=$(fzf --prompt "> " --header "Select directory" <&3)
+    selected=$(fzf --cycle --prompt "> " --header "Select directory" <&3)
     kill "$dirs_pid" 2>/dev/null
     wait "$dirs_pid" 2>/dev/null
     exec 3<&-
