@@ -190,10 +190,12 @@ instead of YAML configuration files. This gives you full control over your sessi
 
 Session configurations are stored in `${XDG_CONFIG_HOME:-~/.config}/tsm/<session-name>/`.
 
-Each session directory can contain:
+Each session directory contains:
 
-- `start.sh` (required): Script that runs when starting the session
-- `kill.sh` (optional): Script that runs asynchronously just before session is killed
+- `main.sh` (required): Script with session functions:
+  - `start()` (required): Function that runs when starting the session
+  - `kill()` (optional): Function that runs asynchronously just before session is killed
+- Additional scripts in any language can be placed in the session directory and called from `main.sh`
 
 ### Example Session Configuration
 
@@ -203,56 +205,53 @@ Create a session configuration for a project:
 mkdir -p "${XDG_CONFIG_HOME:-$HOME/.config}/tsm/myproject"
 ```
 
-Create `~/.config/tsm/myproject/start.sh`:
+Create `~/.config/tsm/myproject/main.sh`:
 
 ```bash
-#!/bin/bash
 SESSION="myproject"
 ROOT="$HOME/projects/myproject"
 
-# Create new session with first window named 'code'.
-# This window will have two vertical splits:
-#     - nvim on top 80%
-#     - a terminal at the bottom 20% that runs the `ls` command
-CODE_WINDOW="code"
-tmux new-session -d -s "$SESSION" -n "$CODE_WINDOW" -c "$ROOT"
-tmux send-keys -t "$SESSION:$CODE_WINDOW" 'nvim' Enter
-tmux split-window -v -l 20% -t "$SESSION:$CODE_WINDOW" -c "$ROOT"
-tmux send-keys -t "$SESSION:$CODE_WINDOW" 'ls' Enter
+start() {
+  # Create new session with first window named 'code'.
+  # This window will have two vertical splits:
+  #     - nvim on top 80%
+  #     - a terminal at the bottom 20% that runs the `ls` command
+  CODE_WINDOW="code"
+  tmux new-session -d -s "$SESSION" -n "$CODE_WINDOW" -c "$ROOT"
+  tmux send-keys -t "$SESSION:$CODE_WINDOW" 'nvim' Enter
+  tmux split-window -v -l 20% -t "$SESSION:$CODE_WINDOW" -c "$ROOT"
+  tmux send-keys -t "$SESSION:$CODE_WINDOW" 'ls' Enter
 
-# Create a second window named 'docker'.
-# This window will have an even-vertical layout with:
-#     - a terminal that starts docker compose on top
-#     - lazydocker on bottom
-DOCKER_WINDOW="docker"
-tmux new-window -t "$SESSION" -n $DOCKER_WINDOW -c "$ROOT"
-tmux send-keys -t "$SESSION:$DOCKER_WINDOW" 'docker compose up --force-recreate --detach' Enter
-tmux split-window -t "$SESSION:$DOCKER_WINDOW" -v -c "$ROOT"
-tmux send-keys -t "$SESSION:$DOCKER_WINDOW" 'lazydocker' Enter
-tmux select-layout -t "$SESSION:$DOCKER_WINDOW" even-vertical
+  # Create a second window named 'docker'.
+  # This window will have an even-vertical layout with:
+  #     - a terminal that starts docker compose on top
+  #     - lazydocker on bottom
+  DOCKER_WINDOW="docker"
+  tmux new-window -t "$SESSION" -n $DOCKER_WINDOW -c "$ROOT"
+  tmux send-keys -t "$SESSION:$DOCKER_WINDOW" 'docker compose up --force-recreate --detach' Enter
+  tmux split-window -t "$SESSION:$DOCKER_WINDOW" -v -c "$ROOT"
+  tmux send-keys -t "$SESSION:$DOCKER_WINDOW" 'lazydocker' Enter
+  tmux select-layout -t "$SESSION:$DOCKER_WINDOW" even-vertical
 
-# Select first window
-tmux select-window -t "$SESSION:$CODE_WINDOW"
+  # Select first window
+  tmux select-window -t "$SESSION:$CODE_WINDOW"
 
-# Attach or switch to session
-if [ -n "$TMUX" ]; then
-  tmux switch-client -t "$SESSION"
-else
-  tmux attach-session -t "$SESSION"
-fi
-```
+  # Attach or switch to session
+  if [ -n "$TMUX" ]; then
+    tmux switch-client -t "$SESSION"
+  else
+    tmux attach-session -t "$SESSION"
+  fi
+}
 
-Optionally create `~/.config/tsm/myproject/kill.sh` for cleanup:
-
-> **Note:** The `kill.sh` script runs in the background, allowing the tmux session to be killed immediately
-without waiting for cleanup tasks to complete. This provides a snappier user experience, especially when
-cleanup involves slow operations like stopping services or terminating remote connections.
-
-```bash
-#!/bin/bash
-# Stop the docker compose service that was started earlier.
-ROOT="$HOME/projects/myproject"
-docker compose --project-directory "$ROOT" down
+# Optional: cleanup function runs in background when session is killed.
+# This allows the tmux session to be killed immediately without waiting for
+# cleanup tasks to complete, providing a snappier user experience especially
+# when cleanup involves slow operations like stopping services.
+kill() {
+  # Stop the docker compose service that was started earlier.
+  docker compose --project-directory "$ROOT" down
+}
 ```
 
 This scripting approach is slightly more verbose than tmuxinator's YAML configuration,

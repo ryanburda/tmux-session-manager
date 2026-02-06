@@ -18,7 +18,7 @@ usage() {
   echo "  -c, --configured [name] Browse configured sessions with fzf, or start session if provided"
   echo "  -d, --dir [path]        Browse directories with fzf, or start session at path if provided"
   echo "  -z, --zoxide [query]    Browse zoxide entries with fzf, or query zoxide if provided"
-  echo "  -k, --kill [name]       Run kill.sh, if it exists, and kill the session"
+  echo "  -k, --kill [name]       Run kill(), if it exists, and kill the session"
   echo ""
   echo "Examples:"
   echo "  tsm                Browse active sessions with fzf"
@@ -35,11 +35,11 @@ usage() {
   echo "Configuration:"
   echo "  Sessions are configured in \$HOME/.config/tsm/<session-name>/"
   echo ""
-  echo "  start.sh  Required script that runs when starting a session."
-  echo "            Use this to create tmux windows, panes, and run commands."
-  echo ""
-  echo "  kill.sh   Optional script that runs asynchronously when session is killed."
-  echo "            Use this for cleanup tasks like stopping services."
+  echo "  main.sh   Script containing session functions:"
+  echo "            - start() Required function that runs when starting a session."
+  echo "                       Use this to create tmux windows, panes, and run commands."
+  echo "            - kill()  Optional function that runs asynchronously when session is killed."
+  echo "                       Use this for cleanup tasks like stopping services."
   echo ""
   echo "Environment Variables:"
   echo "  TSM_DIRS_CMD  Command to generate directories for 'tsm -d'."
@@ -113,9 +113,9 @@ stop_session() {
 
   local session_dir="$CONFIG_DIR/$session"
 
-  # Run kill.sh in background if it exists
-  if [ -f "$session_dir/kill.sh" ]; then
-    nohup bash "$session_dir/kill.sh" >/dev/null 2>&1 &
+  # Run kill function in background if it exists in main.sh
+  if [ -f "$session_dir/main.sh" ]; then
+    nohup bash -c "source '$session_dir/main.sh' && declare -F kill &>/dev/null && kill" >/dev/null 2>&1 &
   fi
 
   tmux kill-session -t "$session"
@@ -154,8 +154,14 @@ configured_session() {
     exit 1
   fi
 
-  if [ ! -f "$session_dir/start.sh" ]; then
-    echo "Error: No start.sh found for session '$session'"
+  if [ ! -f "$session_dir/main.sh" ]; then
+    echo "Error: No main.sh found for session '$session'"
+    exit 1
+  fi
+
+  # Verify start function exists
+  if ! bash -c "source '$session_dir/main.sh' && declare -F start" &>/dev/null; then
+    echo "Error: No start function defined in main.sh for session '$session'"
     exit 1
   fi
 
@@ -169,7 +175,7 @@ configured_session() {
     fi
   else
     echo "Starting session '$session'..."
-    bash "$session_dir/start.sh"
+    bash -c "source '$session_dir/main.sh' && start"
   fi
 }
 
