@@ -193,7 +193,7 @@ Session configurations are stored in `${XDG_CONFIG_HOME:-~/.config}/tsm/<session
 Each session directory contains:
 
 - `main.sh` (required): Script with session functions:
-  - `start()` (required): Function that runs when starting the session
+  - `start()` (required): Function that creates the tmux session. `tsm` automatically attaches after this completes.
   - `kill()` (optional): Function that runs asynchronously just before session is killed
 - Additional scripts in any language can be placed in the session directory and called from `main.sh`
 
@@ -235,13 +235,6 @@ start() {
 
   # Select first window
   tmux select-window -t "$SESSION:$CODE_WINDOW"
-
-  # Attach or switch to session
-  if [ -n "$TMUX" ]; then
-    tmux switch-client -t "$SESSION"
-  else
-    tmux attach-session -t "$SESSION"
-  fi
 }
 
 # Optional: cleanup function runs in background when session is killed.

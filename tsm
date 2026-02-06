@@ -36,8 +36,8 @@ usage() {
   echo "  Sessions are configured in \$HOME/.config/tsm/<session-name>/"
   echo ""
   echo "  main.sh   Script containing session functions:"
-  echo "            - start() Required function that runs when starting a session."
-  echo "                       Use this to create tmux windows, panes, and run commands."
+  echo "            - start() Required function that creates the tmux session."
+  echo "                       tsm automatically attaches after this completes."
   echo "            - kill()  Optional function that runs asynchronously when session is killed."
   echo "                       Use this for cleanup tasks like stopping services."
   echo ""
@@ -176,6 +176,11 @@ configured_session() {
   else
     echo "Starting session '$session'..."
     bash -c "source '$session_dir/main.sh' && start"
+    if [ -n "$TMUX" ]; then
+      tmux switch-client -t "$session"
+    else
+      tmux attach-session -t "$session"
+    fi
   fi
 }
 
