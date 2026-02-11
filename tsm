@@ -85,7 +85,7 @@ active_session() {
   fi
 }
 
-stop_session() {
+kill_session() {
   local session="$1"
 
   # If no session provided, use fzf to select from active sessions
@@ -305,7 +305,7 @@ case "$1" in
     configured_session "$2"
     ;;
   -k|--kill)
-    stop_session "$2"
+    kill_session "$2"
     ;;
   -d|--dir)
     dir_session "$2"
