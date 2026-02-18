@@ -220,7 +220,7 @@ dir_session() {
 
   local session_name
   # Only allow alphanumeric, dash, underscore (avoid tmux parsing issues with dots, colons, etc.)
-  session_name=$(basename "$selected" | tr -c 'a-zA-Z0-9_-\n' '_')
+  session_name=$(basename "$selected" | tr -c 'a-zA-Z0-9_\-\n' '_')
 
   # Check if session already exists
   if tmux has-session -t "$session_name" 2>/dev/null; then
@@ -273,7 +273,7 @@ zoxide_dir_session() {
 
   local session_name
   # Only allow alphanumeric, dash, underscore (avoid tmux parsing issues with dots, colons, etc.)
-  session_name=$(basename "$selected" | tr -c 'a-zA-Z0-9_-\n' '_')
+  session_name=$(basename "$selected" | tr -c 'a-zA-Z0-9_\-\n' '_')
 
   # Check if session already exists
   if tmux has-session -t "$session_name" 2>/dev/null; then
