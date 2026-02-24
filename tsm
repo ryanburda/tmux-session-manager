@@ -175,7 +175,7 @@ configured_session() {
     fi
   else
     echo "Starting session '$session'..."
-    bash -c "source '$session_dir/main.sh' && start"
+    bash -c "set -m; source '$session_dir/main.sh' && start"
     if [ -n "$TMUX" ]; then
       tmux switch-client -t "$session"
     else
