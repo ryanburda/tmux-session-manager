@@ -295,6 +295,10 @@ After starting this session, you can check on the build progress or review error
 tsm -l webapp
 ```
 
+**NOTE:** Log files are truncated to the most recent 1,000 lines **before** each session start or kill.
+This prevents log files from getting too large while always guaranteeing that the output of the
+previous `start()` or `kill()` invocation is fully preserved.
+
 ## Directory Sessions
 
 Use the `-d` flag to create a session rooted at a specific directory:
