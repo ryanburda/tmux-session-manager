@@ -10,7 +10,7 @@ _tsm_completions() {
     prev="${COMP_WORDS[COMP_CWORD-1]}"
 
     # Available options
-    opts="-c --configured -k --kill -d --dir -z --zoxide -h --help"
+    opts="-c --configured -k --kill -l --logs -d --dir -z --zoxide -h --help"
 
     # Complete based on previous word
     case "$prev" in
@@ -27,6 +27,15 @@ _tsm_completions() {
             # Complete with active sessions
             local active=$(tmux ls 2>/dev/null | awk -F: '{print $1}')
             COMPREPLY=($(compgen -W "$active" -- "$cur"))
+            return 0
+            ;;
+        -l|--logs)
+            # Complete with session names that have log files
+            local log_dir="${XDG_STATE_HOME:-$HOME/.local/state}/tsm/logs"
+            if [ -d "$log_dir" ]; then
+                local sessions=$(for f in "$log_dir"/*.log; do [ -f "$f" ] && basename "$f" .log; done 2>/dev/null)
+                COMPREPLY=($(compgen -W "$sessions" -- "$cur"))
+            fi
             return 0
             ;;
         -d|--dir)

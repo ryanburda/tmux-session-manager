@@ -71,6 +71,7 @@ tsm -c, --configured [session] # Browse configured sessions with fzf, or start s
 tsm -d, --dir [path]           # Browse directories with fzf, or start session at path if provided
 tsm -z, --zoxide [query]       # Browse zoxide entries with fzf, or start session at best match if provided
 tsm -k, --kill [session]       # Kill a session (runs cleanup script if present)
+tsm -l, --logs [session]       # Tail logs for current session, or named session if provided
 tsm -h, --help                 # Show help message
 ```
 
@@ -132,9 +133,11 @@ This maps:
 - `prefix + s` - Active session switcher
 - `prefix + c` - Configured session launcher
 - `prefix + d` - Directory rooted session launcher
-- `prefix + z` - Zoxide directory rooted session launcher (Optional)
 - `prefix + k` - Kill session selector
 - `prefix + X` - Kill the current session and run kill script
+
+And optionally maps:
+- `prefix + z` - Zoxide directory rooted session launcher
 
 Modify these keybindings as needed.
 
@@ -251,6 +254,46 @@ This scripting approach is slightly more verbose than tmuxinator's YAML configur
 but offers greater control and flexibility since you can use any shell commands, conditionals, or logic you need.
 
 See `man tmux` for a full list of available tmux commands.
+
+### Configured Session Logs
+
+Output from `start()` and `kill()` functions is redirected to per-session log files in
+`${XDG_STATE_HOME:-~/.local/state}/tsm/logs/`. Each configured session gets its own log
+file (e.g. `~/.local/state/tsm/logs/myproject.log`) that is appended to across invocations
+with timestamped headers.
+
+Use `tsm -l` to tail the log file for the current tmux session, or `tsm -l <name>` to tail a specific session's logs.
+
+Since `main.sh` is a full shell script, you're not limited to running commands inside tmux panes and windows.
+You can kick off slow commands (like `docker compose up --build`) in the background with `&` so they don't
+block session startup. The session attaches immediately while the command continues running, and its output
+is captured in the log file for later review.
+
+```bash
+SESSION="webapp"
+ROOT="$HOME/projects/webapp"
+
+start() {
+  tmux new-session -d -s "$SESSION" -n "code" -c "$ROOT"
+  tmux send-keys -t "$SESSION:code" 'nvim' Enter
+
+  # Start the dev server in the background so it doesn't block session startup.
+  # Build output and errors are captured in the tsm log file.
+  tmux new-window -t "$SESSION" -n "server" -c "$ROOT"
+  docker compose up --build --force-recreate --detach &
+
+  tmux select-window -t "$SESSION:code"
+}
+
+kill() {
+  docker compose --project-directory "$ROOT" down
+}
+```
+
+After starting this session, you can check on the build progress or review errors:
+```bash
+tsm -l webapp
+```
 
 ## Directory Sessions
 
