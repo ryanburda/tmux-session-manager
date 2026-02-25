@@ -299,6 +299,11 @@ tsm -l webapp
 This prevents log files from getting too large while always guaranteeing that the output of the
 previous `start()` or `kill()` invocation is fully preserved.
 
+**NOTE:** This logging approach works well for simple cases, but output from multiple backgrounded
+processes will be interleaved in the same log file since they all write to it concurrently. If you
+have more complex logging needs, redirect output to separate files within your `start()` function
+instead of relying on tsm's built-in logging.
+
 ## Directory Sessions
 
 Use the `-d` flag to create a session rooted at a specific directory:
