@@ -196,7 +196,6 @@ configured_session() {
       tmux attach-session -t "$session"
     fi
   else
-    echo "Starting session '$session'..."
     local log_file="$LOG_DIR/$session.log"
     echo "" >> "$log_file"
     echo "================================================================================" >> "$log_file"
