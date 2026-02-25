@@ -338,7 +338,7 @@ tail_logs() {
     exit 1
   fi
 
-  tail -n 100 -f "$log_file"
+  tail -n 1000 -f "$log_file"
 }
 
 # Parse arguments
