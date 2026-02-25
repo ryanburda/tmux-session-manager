@@ -4,22 +4,16 @@ A simple tmux session manager that lets you:
 
 - **Switch** between active tmux sessions
 - **Create** sessions rooted at a directory
-- **Start** configured sessions with custom startup scripts
-- **Kill** sessions (with optional cleanup scripts)
-
-## Features
-
-- **Interactive Selection**: Use `fzf` to fuzzy-find and select sessions
-- **Configured Sessions**: Define sessions with custom startup and cleanup scripts (Similar to **[tmuxinator](https://github.com/tmuxinator/tmuxinator)**)
-- **Directory-based Sessions**: Create sessions rooted at a specific directory (Similar to **[tmux-sessionizer](https://github.com/ThePrimeagen/tmux-sessionizer)**)
+    - Similar to **[tmux-sessionizer](https://github.com/ThePrimeagen/tmux-sessionizer)**
     - Optional **[Zoxide](https://github.com/ajeetdsouza/zoxide)** support
+- **Start** configured sessions with custom startup scripts
+    - Similar to **[tmuxinator](https://github.com/tmuxinator/tmuxinator)**
+- **Kill** sessions (with optional cleanup scripts)
 
 ## Dependencies
 
-- `bash/zsh`
-- `tmux`
 - `fzf`
-- `zoxide` (optional, for `-z` flag)
+- `zoxide` (optional)
 
 ## Installation
 
@@ -60,8 +54,8 @@ A simple tmux session manager that lets you:
 
    Completions provide:
    - Active session names for `tsm` and `tsm -k`
-   - Configured session names for `tsm -c`
-   - Directory completion for `tsm -d`
+   - Directory completion for `tsm -d` and `tsm -z`
+   - Configured session names for `tsm -c` and `tsm -l`
 
 ## Usage
 
@@ -174,31 +168,67 @@ Modify these keybindings as needed.
 > (e.g., `~/.zshenv` for zsh). Otherwise, `tsm -d` will use the default directory list in a tmux popup
 > but a different custom list from an interactive shell, leading to inconsistent behavior.
 
-## Session Types
+## Session Launcher Types
 
-tsm supports two types of sessions:
+`tsm` allows you to launch sessions in two different ways:
 
-- **Configured Sessions**: Predefined sessions stored in `${XDG_CONFIG_HOME:-~/.config}/tsm/`.
-These use startup scripts to create a customized tmux environment with specific windows, panes, and commands.
-Ideal for projects you work on regularly that benefit from a consistent workspace setup.
-
-- **Directory Sessions**: Quick, on-the-fly sessions rooted at any directory using the `-d` flag.
-These simply open a new tmux session with the working directory set to your selection.
+- **[Directory Sessions](#directory-sessions)**: Open a new tmux session rooted at a specific directory.
 Ideal for quickly jumping into a project without any predefined configuration.
+
+- **[Configured Sessions](#configured-sessions)**: Ideal for projects you work on regularly that benefit from a consistent tmux
+window/pane layout. These use a script stored in `${XDG_CONFIG_HOME:-~/.config}/tsm/` that control how
+the session is created and killed.
+
+## Directory Sessions
+
+Use the `-d` flag to create a session rooted at a specific directory:
+
+```bash
+tsm -d              # Browse directories with fzf and start session from selection
+tsm -d ~/projects   # Start a session directly at ~/projects
+```
+
+When no path is provided, fzf displays your home directory and any directories that contain git repositories
+within 3 levels deep of your `$HOME` directory.
+
+This can be customized by setting the `TSM_DIRS_CMD` environment variable in your `.bashrc/.zshrc`:
+
+The following is a slight variation the default that returns:
+- the `$HOME` directory
+- directories in your `$HOME` directory that contain git repos (1 level deep)
+- directories in your `$HOME/projects` directory that contain git repos (up to 3 levels deep)
+
+```bash
+export TSM_DIRS_CMD='{
+    echo "$HOME"
+    find "$HOME" -maxdepth 2 -name .git -type d 2>/dev/null | sed "s|/.git$||"
+    find "$HOME/projects" -maxdepth 4 -name .git -type d 2>/dev/null | sed "s|/.git$||"
+}'
+```
+This is a more targeted search which may be slightly faster as a result.
+
+### Zoxide Integration (Optional)
+
+If you have **[zoxide](https://github.com/ajeetdsouza/zoxide)** installed, you can use the `-z` flag to create sessions from your zoxide directory history:
+
+```bash
+tsm -z              # Browse zoxide entries interactively and start session from selection
+tsm -z proj         # Start a session at the best zoxide match for "proj"
+```
+
+Zoxide tracks directories you visit frequently, ranking them by "frecency" (frequency + recency). This makes it easy to jump to projects with just a few characters of the directory name.
+
+When no query is provided, `tsm -z` uses `zoxide query -i` for interactive selection with fzf. When a query is provided, it uses `zoxide query` to find the best match directly.
 
 ## Configured Sessions
 
-Configured sessions work like [tmuxinator](https://github.com/tmuxinator/tmuxinator) sessions, but use shell scripts
-instead of YAML configuration files. This gives you full control over your session setup using familiar bash/zsh commands.
+Configured sessions provide a bit more control when starting a session.
 
 Session configurations are stored in `${XDG_CONFIG_HOME:-~/.config}/tsm/<session-name>/`.
 
-Each session directory contains:
-
-- `main.sh` (required): Script with session functions:
+Each session directory is required to have a `main.sh` script that contains the following functions:
   - `start()` (required): Function that creates the tmux session. `tsm` automatically attaches after this completes.
   - `kill()` (optional): Function that runs asynchronously just before session is killed
-- Additional scripts in any language can be placed in the session directory and called from `main.sh`
 
 ### Example Session Configuration
 
@@ -257,15 +287,13 @@ See `man tmux` for a full list of available tmux commands.
 
 ### Configured Session Logs
 
-Output from `start()` and `kill()` functions is redirected to per-session log files in
+Output from `start()` and `kill()` functions is redirected to dedicated session log files in
 `${XDG_STATE_HOME:-~/.local/state}/tsm/logs/`. Each configured session gets its own log
 file (e.g. `~/.local/state/tsm/logs/myproject.log`) that is appended to across invocations
 with timestamped headers.
 
-Use `tsm -l` to tail the log file for the current tmux session, or `tsm -l <name>` to tail a specific session's logs.
-
 Since `main.sh` is a full shell script, you're not limited to running commands inside tmux panes and windows.
-You can kick off slow commands (like `docker compose up --build`) in the background with `&` so they don't
+You can kick off slower commands (like `docker compose up --build --detach`) in the background with `&` so they don't
 block session startup. The session attaches immediately while the command continues running, and its output
 is captured in the log file for later review.
 
@@ -277,12 +305,9 @@ start() {
   tmux new-session -d -s "$SESSION" -n "code" -c "$ROOT"
   tmux send-keys -t "$SESSION:code" 'nvim' Enter
 
-  # Start the dev server in the background so it doesn't block session startup.
+  # Start a service in the background so it doesn't block session startup.
   # Build output and errors are captured in the tsm log file.
-  tmux new-window -t "$SESSION" -n "server" -c "$ROOT"
   docker compose up --build --force-recreate --detach &
-
-  tmux select-window -t "$SESSION:code"
 }
 
 kill() {
@@ -290,57 +315,12 @@ kill() {
 }
 ```
 
-After starting this session, you can check on the build progress or review errors:
-```bash
-tsm -l webapp
-```
+Use `tsm -l` to tail the log file for the current tmux session, or `tsm -l <name>` to tail a specific session's logs.
 
-**NOTE:** Log files are truncated to the most recent 1,000 lines **before** each session start or kill.
-This prevents log files from getting too large while always guaranteeing that the output of the
-previous `start()` or `kill()` invocation is fully preserved.
+> **NOTE:** Log files are truncated to the most recent 1,000 lines **before** each session `start()` and `kill()` call.
+> This prevents log files from getting too large while always preserving the full output of the previous call of `start()` or `kill()`.
 
-**NOTE:** This logging approach works well for simple cases, but output from multiple backgrounded
-processes will be interleaved in the same log file since they all write to it concurrently. If you
-have more complex logging needs, redirect output to separate files within your `start()` function
-instead of relying on tsm's built-in logging.
-
-## Directory Sessions
-
-Use the `-d` flag to create a session rooted at a specific directory:
-
-```bash
-tsm -d              # Browse directories with fzf and start session from selection
-tsm -d ~/projects   # Start a session directly at ~/projects
-```
-
-When no path is provided, fzf displays your home directory and any directories that contain git repositories
-within 3 levels deep of your $HOME directory.
-
-This can be customized by setting the `TSM_DIRS_CMD` environment variable in your `.bashrc/.zshrc`:
-
-The following is a slight variation the default that returns:
-- the $HOME directory
-- directories in your `$HOME` directory that contain git repos (1 level deep)
-- directories in your `$HOME/projects` directory that contain git repos (up to 3 levels deep)
-
-```bash
-export TSM_DIRS_CMD='{
-    echo "$HOME"
-    find "$HOME" -maxdepth 2 -name .git -type d 2>/dev/null | sed "s|/.git$||"
-    find "$HOME/projects" -maxdepth 4 -name .git -type d 2>/dev/null | sed "s|/.git$||"
-}'
-```
-This is a more targeted search which may be slightly faster as a result.
-
-### Zoxide Integration (Optional)
-
-If you have **[zoxide](https://github.com/ajeetdsouza/zoxide)** installed, you can use the `-z` flag to create sessions from your zoxide directory history:
-
-```bash
-tsm -z              # Browse zoxide entries interactively and start session from selection
-tsm -z proj         # Start a session at the best zoxide match for "proj"
-```
-
-Zoxide tracks directories you visit frequently, ranking them by "frecency" (frequency + recency). This makes it easy to jump to projects with just a few characters of the directory name.
-
-When no query is provided, `tsm -z` uses `zoxide query -i` for interactive selection with fzf. When a query is provided, it uses `zoxide query` to find the best match directly.
+> **NOTE:** This logging approach works well for simple cases, but output from multiple backgrounded processes
+> runs the risk of being interleaved in the log file since they all write to the same location concurrently.
+> If you have more complex logging needs, redirect output to separate files within your `start()` and `kill()`
+> functions instead of relying on tsm's built-in logging.
