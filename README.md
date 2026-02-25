@@ -329,3 +329,11 @@ Use `tsm -l` to tail the log file for the current tmux session, or `tsm -l <name
 > runs the risk of being interleaved in the log file since they all write to the same location concurrently.
 > If you have more complex logging needs, redirect output to separate files within your `start()` and `kill()`
 > functions instead of relying on tsm's built-in logging.
+
+## License
+
+MIT
+
+## Contributing
+
+Contributions are welcome! Please feel free to submit a Pull Request.
