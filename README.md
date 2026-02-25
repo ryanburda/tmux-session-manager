@@ -89,21 +89,24 @@ Scripted use:
 # Start a configured session
 tsm -c myproject
 
-# Switch to an active session
-tsm myproject
-
 # Create a session rooted at a specific path
 tsm -d ~/projects/webapp
 
 # Create a session using zoxide's best match
 tsm -z proj
 
+# Switch to an active session
+tsm myproject
+
+# Tail the logs of this session
+tsm -l
+
 # Kill a session by name
 tsm -k myproject
 
 # Start a set of microservices together
 for project in api frontend backend; do
-    tsm -d ~/projects/$project
+    tsm -c $project
 done
 ```
 
@@ -135,38 +138,43 @@ And optionally maps:
 
 Modify these keybindings as needed.
 
-> **Note:** tmux's `run-shell` and `popup -E` commands execute in a non-interactive, non-login shell.
+<details>
+<summary><strong>Troubleshooting Keybinds</strong></summary>
+
+> tmux's `run-shell` and `popup -E` commands execute in a non-interactive, non-login shell.
 > For `tsm` to be found, it must be in your PATH when this shell starts.
->
+> 
 > **For zsh users:** Add your PATH configuration to `~/.zshenv` (not `.zshrc`).
->
+> 
 > **For bash users:** Set the `BASH_ENV` environment variable to point to a file that configures your PATH,
 > or add your PATH to `/etc/environment`.
->
+> 
 > **Shell startup file precedence:**
->
+> 
 > | Shell | Login | Interactive | Non-interactive |
 > |-------|-------|-------------|-----------------|
 > | **zsh** | zshenv → zprofile → zshrc → zlogin | zshenv → zshrc | zshenv only |
 > | **bash** | /etc/profile → (~/.bash_profile OR ~/.bash_login OR ~/.profile) | ~/.bashrc | $BASH_ENV only (if set) |
->
+> 
 > Since tmux runs commands non-interactively, zsh only sources `~/.zshenv` and bash only sources the file
 > specified by `$BASH_ENV` (if set). This is why PATH modifications in `.zshrc` or `.bashrc` won't apply.
->
+> 
 > **Fallback:** If configuring shell startup files isn't working, you can execute `tsm` using its full path
 > in your keybindings:
->
+> 
 > ```bash
 > bind-key s popup -h 24 -w 60 -E "~/git/ryanburda/tmux-session-manager/tsm"
 > bind-key d popup -h 24 -w 80 -E "~/git/ryanburda/tmux-session-manager/tsm -d"
 > bind-key X run-shell "~/git/ryanburda/tmux-session-manager/tsm -k #{session_name}"
 > ```
->
+> 
 > Adjust the path to match where you cloned the repository.
-
+> 
 > **Note:** If you specify a custom `TSM_DIRS_CMD`, add it to the same file where you configure your PATH
 > (e.g., `~/.zshenv` for zsh). Otherwise, `tsm -d` will use the default directory list in a tmux popup
 > but a different custom list from an interactive shell, leading to inconsistent behavior.
+
+</details>
 
 ## Session Launcher Types
 
@@ -280,22 +288,17 @@ kill() {
 }
 ```
 
-This scripting approach is slightly more verbose than tmuxinator's YAML configuration,
-but offers greater control and flexibility since you can use any shell commands, conditionals, or logic you need.
+> See `man tmux` for a full list of available tmux specific commands.
 
-See `man tmux` for a full list of available tmux commands.
-
-### Configured Session Logs
+Since `main.sh` is a full shell script, you're not limited to running commands inside tmux panes and windows.
+You can kick off commands (like `docker compose up --build --detach`) in the background with `&` so they don't
+block session startup. The session attaches immediately while the command continues running, and its output
+is captured in the log file for later review.
 
 Output from `start()` and `kill()` functions is redirected to dedicated session log files in
 `${XDG_STATE_HOME:-~/.local/state}/tsm/logs/`. Each configured session gets its own log
 file (e.g. `~/.local/state/tsm/logs/myproject.log`) that is appended to across invocations
 with timestamped headers.
-
-Since `main.sh` is a full shell script, you're not limited to running commands inside tmux panes and windows.
-You can kick off slower commands (like `docker compose up --build --detach`) in the background with `&` so they don't
-block session startup. The session attaches immediately while the command continues running, and its output
-is captured in the log file for later review.
 
 ```bash
 SESSION="webapp"
@@ -307,10 +310,12 @@ start() {
 
   # Start a service in the background so it doesn't block session startup.
   # Build output and errors are captured in the tsm log file.
+  echo "$(date '+%Y-%m-%d %H:%M:%S'): Starting my webapp"
   docker compose up --build --force-recreate --detach &
 }
 
 kill() {
+  echo "$(date '+%Y-%m-%d %H:%M:%S'): Stopping my webapp"
   docker compose --project-directory "$ROOT" down
 }
 ```
