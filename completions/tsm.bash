@@ -30,10 +30,10 @@ _tsm_completions() {
             return 0
             ;;
         -l|--logs)
-            # Complete with session names that have log files
+            # Complete with session names that have log directories
             local log_dir="${XDG_STATE_HOME:-$HOME/.local/state}/tsm/logs"
             if [ -d "$log_dir" ]; then
-                local sessions=$(for f in "$log_dir"/*.log; do [ -f "$f" ] && basename "$f" .log; done 2>/dev/null)
+                local sessions=$(for dir in "$log_dir"/*/; do [ -d "$dir" ] && basename "$dir"; done 2>/dev/null)
                 COMPREPLY=($(compgen -W "$sessions" -- "$cur"))
             fi
             return 0

@@ -4,15 +4,6 @@ CONFIG_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/tsm"
 LOG_DIR="${XDG_STATE_HOME:-$HOME/.local/state}/tsm/logs"
 mkdir -p "$CONFIG_DIR" "$LOG_DIR"
 
-truncate_log() {
-  local log_file="$1"
-  if [ -f "$log_file" ]; then
-    local tmp_file
-    tmp_file=$(mktemp)
-    tail -n 1000 "$log_file" > "$tmp_file" && mv "$tmp_file" "$log_file"
-  fi
-}
-
 TSM_DIRS_CMD_DEFAULT='{
     echo "$HOME"
     find "$HOME" -maxdepth 4 -name .git -type d 2>/dev/null | sed "s|/.git$||"
@@ -29,7 +20,7 @@ usage() {
   echo "  -d, --dir [path]        Browse directories with fzf, or start session at path if provided"
   echo "  -z, --zoxide [query]    Browse zoxide entries with fzf, or query zoxide if provided"
   echo "  -k, --kill [name]       Run kill(), if it exists, and kill the session"
-  echo "  -l, --logs [name]       Tail logs for current session, or named session if provided"
+  echo "  -l, --logs [name]       Browse all log files, or for named session if provided"
   echo ""
   echo "Examples:"
   echo "  tsm                Browse active sessions with fzf"
@@ -42,8 +33,8 @@ usage() {
   echo "  tsm -z proj        Start session at best zoxide match for 'proj'"
   echo "  tsm -k             Select session to kill with fzf"
   echo "  tsm -k myproject   Kill session"
-  echo "  tsm -l             Tail logs for current tmux session"
-  echo "  tsm -l myproject   Tail logs for named session"
+  echo "  tsm -l             Browse all log files with fzf"
+  echo "  tsm -l myproject   Browse log files for named session with fzf"
   echo ""
   echo "Configuration:"
   echo "  Sessions are configured in \$HOME/.config/tsm/<session-name>/"
@@ -51,8 +42,14 @@ usage() {
   echo "  main.sh   Script containing session functions:"
   echo "            - start() Required function that creates the tmux session."
   echo "                       tsm automatically attaches after this completes."
+  echo "                       Receives the session log directory as \$1."
   echo "            - kill()  Optional function that runs asynchronously when session is killed."
   echo "                       Use this for cleanup tasks like stopping services."
+  echo "                       Receives the session log directory as \$1."
+  echo ""
+  echo "            Log directory: \$HOME/.local/state/tsm/logs/<session-name>/"
+  echo "            tsm writes to tsm.log in this directory. Custom logs can be"
+  echo "            written here too, e.g.: some_cmd > \"\$1/other_service.log\" 2>&1"
   echo ""
   echo "Environment Variables:"
   echo "  TSM_DIRS_CMD  Command to generate directories for 'tsm -d'."
@@ -124,18 +121,16 @@ kill_session() {
     exit 1
   fi
 
-  truncate_log "$LOG_DIR/$session.log"
+  local log_dir="$LOG_DIR/$session"
+  local log_file="$log_dir/tsm.log"
+  mkdir -p "$log_dir"
 
   local session_dir="$CONFIG_DIR/$session"
 
   # Run kill function in background if it exists in main.sh
   if [ -f "$session_dir/main.sh" ]; then
-    local log_file="$LOG_DIR/$session.log"
-    echo "" >> "$log_file"
-    echo "================================================================================" >> "$log_file"
-    echo "[$(date '+%Y-%m-%d %H:%M:%S')] Killing session '$session'" >> "$log_file"
-    echo "================================================================================" >> "$log_file"
-    nohup bash -c "source '$session_dir/main.sh' && declare -F kill &>/dev/null && kill" >> "$log_file" 2>&1 &
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] Killing session '$session'" > "$log_file"
+    nohup bash -c "source '$session_dir/main.sh' && declare -F kill &>/dev/null && kill '$log_dir'" >> "$log_file" 2>&1 &
   fi
 
   tmux kill-session -t "$session"
@@ -185,7 +180,9 @@ configured_session() {
     exit 1
   fi
 
-  truncate_log "$LOG_DIR/$session.log"
+  local log_dir="$LOG_DIR/$session"
+  local log_file="$log_dir/tsm.log"
+  mkdir -p "$log_dir"
 
   # Check if session already exists
   if tmux has-session -t "$session" 2>/dev/null; then
@@ -196,12 +193,8 @@ configured_session() {
       tmux attach-session -t "$session"
     fi
   else
-    local log_file="$LOG_DIR/$session.log"
-    echo "" >> "$log_file"
-    echo "================================================================================" >> "$log_file"
-    echo "[$(date '+%Y-%m-%d %H:%M:%S')] Starting session '$session'" >> "$log_file"
-    echo "================================================================================" >> "$log_file"
-    bash -c "set -m; source '$session_dir/main.sh' && start" >> "$log_file" 2>&1
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] Starting session '$session'" > "$log_file"
+    bash -c "set -m; source '$session_dir/main.sh' && start '$log_dir'" >> "$log_file" 2>&1
     if [ -n "$TMUX" ]; then
       tmux switch-client -t "$session"
     else
@@ -320,25 +313,37 @@ zoxide_dir_session() {
   fi
 }
 
-tail_logs() {
+browse_logs() {
   local session="$1"
 
-  if [ -z "$session" ]; then
-    if [ -z "$TMUX" ]; then
-      echo "Error: Not in a tmux session. Provide a session name: tsm -l <name>"
+  local search_dir
+  if [ -n "$session" ]; then
+    search_dir="$LOG_DIR/$session"
+    if [ ! -d "$search_dir" ]; then
+      echo "Error: No log directory found for session '$session'"
       exit 1
     fi
-    session=$(tmux display-message -p '#S')
+  else
+    search_dir="$LOG_DIR"
   fi
 
-  local log_file="$LOG_DIR/$session.log"
+  local log_files
+  log_files=$(find "$search_dir" -type f -name '*.log' 2>/dev/null | sed "s|^$LOG_DIR/||" | sort)
 
-  if [ ! -f "$log_file" ]; then
-    echo "Error: No log file found for session '$session'"
+  if [ -z "$log_files" ]; then
+    echo "No log files found"
     exit 1
   fi
 
-  tail -n 1000 -f "$log_file"
+  local selected
+  selected=$(echo "$log_files" | fzf --cycle --prompt "> " --header "Select log file" --preview "tail -n 100 -f '$LOG_DIR/{}'" --preview-window follow)
+
+  if [ -z "$selected" ]; then
+    echo "No log file selected"
+    exit 0
+  fi
+
+  tail -n 1000 -f "$LOG_DIR/$selected"
 }
 
 # Parse arguments
@@ -355,7 +360,7 @@ case "$1" in
     kill_session "$2"
     ;;
   -l|--logs)
-    tail_logs "$2"
+    browse_logs "$2"
     ;;
   -d|--dir)
     dir_session "$2"

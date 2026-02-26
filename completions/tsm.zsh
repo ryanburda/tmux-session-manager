@@ -18,7 +18,7 @@ _tsm_log_sessions() {
     local log_dir="${XDG_STATE_HOME:-$HOME/.local/state}/tsm/logs"
     local sessions
     if [[ -d "$log_dir" ]]; then
-        sessions=(${(f)"$(for f in "$log_dir"/*.log; do [[ -f "$f" ]] && basename "$f" .log; done 2>/dev/null)"})
+        sessions=(${(f)"$(for dir in "$log_dir"/*/; do [[ -d "$dir" ]] && basename "$dir"; done 2>/dev/null)"})
         _describe 'session with logs' sessions
     fi
 }
@@ -39,7 +39,7 @@ _tsm() {
     _arguments -s \
         '(-c --configured -k --kill -l --logs -d --dir -z --zoxide -h --help)'{-c,--configured}'[Browse/start configured sessions]:configured session:_tsm_configured_sessions' \
         '(-c --configured -k --kill -l --logs -d --dir -z --zoxide -h --help)'{-k,--kill}'[Kill a session]:active session:_tsm_active_sessions' \
-        '(-c --configured -k --kill -l --logs -d --dir -z --zoxide -h --help)'{-l,--logs}'[Tail session logs]:session with logs:_tsm_log_sessions' \
+        '(-c --configured -k --kill -l --logs -d --dir -z --zoxide -h --help)'{-l,--logs}'[Browse session logs]:session with logs:_tsm_log_sessions' \
         '(-c --configured -k --kill -l --logs -d --dir -z --zoxide -h --help)'{-d,--dir}'[Browse/start session at directory]:directory:_files -/' \
         '(-c --configured -k --kill -l --logs -d --dir -z --zoxide -h --help)'{-z,--zoxide}'[Browse/start session via zoxide]:zoxide query:' \
         '(-c --configured -k --kill -l --logs -d --dir -z --zoxide -h --help)'{-h,--help}'[Show help message]' \

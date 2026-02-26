@@ -65,50 +65,13 @@ tsm -c, --configured [session] # Browse configured sessions with fzf, or start s
 tsm -d, --dir [path]           # Browse directories with fzf, or start session at path if provided
 tsm -z, --zoxide [query]       # Browse zoxide entries with fzf, or start session at best match if provided
 tsm -k, --kill [session]       # Kill a session (runs cleanup script if present)
-tsm -l, --logs [session]       # Tail logs for current session, or named session if provided
+tsm -l, --logs [session]       # Browse all log files, or for named session if provided
 tsm -h, --help                 # Show help message
 ```
 
 When session/path arguments are omitted, `tsm` uses fzf for interactive selection.
 When session/path arguments are provided, commands execute directly without prompts.
 This makes `tsm` both user-friendly for daily use and suitable for scripting.
-
-### Examples
-
-Interactive use:
-```bash
-tsm        # Opens fzf → select an active session → attaches
-tsm -c     # Opens fzf → select a configured session → starts it
-tsm -d     # Opens fzf → select a directory → creates session
-tsm -z     # Opens fzf → select from zoxide entries → creates session
-tsm -k     # Opens fzf → select a session → kills it
-```
-
-Scripted use:
-```bash
-# Start a configured session
-tsm -c myproject
-
-# Create a session rooted at a specific path
-tsm -d ~/projects/webapp
-
-# Create a session using zoxide's best match
-tsm -z proj
-
-# Switch to an active session
-tsm myproject
-
-# Tail the logs of this session
-tsm -l
-
-# Kill a session by name
-tsm -k myproject
-
-# Start a set of microservices together
-for project in api frontend backend; do
-    tsm -c $project
-done
-```
 
 ## tmux Keybindings
 
@@ -120,6 +83,7 @@ bind-key s popup -h 24 -w 60 -E "tsm"
 bind-key c popup -h 24 -w 80 -E "tsm -c"
 bind-key d popup -h 24 -w 80 -E "tsm -d"
 bind-key k popup -h 24 -w 60 -E "tsm -k"
+bind-key k popup -h 24 -w 60 -E "tsm -l"
 bind-key X run-shell "tsm -k #{session_name}"
 
 # OPTIONAL
@@ -131,6 +95,7 @@ This maps:
 - `prefix + c` - Configured session launcher
 - `prefix + d` - Directory rooted session launcher
 - `prefix + k` - Kill session selector
+- `prefix + l` - Browse logs
 - `prefix + X` - Kill the current session and run kill script
 
 And optionally maps:
@@ -236,7 +201,9 @@ Session configurations are stored in `${XDG_CONFIG_HOME:-~/.config}/tsm/<session
 
 Each session directory is required to have a `main.sh` script that contains the following functions:
   - `start()` (required): Function that creates the tmux session. `tsm` automatically attaches after this completes.
-  - `kill()` (optional): Function that runs asynchronously just before session is killed
+  This function receives the session log directory as `$1`.
+  - `kill()` (optional): Function that runs asynchronously just before session is killed.
+  This function receives the session log directory as `$1`.
 
 ### Example Session Configuration
 
@@ -291,14 +258,14 @@ kill() {
 > See `man tmux` for a full list of available tmux specific commands.
 
 Since `main.sh` is a full shell script, you're not limited to running commands inside tmux panes and windows.
-You can kick off commands (like `docker compose up --build --detach`) in the background with `&` so they don't
-block session startup. The session attaches immediately while the command continues running, and its output
-is captured in the log file for later review.
+You can kick off commands in the background with `&` so they don't block session startup. The session attaches
+immediately while the command continues running, and its output is captured in the log file for later review.
 
-Output from `start()` and `kill()` functions is redirected to dedicated session log files in
-`${XDG_STATE_HOME:-~/.local/state}/tsm/logs/`. Each configured session gets its own log
-file (e.g. `~/.local/state/tsm/logs/myproject.log`) that is appended to across invocations
-with timestamped headers.
+Output from `start()` and `kill()` functions is redirected to a dedicated log file at
+`${XDG_STATE_HOME:-~/.local/state}/tsm/logs/<session-name>/tsm.log`. Each configured session
+gets its own log directory (e.g. `~/.local/state/tsm/logs/myproject/`). The `tsm.log` file is
+wiped on each call to `start()` or `kill()`, so it only contains output from the most recent
+invocation. This prevents log files from growing unbounded.
 
 ```bash
 SESSION="webapp"
@@ -320,15 +287,54 @@ kill() {
 }
 ```
 
-Use `tsm -l` to tail the log file for the current tmux session, or `tsm -l <name>` to tail a specific session's logs.
+Use `tsm -l` to browse all log files across sessions with fzf. The fzf preview pane shows the
+tail of the currently highlighted file. Use `tsm -l <name>` to browse logs for a specific session.
 
-> **NOTE:** Log files are truncated to the most recent 1,000 lines **before** each session `start()` and `kill()` call.
-> This prevents log files from getting too large while always preserving the full output of the previous call of `start()` or `kill()`.
+This logging approach works well for simple cases, but output from multiple backgrounded processes runs
+the risk of being interleaved in the log file since they all write to the same location concurrently.
+To get around this, both `start()` and `kill()` receive the session log directory as `$1`. You can use
+this to write additional log files alongside `tsm.log`, keeping all logs for a session organized in
+one place:
 
-> **NOTE:** This logging approach works well for simple cases, but output from multiple backgrounded processes
-> runs the risk of being interleaved in the log file since they all write to the same location concurrently.
-> If you have more complex logging needs, redirect output to separate files within your `start()` and `kill()`
-> functions instead of relying on tsm's built-in logging.
+```bash
+SESSION="webapp"
+ROOT="$HOME/projects/webapp"
+
+start() {
+  local log_dir="$1"
+
+  tmux new-session -d -s "$SESSION" -n "code" -c "$ROOT"
+  tmux send-keys -t "$SESSION:code" 'nvim' Enter
+
+  # Redirect each process to its own log file to avoid interleaving.
+  docker compose up --build --force-recreate --detach > "$log_dir/docker.log" 2>&1 &
+  pg_ctl -D "$ROOT/data/postgres" -l "$log_dir/postgres.log" start
+}
+
+kill() {
+  local log_dir="$1"
+
+  # Run cleanup tasks in parallel so one doesn't block the other.
+  docker compose --project-directory "$ROOT" down > "$log_dir/docker.log" 2>&1 &
+  pg_ctl -D "$ROOT/data/postgres" -l "$log_dir/postgres.log" stop &
+}
+```
+
+This produces the following log structure:
+
+```
+~/.local/state/tsm/logs/webapp/
+├── docker.log
+├── postgres.log
+└── tsm.log
+```
+
+> **NOTE:** Prefer `>` (overwrite) over `>>` (append) when redirecting to log files. This matches how
+> `tsm.log` behaves by only keeping the output from the most recent invocation.
+
+> **NOTE:** Background cleanup tasks in `kill()` with `&` so they run in parallel. Although `kill()`
+> itself runs asynchronously, commands within it still run sequentially — if one hangs or is slow, it
+> will block the rest.
 
 ## License
 

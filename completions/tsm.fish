@@ -24,7 +24,7 @@ function __tsm_configured_sessions
     end
 end
 
-# Helper function: get session names with log files
+# Helper function: get session names with log directories
 function __tsm_log_sessions
     set -l state_dir "$XDG_STATE_HOME"
     if test -z "$state_dir"
@@ -33,9 +33,9 @@ function __tsm_log_sessions
     set -l log_dir "$state_dir/tsm/logs"
 
     if test -d "$log_dir"
-        for f in $log_dir/*.log
-            if test -f "$f"
-                basename "$f" .log
+        for dir in $log_dir/*/
+            if test -d "$dir"
+                basename "$dir"
             end
         end
     end
@@ -47,7 +47,7 @@ complete -c tsm -f
 # Options
 complete -c tsm -s c -l configured -d 'Browse/start configured sessions' -xa '(__tsm_configured_sessions)'
 complete -c tsm -s k -l kill -d 'Kill a session' -xa '(__tsm_active_sessions)'
-complete -c tsm -s l -l logs -d 'Tail session logs' -xa '(__tsm_log_sessions)'
+complete -c tsm -s l -l logs -d 'Browse session logs' -xa '(__tsm_log_sessions)'
 complete -c tsm -s d -l dir -d 'Browse/start session at directory' -ra '(__fish_complete_directories)'
 complete -c tsm -s z -l zoxide -d 'Browse/start session via zoxide'
 complete -c tsm -s h -l help -d 'Show help message'
