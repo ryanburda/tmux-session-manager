@@ -6,7 +6,7 @@ mkdir -p "$CONFIG_DIR" "$LOG_DIR"
 
 TSM_DIRS_CMD_DEFAULT='{
     echo "$HOME"
-    find "$HOME" -maxdepth 4 -name .git -type d 2>/dev/null | sed "s|/.git$||"
+    find "$HOME" -maxdepth 5 -name .git -type d 2>/dev/null | sed "s|/.git$||"
 }'
 
 usage() {
