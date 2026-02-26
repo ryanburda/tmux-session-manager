@@ -54,8 +54,10 @@ usage() {
   echo "Environment Variables:"
   echo "  TSM_DIRS_CMD  Command to generate directories for 'tsm -d'."
   echo "                The command is evaluated at runtime and piped to fzf."
+  echo "                Default (when unset): \$HOME + directories containing git repos within 4 levels"
   echo ""
-  echo "                Default (when unset): \$HOME + git repos within 4 levels"
+  echo "  EDITOR        Editor used by 'tsm -l' when opening a log file with ctrl-o."
+  echo "                Falls back to vi if not set."
 }
 
 get_active_sessions() {
@@ -340,8 +342,9 @@ browse_logs() {
     --cycle \
     --bind=ctrl-d:preview-half-page-down \
     --bind=ctrl-u:preview-half-page-up \
+    --bind="ctrl-o:execute(${EDITOR:-vi} '$LOG_DIR/{}')" \
     --prompt "> " \
-    --header $'Select file to tail log :: \e[33mctrl-d\e[0m to \e[31mpreview page down\e[0m | \e[33mctrl-u\e[0m to \e[31mpreview page up\e[0m' \
+    --header $':: \e[33mEnter\e[0m to \e[31mtail\e[0m | \e[33mctrl-o\e[0m to \e[31mopen in editor\e[0m | \e[33mctrl-d\e[0m to \e[31mpreview page down\e[0m | \e[33mctrl-u\e[0m to \e[31mpreview page up\e[0m' \
     --preview "tail -n 100000 -f '$LOG_DIR/{}'" \
     --preview-window follow)
 

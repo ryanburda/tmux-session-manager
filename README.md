@@ -96,11 +96,11 @@ This makes `tsm` both user-friendly for daily use and suitable for scripting.
 `tsm` is best used with tmux keybinds which can be added to your `~/.tmux.conf`:
 
 ```bash
-bind-key s popup -h 24 -w 60 -E "tsm"
-bind-key c popup -h 24 -w 80 -E "tsm -c"
-bind-key d popup -h 24 -w 80 -E "tsm -d"
-bind-key k popup -h 24 -w 60 -E "tsm -k"
-bind-key k popup -h 24 -w 60 -E "tsm -l"
+bind-key s popup -E "tsm"
+bind-key c popup -E "tsm -c"
+bind-key d popup -E "tsm -d"
+bind-key k popup -E "tsm -k"
+bind-key k popup -E "tsm -l"
 bind-key X run-shell "tsm -k #{session_name}"
 
 # OPTIONAL
@@ -301,6 +301,8 @@ invocation. This prevents log files from growing unbounded.
 
 Use `tsm -l` to browse all log files across sessions with fzf. The fzf preview pane shows the
 tail of the currently highlighted file. Use `tsm -l <name>` to browse logs for a specific session.
+
+> NOTE: The `tsm -l` `ctrl-o` keybind opens the selected log file in `$EDITOR` (falls back to `vi` if not set)
 
 <details>
 <summary><strong style="font-size: 1.25em;">Advanced Configuration Examples</strong></summary>
