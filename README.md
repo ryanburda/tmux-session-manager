@@ -362,7 +362,7 @@ kill() {
 }
 ```
 
-This produces the following log structure:
+This produces the following log structure which will be searchable when using `tsm -l`:
 
 ```
 ~/.local/state/tsm/logs/webapp/

@@ -55,7 +55,7 @@ usage() {
   echo "  TSM_DIRS_CMD  Command to generate directories for 'tsm -d'."
   echo "                The command is evaluated at runtime and piped to fzf."
   echo ""
-  echo "                Default (when unset): \$HOME + git repos within 3 levels"
+  echo "                Default (when unset): \$HOME + git repos within 4 levels"
 }
 
 get_active_sessions() {
@@ -336,7 +336,14 @@ browse_logs() {
   fi
 
   local selected
-  selected=$(echo "$log_files" | fzf --cycle --prompt "> " --header "Select log file" --preview "tail -n 100 -f '$LOG_DIR/{}'" --preview-window follow)
+  selected=$(echo "$log_files" | fzf \
+    --cycle \
+    --bind=ctrl-d:preview-half-page-down \
+    --bind=ctrl-u:preview-half-page-up \
+    --prompt "> " \
+    --header $'Select file to tail log :: \e[33mctrl-d\e[0m to \e[31mpreview page down\e[0m | \e[33mctrl-u\e[0m to \e[31mpreview page up\e[0m' \
+    --preview "tail -n 100000 -f '$LOG_DIR/{}'" \
+    --preview-window follow)
 
   if [ -z "$selected" ]; then
     echo "No log file selected"
