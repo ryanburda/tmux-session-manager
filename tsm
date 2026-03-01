@@ -6,7 +6,14 @@ mkdir -p "$CONFIG_DIR" "$LOG_DIR"
 
 TSM_DIRS_CMD_DEFAULT='{
     echo "$HOME"
-    find "$HOME" -maxdepth 5 -name .git -type d 2>/dev/null | sed "s|/.git$||"
+    find "$HOME" -maxdepth 4 -name .git -type d 2>/dev/null | sed "s|/.git$||"
+    find "$HOME" -maxdepth 4 -name .bare -type d 2>/dev/null | sed "s|/.bare$||"
+    find "$HOME" -maxdepth 4 -name HEAD -not -path "*/.git/*" 2>/dev/null | while read -r f; do
+        d=$(dirname "$f")
+        if [ -d "$d/objects" ] && [ -d "$d/refs" ]; then
+            case "$(basename "$d")" in .bare) dirname "$d" ;; *) echo "$d" ;; esac
+        fi
+    done
 }'
 
 usage() {
@@ -19,6 +26,7 @@ usage() {
   echo "  -c, --configured [name] Browse configured sessions with fzf, or start session if provided"
   echo "  -d, --dir [path]        Browse directories with fzf, or start session at path if provided"
   echo "  -z, --zoxide [query]    Browse zoxide entries with fzf, or query zoxide if provided"
+  echo "  -w, --worktree          Browse worktrees for current git repo session with fzf"
   echo "  -k, --kill [name]       Run kill(), if it exists, and kill the session"
   echo "  -l, --logs [name]       Browse all log files, or for named session if provided"
   echo ""
@@ -31,6 +39,7 @@ usage() {
   echo "  tsm -d ~/projects  Start session at ~/projects"
   echo "  tsm -z             Browse zoxide entries interactively"
   echo "  tsm -z proj        Start session at best zoxide match for 'proj'"
+  echo "  tsm -w             Browse worktrees for current git repo session"
   echo "  tsm -k             Select session to kill with fzf"
   echo "  tsm -k myproject   Kill session"
   echo "  tsm -l             Browse all log files with fzf"
@@ -39,29 +48,154 @@ usage() {
   echo "Configuration:"
   echo "  Sessions are configured in \$HOME/.config/tsm/<session-name>/"
   echo ""
-  echo "  main.sh   Script containing session functions:"
-  echo "            - start() Required function that creates the tmux session."
-  echo "                       tsm automatically attaches after this completes."
-  echo "                       Receives the session log directory as \$1."
-  echo "            - kill()  Optional function that runs asynchronously when session is killed."
-  echo "                       Use this for cleanup tasks like stopping services."
-  echo "                       Receives the session log directory as \$1."
+  echo "  main.sh   Script containing session configuration:"
+  echo ""
+  echo "            ROOT variable:     Required. Path to project root directory."
+  echo "                               tsm auto-detects git type from ROOT:"
+  echo "                               - Bare repo: enables worktree session mode"
+  echo "                               - Regular git repo: sets TSM_REPO_ROOT for -w"
+  echo "                               - Non-git: plain session"
+  echo ""
+  echo "            start()            Required. Customizes the tmux session."
+  echo "                               tsm creates the session before calling start()."
+  echo "                               Receives: \$1=session name, \$2=working directory, \$3=log directory."
+  echo "            kill()             Optional. Runs asynchronously when session is killed."
+  echo "                               Use this for cleanup tasks like stopping services."
+  echo "                               Receives: \$1=session name, \$2=working directory, \$3=log directory."
   echo ""
   echo "            Log directory: \$HOME/.local/state/tsm/logs/<session-name>/"
   echo "            tsm writes to tsm.log in this directory. Custom logs can be"
-  echo "            written here too, e.g.: some_cmd > \"\$1/other_service.log\" 2>&1"
+  echo "            written here too, e.g.: some_cmd > \"\$3/other_service.log\" 2>&1"
   echo ""
   echo "Environment Variables:"
-  echo "  TSM_DIRS_CMD  Command to generate directories for 'tsm -d'."
-  echo "                The command is evaluated at runtime and piped to fzf."
-  echo "                Default (when unset): \$HOME + directories containing git repos within 4 levels"
+  echo "  TSM_DIRS_CMD              Command to generate directories for 'tsm -d'."
+  echo "                            The command is evaluated at runtime and piped to fzf."
+  echo "                            Default (when unset): \$HOME + directories containing git repos within 4 levels"
   echo ""
-  echo "  EDITOR        Editor used by 'tsm -l' when opening a log file with ctrl-o."
-  echo "                Falls back to vi if not set."
+  echo "  TSM_DEFAULT_WORKTREE_NAME Name of the default worktree created when opening a bare repo."
+  echo "                            Default: main"
+  echo ""
+  echo "  EDITOR                    Editor used by 'tsm -l' when opening a log file with ctrl-o."
+  echo "                            Falls back to vi if not set."
 }
 
 get_active_sessions() {
   tmux ls 2>/dev/null | awk -F: '{print $1}'
+}
+
+is_bare_repo() {
+  [ -d "$1/.bare" ] || git -C "$1" rev-parse --is-bare-repository 2>/dev/null | grep -q true
+}
+
+bare_git_dir() {
+  if [ -d "$1/.bare" ]; then
+    echo "$1/.bare"
+  else
+    echo "$1"
+  fi
+}
+
+get_repo_root() {
+  local dir="$1"
+  local git_common_dir
+  git_common_dir=$(git -C "$dir" rev-parse --git-common-dir 2>/dev/null) || return 1
+
+  # Resolve relative paths to absolute
+  case "$git_common_dir" in
+    /*) ;;
+    *) git_common_dir=$(cd "$dir/$git_common_dir" 2>/dev/null && pwd -P) ;;
+  esac
+
+  case "$git_common_dir" in
+    */.git) dirname "$git_common_dir" ;;
+    */.bare) dirname "$git_common_dir" ;;
+    *) echo "$git_common_dir" ;;
+  esac
+}
+
+switch_or_attach() {
+  local session="$1"
+  if [ -n "$TMUX" ]; then
+    tmux switch-client -t "=$session"
+  else
+    tmux attach-session -t "=$session"
+  fi
+}
+
+create_dir_session() {
+  local selected="$1"
+
+  if is_bare_repo "$selected"; then
+    local repo_name
+    repo_name=$(basename "$selected" | tr -c 'a-zA-Z0-9_\-\n' '_')
+    local worktree_name="${TSM_DEFAULT_WORKTREE_NAME:-main}"
+    local git_dir
+    git_dir=$(bare_git_dir "$selected")
+
+    # Find existing worktrees (excluding bare root)
+    local first_worktree
+    first_worktree=$(git -C "$git_dir" worktree list --porcelain | awk '
+      /^worktree / { path = substr($0, 10) }
+      /^bare$/ { path = "" }
+      /^$/ { if (path != "") { print path; found = 1; exit } }
+      END { if (!found && path != "") print path }
+    ')
+
+    local worktree_path
+    if [ -n "$first_worktree" ]; then
+      worktree_path="$first_worktree"
+      worktree_name=$(basename "$worktree_path")
+    else
+      worktree_path="$selected/$worktree_name"
+      # Create worktree if it doesn't exist
+      if [ ! -d "$worktree_path" ]; then
+        git -C "$git_dir" worktree add "$worktree_path" "$worktree_name" 2>/dev/null || \
+          git -C "$git_dir" worktree add "$worktree_path" -b "$worktree_name"
+      fi
+    fi
+
+    local session_name="${repo_name}/${worktree_name}"
+
+    if tmux has-session -t "=$session_name" 2>/dev/null; then
+      echo "Session '$session_name' already running, switching..."
+      switch_or_attach "$session_name"
+    else
+      echo "Starting new session '$session_name' in $worktree_path..."
+      tmux new-session -d -s "$session_name" -c "$worktree_path"
+      tmux set-environment -t "=$session_name" TSM_REPO_ROOT "$selected"
+      tmux set-environment -t "=$session_name" TSM_WORKTREE_PATH "$worktree_path"
+      switch_or_attach "$session_name"
+    fi
+  elif git -C "$selected" rev-parse --git-dir &>/dev/null; then
+    # Regular git repo — create normal session but set TSM_REPO_ROOT
+    local session_name
+    session_name=$(basename "$selected" | tr -c 'a-zA-Z0-9_\-\n' '_')
+
+    if tmux has-session -t "=$session_name" 2>/dev/null; then
+      echo "Session '$session_name' already running, switching..."
+      switch_or_attach "$session_name"
+    else
+      echo "Starting new session '$session_name' in $selected..."
+      tmux new-session -d -s "$session_name" -c "$selected"
+      local repo_root
+      repo_root=$(get_repo_root "$selected")
+      tmux set-environment -t "=$session_name" TSM_REPO_ROOT "$repo_root"
+      switch_or_attach "$session_name"
+    fi
+  else
+    local session_name
+    # Only allow alphanumeric, dash, underscore (avoid tmux parsing issues with dots, colons, etc.)
+    session_name=$(basename "$selected" | tr -c 'a-zA-Z0-9_\-\n' '_')
+
+    if tmux has-session -t "=$session_name" 2>/dev/null; then
+      echo "Session '$session_name' already running, switching..."
+      switch_or_attach "$session_name"
+    else
+      echo "Starting new session '$session_name' in $selected..."
+      tmux new-session -d -s "$session_name" -c "$selected"
+      switch_or_attach "$session_name"
+    fi
+  fi
 }
 
 active_session() {
@@ -85,16 +219,12 @@ active_session() {
     fi
   fi
 
-  if ! tmux has-session -t "$session" 2>/dev/null; then
+  if ! tmux has-session -t "=$session" 2>/dev/null; then
     echo "Error: Session '$session' is not running"
     exit 1
   fi
 
-  if [ -n "$TMUX" ]; then
-    tmux switch-client -t "$session"
-  else
-    tmux attach-session -t "$session"
-  fi
+  switch_or_attach "$session"
 }
 
 kill_session() {
@@ -118,7 +248,7 @@ kill_session() {
     fi
   fi
 
-  if ! tmux has-session -t "$session" 2>/dev/null; then
+  if ! tmux has-session -t "=$session" 2>/dev/null; then
     echo "Error: Session '$session' is not running"
     exit 1
   fi
@@ -127,15 +257,20 @@ kill_session() {
   local log_file="$log_dir/tsm.log"
   mkdir -p "$log_dir"
 
-  local session_dir="$CONFIG_DIR/$session"
+  local configured_session
+  configured_session=$(tmux show-environment -t "=$session" TSM_CONFIGURED_SESSION 2>/dev/null | sed 's/^TSM_CONFIGURED_SESSION=//')
+  local session_dir="$CONFIG_DIR/${configured_session:-$session}"
+
+  local working_dir
+  working_dir=$(tmux show-environment -t "=$session" TSM_WORKING_DIR 2>/dev/null | sed 's/^TSM_WORKING_DIR=//')
 
   # Run kill function in background if it exists in main.sh
   if [ -f "$session_dir/main.sh" ]; then
     echo "[$(date '+%Y-%m-%d %H:%M:%S')] Killing session '$session'" > "$log_file"
-    nohup bash -c "source '$session_dir/main.sh' && declare -F kill &>/dev/null && kill '$log_dir'" >> "$log_file" 2>&1 &
+    nohup bash -c "source '$session_dir/main.sh' && declare -F kill &>/dev/null && kill '$session' '$working_dir' '$log_dir'" >> "$log_file" 2>&1 &
   fi
 
-  tmux kill-session -t "$session"
+  tmux kill-session -t "=$session"
 }
 
 configured_session() {
@@ -182,26 +317,83 @@ configured_session() {
     exit 1
   fi
 
+  # Read ROOT from main.sh
+  local configured_name="$session"
+  local root
+  root=$(bash -c "source '$session_dir/main.sh' && echo \"\$ROOT\"")
+
+  if [ -z "$root" ]; then
+    echo "Error: ROOT variable not defined in main.sh for session '$session'"
+    exit 1
+  fi
+
+  if [ ! -d "$root" ]; then
+    echo "Error: ROOT directory '$root' does not exist"
+    exit 1
+  fi
+
+  # Auto-detect git type from ROOT
+  local working_dir="$root"
+  local repo_root=""
+  local worktree_path=""
+
+  if is_bare_repo "$root"; then
+    # Bare repo: full worktree session mode
+    repo_root="$root"
+    local worktree_name="${TSM_DEFAULT_WORKTREE_NAME:-main}"
+    local git_dir
+    git_dir=$(bare_git_dir "$root")
+
+    # Check for existing worktrees first
+    local first_worktree
+    first_worktree=$(git -C "$git_dir" worktree list --porcelain | awk '
+      /^worktree / { path = substr($0, 10) }
+      /^bare$/ { path = "" }
+      /^$/ { if (path != "") { print path; found = 1; exit } }
+      END { if (!found && path != "") print path }
+    ')
+
+    if [ -n "$first_worktree" ]; then
+      worktree_path="$first_worktree"
+      worktree_name=$(basename "$worktree_path")
+    else
+      worktree_path="$root/$worktree_name"
+      if [ ! -d "$worktree_path" ]; then
+        git -C "$git_dir" worktree add "$worktree_path" "$worktree_name" 2>/dev/null || \
+          git -C "$git_dir" worktree add "$worktree_path" -b "$worktree_name"
+      fi
+    fi
+
+    working_dir="$worktree_path"
+    session="${session}/${worktree_name}"
+  elif git -C "$root" rev-parse --git-dir &>/dev/null; then
+    # Regular git repo: plain session with TSM_REPO_ROOT
+    repo_root=$(get_repo_root "$root")
+  fi
+
   local log_dir="$LOG_DIR/$session"
   local log_file="$log_dir/tsm.log"
   mkdir -p "$log_dir"
 
   # Check if session already exists
-  if tmux has-session -t "$session" 2>/dev/null; then
+  if tmux has-session -t "=$session" 2>/dev/null; then
     echo "Session '$session' already running, switching..."
-    if [ -n "$TMUX" ]; then
-      tmux switch-client -t "$session"
-    else
-      tmux attach-session -t "$session"
-    fi
+    switch_or_attach "$session"
   else
     echo "[$(date '+%Y-%m-%d %H:%M:%S')] Starting session '$session'" > "$log_file"
-    bash -c "set -m; source '$session_dir/main.sh' && start '$log_dir'" >> "$log_file" 2>&1
-    if [ -n "$TMUX" ]; then
-      tmux switch-client -t "$session"
-    else
-      tmux attach-session -t "$session"
+    # tsm creates the session
+    tmux new-session -d -s "$session" -c "$working_dir"
+    # Call start() with new signature
+    bash -c "set -m; source '$session_dir/main.sh' && start '$session' '$working_dir' '$log_dir'" >> "$log_file" 2>&1
+    tmux set-environment -t "=$session" TSM_CONFIGURED_SESSION "$configured_name"
+    tmux set-environment -t "=$session" TSM_WORKING_DIR "$working_dir"
+    if [ -n "$repo_root" ]; then
+      tmux set-environment -t "=$session" TSM_REPO_ROOT "$repo_root"
     fi
+    if [ -n "$worktree_path" ]; then
+      tmux set-environment -t "=$session" TSM_WORKTREE_PATH "$worktree_path"
+    fi
+    switch_or_attach "$session"
   fi
 }
 
@@ -238,28 +430,7 @@ dir_session() {
 
   # Resolve to absolute path
   selected=$(cd "$selected" && pwd -P)
-
-  local session_name
-  # Only allow alphanumeric, dash, underscore (avoid tmux parsing issues with dots, colons, etc.)
-  session_name=$(basename "$selected" | tr -c 'a-zA-Z0-9_\-\n' '_')
-
-  # Check if session already exists
-  if tmux has-session -t "$session_name" 2>/dev/null; then
-    echo "Session '$session_name' already running, switching..."
-    if [ -n "$TMUX" ]; then
-      tmux switch-client -t "$session_name"
-    else
-      tmux attach-session -t "$session_name"
-    fi
-  else
-    echo "Starting new session '$session_name' in $selected..."
-    if [ -n "$TMUX" ]; then
-      tmux new-session -d -s "$session_name" -c "$selected"
-      tmux switch-client -t "$session_name"
-    else
-      tmux new-session -s "$session_name" -c "$selected"
-    fi
-  fi
+  create_dir_session "$selected"
 }
 
 zoxide_dir_session() {
@@ -291,28 +462,105 @@ zoxide_dir_session() {
 
   # Resolve to absolute path
   selected=$(cd "$selected" && pwd -P)
+  create_dir_session "$selected"
+}
 
-  local session_name
-  # Only allow alphanumeric, dash, underscore (avoid tmux parsing issues with dots, colons, etc.)
-  session_name=$(basename "$selected" | tr -c 'a-zA-Z0-9_\-\n' '_')
+_switch_to_worktree() {
+  local repo_root="$1"
+  local worktree_path="$2"
+  local worktree_name
+  worktree_name=$(basename "$worktree_path")
+  local repo_name
+  repo_name=$(basename "$repo_root" | tr -c 'a-zA-Z0-9_\-\n' '_')
+  local session_name="${repo_name}/${worktree_name}"
 
-  # Check if session already exists
-  if tmux has-session -t "$session_name" 2>/dev/null; then
-    echo "Session '$session_name' already running, switching..."
-    if [ -n "$TMUX" ]; then
-      tmux switch-client -t "$session_name"
-    else
-      tmux attach-session -t "$session_name"
-    fi
-  else
-    echo "Starting new session '$session_name' in $selected..."
-    if [ -n "$TMUX" ]; then
-      tmux new-session -d -s "$session_name" -c "$selected"
-      tmux switch-client -t "$session_name"
-    else
-      tmux new-session -s "$session_name" -c "$selected"
-    fi
+  if tmux has-session -t "=$session_name" 2>/dev/null; then
+    switch_or_attach "$session_name"
+    return
   fi
+
+  # Check if the current session has a configured session
+  local current_session
+  current_session=$(tmux display-message -p '#S')
+  local configured_session
+  configured_session=$(tmux show-environment -t "=$current_session" TSM_CONFIGURED_SESSION 2>/dev/null | sed 's/^TSM_CONFIGURED_SESSION=//')
+
+  if [ -n "$configured_session" ] && [ -f "$CONFIG_DIR/$configured_session/main.sh" ]; then
+    local log_dir="$LOG_DIR/$session_name"
+    local log_file="$log_dir/tsm.log"
+    mkdir -p "$log_dir"
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] Starting session '$session_name'" > "$log_file"
+    tmux new-session -d -s "$session_name" -c "$worktree_path"
+    bash -c "set -m; source '$CONFIG_DIR/$configured_session/main.sh' && start '$session_name' '$worktree_path' '$log_dir'" >> "$log_file" 2>&1
+    tmux set-environment -t "=$session_name" TSM_REPO_ROOT "$repo_root"
+    tmux set-environment -t "=$session_name" TSM_WORKTREE_PATH "$worktree_path"
+    tmux set-environment -t "=$session_name" TSM_WORKING_DIR "$worktree_path"
+    tmux set-environment -t "=$session_name" TSM_CONFIGURED_SESSION "$configured_session"
+    switch_or_attach "$session_name"
+  else
+    tmux new-session -d -s "$session_name" -c "$worktree_path"
+    tmux set-environment -t "=$session_name" TSM_REPO_ROOT "$repo_root"
+    tmux set-environment -t "=$session_name" TSM_WORKTREE_PATH "$worktree_path"
+    tmux set-environment -t "=$session_name" TSM_WORKING_DIR "$worktree_path"
+    switch_or_attach "$session_name"
+  fi
+}
+
+worktree_session() {
+  if [ -z "$TMUX" ]; then
+    echo "Error: -w requires an active tmux session"
+    exit 1
+  fi
+
+  local current_session
+  current_session=$(tmux display-message -p '#S')
+  local repo_root
+  repo_root=$(tmux show-environment -t "=$current_session" TSM_REPO_ROOT 2>/dev/null | sed 's/^TSM_REPO_ROOT=//')
+
+  # Fall back to detecting repo from current pane's path
+  if [ -z "$repo_root" ]; then
+    local pane_path
+    pane_path=$(tmux display-message -p '#{pane_current_path}')
+    repo_root=$(get_repo_root "$pane_path" 2>/dev/null)
+  fi
+
+  if [ -z "$repo_root" ]; then
+    echo "Error: Current session is not a git repo session (TSM_REPO_ROOT not set and not in a git repo)"
+    exit 1
+  fi
+
+  local git_dir
+  git_dir=$(bare_git_dir "$repo_root")
+  local worktrees
+  worktrees=$(git -C "$git_dir" worktree list --porcelain | awk '
+    /^worktree / { path = substr($0, 10) }
+    /^bare$/ { path = "" }
+    /^$/ { if (path != "") print path; path = "" }
+    END { if (path != "") print path }
+  ')
+
+  if [ -z "$worktrees" ]; then
+    echo "No worktrees found"
+    exit 1
+  fi
+
+  local fzf_input
+  fzf_input=$(echo "$worktrees" | while read -r wt; do
+    printf '%s\t%s\n' "$wt" "$(basename "$wt")"
+  done)
+
+  local selected
+  selected=$(echo "$fzf_input" | fzf --cycle --with-nth=2 --delimiter=$'\t' --prompt "> " --header "Select worktree")
+
+  if [ -z "$selected" ]; then
+    echo "No worktree selected"
+    exit 0
+  fi
+
+  local selected_path
+  selected_path=$(echo "$selected" | cut -f1)
+
+  _switch_to_worktree "$repo_root" "$selected_path"
 }
 
 browse_logs() {
@@ -377,6 +625,9 @@ case "$1" in
     ;;
   -z|--zoxide)
     zoxide_dir_session "$2"
+    ;;
+  -w|--worktree)
+    worktree_session
     ;;
   -h|--help)
     usage

@@ -194,11 +194,17 @@ or specific directories are missing in the result.
 > ```bash
 > export TSM_DIRS_CMD='{
 >     echo "$HOME"
->     find "$HOME" -maxdepth 2 -name .git -type d 2>/dev/null | sed "s|/.git$||"
->     find "$HOME/projects" -maxdepth 4 -name .git -type d 2>/dev/null | sed "s|/.git$||"
+>     find "$HOME/projects" -maxdepth 3 -name .git -type d 2>/dev/null | sed "s|/.git$||"
+>     find "$HOME/projects" -maxdepth 3 -name .bare -type d 2>/dev/null | sed "s|/.bare$||"
+>     find "$HOME/projects" -maxdepth 3 -name HEAD -not -path "*/.git/*" 2>/dev/null | while read -r f; do
+>         d=$(dirname "$f")
+>         if [ -d "$d/objects" ] && [ -d "$d/refs" ]; then
+>             case "$(basename "$d")" in .bare) dirname "$d" ;; *) echo "$d" ;; esac
+>         fi
+>     done
 > }'
 > ```
-> This is a more targeted search which may be slightly faster as a result.
+> This is a more targeted search rooted at `$HOME/projects` which may be slightly faster as a result.
 > 
 > The following lists all directories in your `$HOME` directory:
 > 
@@ -235,9 +241,10 @@ or specific directories are missing in the result.
 Configured sessions provide more control when starting a session. Session configurations are shell scripts
 stored in `${XDG_CONFIG_HOME:-~/.config}/tsm/<session-name>/`.
 
-Each session directory is required to have a `main.sh` script that contains the following functions:
-  - `start()` (required): Function that creates the tmux session. `tsm` automatically attaches after this completes.
-  - `kill()` (optional): Function that runs asynchronously just before session is killed.
+Each session directory is required to have a `main.sh` script that defines:
+  - `ROOT` (required): Path to the project root directory. tsm auto-detects git type from ROOT to enable worktree support.
+  - `start()` (required): Customizes the tmux session. tsm creates the session before calling `start()`, which receives `$1`=session name, `$2`=working directory, `$3`=log directory.
+  - `kill()` (optional): Runs asynchronously when the session is killed. Receives the same arguments as `start()`.
 
 ### Example Session Configuration
 
@@ -250,33 +257,34 @@ mkdir -p "${XDG_CONFIG_HOME:-$HOME/.config}/tsm/myproject"
 Create `~/.config/tsm/myproject/main.sh`:
 
 ```bash
-SESSION="myproject"
 ROOT="$HOME/projects/myproject"
 
 start() {
-  # Create new session with first window named 'code'.
+  local session="$1"
+  local root="$2"
+  local log_dir="$3"
+
+  # Rename the first window to 'code'.
   # This window will have two vertical splits:
   #     - nvim on top 80%
   #     - a terminal at the bottom 20% that runs the `ls` command
-  CODE_WINDOW="code"
-  tmux new-session -d -s "$SESSION" -n "$CODE_WINDOW" -c "$ROOT"
-  tmux send-keys -t "$SESSION:$CODE_WINDOW" 'nvim' Enter
-  tmux split-window -v -l 20% -t "$SESSION:$CODE_WINDOW" -c "$ROOT"
-  tmux send-keys -t "$SESSION:$CODE_WINDOW" 'ls' Enter
+  tmux rename-window -t "$session" "code"
+  tmux send-keys -t "$session:code" 'nvim' Enter
+  tmux split-window -v -l 20% -t "$session:code" -c "$root"
+  tmux send-keys -t "$session:code" 'ls' Enter
 
   # Create a second window named 'docker'.
   # This window will have an even-vertical layout with:
   #     - a terminal that starts docker compose on top
   #     - lazydocker on bottom
-  DOCKER_WINDOW="docker"
-  tmux new-window -t "$SESSION" -n $DOCKER_WINDOW -c "$ROOT"
-  tmux send-keys -t "$SESSION:$DOCKER_WINDOW" 'docker compose up --force-recreate --detach' Enter
-  tmux split-window -t "$SESSION:$DOCKER_WINDOW" -v -c "$ROOT"
-  tmux send-keys -t "$SESSION:$DOCKER_WINDOW" 'lazydocker' Enter
-  tmux select-layout -t "$SESSION:$DOCKER_WINDOW" even-vertical
+  tmux new-window -t "$session" -n "docker" -c "$root"
+  tmux send-keys -t "$session:docker" 'docker compose up --force-recreate --detach' Enter
+  tmux split-window -t "$session:docker" -v -c "$root"
+  tmux send-keys -t "$session:docker" 'lazydocker' Enter
+  tmux select-layout -t "$session:docker" even-vertical
 
   # Select first window
-  tmux select-window -t "$SESSION:$CODE_WINDOW"
+  tmux select-window -t "$session:code"
 }
 
 # Optional: cleanup function runs in background when session is killed.
@@ -284,8 +292,12 @@ start() {
 # cleanup tasks to complete, providing a snappier user experience especially
 # when cleanup involves slow operations like stopping services.
 kill() {
+  local session="$1"
+  local root="$2"
+  local log_dir="$3"
+
   # Stop the docker compose service that was started earlier.
-  docker compose --project-directory "$ROOT" down
+  docker compose --project-directory "$root" down
 }
 ```
 
@@ -312,55 +324,65 @@ You can kick off commands in the background with `&` so they don't block session
 immediately while the command continues running, and its output is captured in the log file for later review.
 
 ```bash
-SESSION="webapp"
 ROOT="$HOME/projects/webapp"
 
 start() {
-  tmux new-session -d -s "$SESSION" -n "code" -c "$ROOT"
-  tmux send-keys -t "$SESSION:code" 'nvim' Enter
+  local session="$1"
+  local root="$2"
+  local log_dir="$3"
+
+  tmux rename-window -t "$session" "code"
+  tmux send-keys -t "$session:code" 'nvim' Enter
 
   # Start a service in the background so it doesn't block session startup.
   # Build output and errors are captured in the tsm log file.
   echo "$(date '+%Y-%m-%d %H:%M:%S'): Starting my webapp"
-  docker compose up --build --force-recreate --detach &
+  docker compose --project-directory "$root" up --build --force-recreate --detach &
 }
 
 kill() {
+  local session="$1"
+  local root="$2"
+  local log_dir="$3"
+
   echo "$(date '+%Y-%m-%d %H:%M:%S'): Stopping my webapp"
-  docker compose --project-directory "$ROOT" down
+  docker compose --project-directory "$root" down
 }
 ```
 
 This logging approach works well for simple cases, but output from multiple backgrounded processes runs
 the risk of being interleaved in the log file since they all write to the same location concurrently.
-To get around this, both `start()` and `kill()` receive the session log directory as the first argument (`$1`).
+To get around this, both `start()` and `kill()` receive the session log directory as their third argument (`$3`).
 You can use this to write additional log files alongside `tsm.log`, keeping all logs for a session organized in
 one place:
 
 ```bash
-SESSION="webapp"
 ROOT="$HOME/projects/webapp"
 
 DOCKER_LOG_FILE="docker.log"
 POSTGRES_LOG_FILE="postgres.log"
 
 start() {
-  local log_dir="$1"
+  local session="$1"
+  local root="$2"
+  local log_dir="$3"
 
-  tmux new-session -d -s "$SESSION" -n "code" -c "$ROOT"
-  tmux send-keys -t "$SESSION:code" 'nvim' Enter
+  tmux rename-window -t "$session" "code"
+  tmux send-keys -t "$session:code" 'nvim' Enter
 
   # Redirect each process to its own log file to avoid interleaving.
-  docker compose up --build --force-recreate --detach > "$log_dir/DOCKER_LOG_FILE" 2>&1 &
-  pg_ctl -D "$ROOT/data/postgres" -l "$log_dir/POSTGRES_LOG_FILE" start
+  docker compose --project-directory "$root" up --build --force-recreate --detach > "$log_dir/$DOCKER_LOG_FILE" 2>&1 &
+  pg_ctl -D "$root/data/postgres" -l "$log_dir/$POSTGRES_LOG_FILE" start
 }
 
 kill() {
-  local log_dir="$1"
+  local session="$1"
+  local root="$2"
+  local log_dir="$3"
 
   # Run cleanup tasks in parallel so one doesn't block the other.
-  docker compose --project-directory "$ROOT" down > "$log_dir/DOCKER_LOG_FILE" 2>&1 &
-  pg_ctl -D "$ROOT/data/postgres" -l "$log_dir/POSTGRES_LOG_FILE" stop &
+  docker compose --project-directory "$root" down > "$log_dir/$DOCKER_LOG_FILE" 2>&1 &
+  pg_ctl -D "$root/data/postgres" -l "$log_dir/$POSTGRES_LOG_FILE" stop &
 }
 ```
 
@@ -381,6 +403,179 @@ This produces the following log structure which will be searchable when using `t
 > will block the rest.
 
 </details>
+
+## Optional Features
+
+### Worktree Sessions
+
+A worktree session is a tmux session dedicated to a git worktree, where the session's working directory is the worktree directory itself.
+
+Git worktrees allow you to have multiple branches checked out at the same time in separate working directories. `tsm` piggybacks off this to seamlessly launch dedicated tmux sessions for your worktrees as needed, using `/` as a session name delimiter (e.g., `myproject/main`, `myproject/feature`).
+
+This works with both bare repositories and regular git repos.
+
+#### Why Worktree Sessions?
+
+`cd`ing in and out of worktree folders is not difficult. The problem comes when you want to do work in two different worktrees in parallel.
+
+<details>
+<summary><strong style="font-size: 1.25em;">Workflow 1: Windows and Splits (Good)</strong></summary>
+
+> If you're using `tsm` then you are likely already familiar with tmux's pane splitting and windowing commands.
+> Your current workflow probably looks something like:
+>
+> 1. `cd <repo>/<worktree1>`
+> 2. Do work...
+> 3. Realize you need to do something else in a different branch
+> 4. Create a new window or split
+> 5. In the new window/split run `cd ../worktree2`
+> 6. Do more work...
+>
+> In this workflow your layer of isolation between worktrees is the dedicated window or split you created. You can
+> jump between these two locations to parallelize your work. This is fine, but it can be made better.
+
+</details>
+
+<details>
+<summary><strong style="font-size: 1.25em;">Workflow 2: Manual Sessions (Better)</strong></summary>
+
+> A better workflow is to create a dedicated tmux session when you want to do work in a different worktree. This is
+> similar to Workflow 1, but instead of creating a split or window for the worktree, you create a new tmux session.
+>
+> Now your layer of isolation between worktrees is a tmux session. This is significantly better since you're less
+> likely to mistake which worktree you're operating on, especially if you give your sessions distinct names.
+
+</details>
+
+<details open>
+<summary><strong style="font-size: 1.25em;">Workflow 3: tsm (Best)</strong></summary>
+
+> The `tsm` workflow is an automated version of Workflow 2 via `tsm -w`. This pulls up a worktree picker for the
+> current session and automatically creates a new tmux session with its working directory set to the chosen worktree.
+> The session name is set to `<repo>/<worktree>` to clearly distinguish active sessions based in different worktrees.
+>
+> This is especially helpful for agentic workflows. Tmux sessions provide a layer of isolation between different
+> worktrees of the same project. Combined with [configured sessions](#configured-sessions), this allows you to
+> effortlessly duplicate your preferred tmux window/split setup as many times as you want — parallelizing distinct
+> tasks in a familiar, custom-tailored environment with zero setup cost.
+>
+> For example, you can create a worktree session for a large refactor ticket and delegate that work to an AI agent
+> to get things started. Meanwhile, in another worktree session, you can continue coding by hand.
+
+</details>
+
+> **Note:** `tsm -w` only works from inside an existing tmux session that contains a repo with worktrees.
+> You cannot call `tsm -w` outside of tmux.
+
+> **Note:** `tsm` does not manage your git worktrees — it only creates tmux sessions for them. Creating,
+> deleting, and otherwise managing worktrees is done with `git worktree` directly or with other tools.
+
+#### Default Worktree
+
+The worktree workflow in `tsm` relies on a default worktree. When `tsm -d` or `tsm -c` detects a bare repo, it
+will always drop you into the default worktree. This means you don't have to think about worktrees until you
+choose to start a new session for a different one.
+
+The default worktree name is `main` but can be changed with the `TSM_DEFAULT_WORKTREE_NAME` environment variable.
+
+#### Setup
+
+Create a bare repo and add a worktree:
+
+```bash
+git clone --bare git@github.com:user/myproject.git myproject
+cd myproject
+git worktree add main main
+```
+
+<details>
+<summary><strong style="font-size: 1.25em;">Alternative: <code>.bare</code> convention</strong></summary>
+
+> Some people prefer cloning into a `.bare` subdirectory to keep git internals separate from worktrees:
+>
+> ```bash
+> git clone --bare git@github.com:user/myproject.git myproject/.bare
+> cd myproject
+> git --git-dir=.bare worktree add main main
+> ```
+>
+> This produces a cleaner layout:
+>
+> ```
+> myproject/
+> ├── .bare/       ← git internals hidden here
+> ├── main/        ← worktrees are clean siblings
+> └── feature/
+> ```
+>
+> vs the standard layout where git internals and worktrees are mixed together:
+>
+> ```
+> myproject/
+> ├── HEAD
+> ├── config
+> ├── objects/
+> ├── refs/
+> ├── main/
+> └── feature/
+> ```
+>
+> `tsm` supports both conventions automatically.
+
+</details>
+
+When you run `tsm -d` and select a bare repo directory, `tsm` will automatically:
+1. Use an existing worktree if one exists, or create the default worktree
+2. Name the session `repo/worktree` (e.g., `myproject/main`)
+3. Set `TSM_REPO_ROOT` on the session for worktree commands
+
+When you run `tsm -d` and select a regular git repo directory, `tsm` will set `TSM_REPO_ROOT` so that `tsm -w` works from the session.
+
+#### Switching Worktrees
+
+From inside a git repo session, switch between worktrees:
+
+```bash
+tsm -w              # Browse existing worktrees with fzf and switch to selection
+```
+
+Suggested tmux keybinding:
+
+```bash
+bind-key w popup -E "tsm -w"
+```
+
+#### Configured Sessions with Worktrees
+
+Worktree support is automatically enabled when `ROOT` points to a bare git repository. When this is detected, `tsm` will:
+- Use an existing worktree or create the default worktree if needed
+- Name the session `config/worktree` (e.g., `myproject/main`)
+- Pass the worktree path as `$2` (working directory) to `start()` and `kill()`
+
+When `ROOT` points to a regular git repo, `tsm` sets `TSM_REPO_ROOT` so that `tsm -w` works from the session.
+
+No special handling is needed in `start()` or `kill()` — tsm resolves the working directory automatically:
+
+```bash
+ROOT="$HOME/projects/myproject"
+
+start() {
+  local session="$1"      # e.g. "myproject" or "myproject/feature"
+  local root="$2"         # ROOT, or worktree path if worktree session
+  local log_dir="$3"
+
+  # Session already created by tsm with cwd=$root
+  tmux rename-window -t "$session" "code"
+  tmux send-keys -t "$session:code" 'nvim' Enter
+}
+
+kill() {
+  local session="$1"
+  local root="$2"
+  local log_dir="$3"
+  # cleanup tasks...
+}
+```
 
 ## License
 

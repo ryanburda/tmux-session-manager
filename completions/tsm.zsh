@@ -37,12 +37,13 @@ _tsm() {
     typeset -A opt_args
 
     _arguments -s \
-        '(-c --configured -k --kill -l --logs -d --dir -z --zoxide -h --help)'{-c,--configured}'[Browse/start configured sessions]:configured session:_tsm_configured_sessions' \
-        '(-c --configured -k --kill -l --logs -d --dir -z --zoxide -h --help)'{-k,--kill}'[Kill a session]:active session:_tsm_active_sessions' \
-        '(-c --configured -k --kill -l --logs -d --dir -z --zoxide -h --help)'{-l,--logs}'[Browse session logs]:session with logs:_tsm_log_sessions' \
-        '(-c --configured -k --kill -l --logs -d --dir -z --zoxide -h --help)'{-d,--dir}'[Browse/start session at directory]:directory:_files -/' \
-        '(-c --configured -k --kill -l --logs -d --dir -z --zoxide -h --help)'{-z,--zoxide}'[Browse/start session via zoxide]:zoxide query:' \
-        '(-c --configured -k --kill -l --logs -d --dir -z --zoxide -h --help)'{-h,--help}'[Show help message]' \
+        '(-c --configured -k --kill -l --logs -d --dir -z --zoxide -w --worktree -h --help)'{-c,--configured}'[Browse/start configured sessions]:configured session:_tsm_configured_sessions' \
+        '(-c --configured -k --kill -l --logs -d --dir -z --zoxide -w --worktree -h --help)'{-k,--kill}'[Kill a session]:active session:_tsm_active_sessions' \
+        '(-c --configured -k --kill -l --logs -d --dir -z --zoxide -w --worktree -h --help)'{-l,--logs}'[Browse session logs]:session with logs:_tsm_log_sessions' \
+        '(-c --configured -k --kill -l --logs -d --dir -z --zoxide -w --worktree -h --help)'{-d,--dir}'[Browse/start session at directory]:directory:_files -/' \
+        '(-c --configured -k --kill -l --logs -d --dir -z --zoxide -w --worktree -h --help)'{-z,--zoxide}'[Browse/start session via zoxide]:zoxide query:' \
+        '(-c --configured -k --kill -l --logs -d --dir -z --zoxide -w --worktree -h --help)'{-w,--worktree}'[Browse worktrees for current git repo session]' \
+        '(-c --configured -k --kill -l --logs -d --dir -z --zoxide -w --worktree -h --help)'{-h,--help}'[Show help message]' \
         '1:active session:_tsm_active_sessions'
 }
 

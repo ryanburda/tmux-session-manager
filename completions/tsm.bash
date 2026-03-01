@@ -10,7 +10,7 @@ _tsm_completions() {
     prev="${COMP_WORDS[COMP_CWORD-1]}"
 
     # Available options
-    opts="-c --configured -k --kill -l --logs -d --dir -z --zoxide -h --help"
+    opts="-c --configured -k --kill -l --logs -d --dir -z --zoxide -w --worktree -h --help"
 
     # Complete based on previous word
     case "$prev" in
@@ -45,6 +45,10 @@ _tsm_completions() {
             ;;
         -z|--zoxide)
             # No completion for zoxide queries
+            return 0
+            ;;
+        -w|--worktree)
+            # No completion for worktree commands
             return 0
             ;;
         tsm)
