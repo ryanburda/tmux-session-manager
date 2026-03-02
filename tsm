@@ -14,7 +14,7 @@ TSM_DIRS_CMD_DEFAULT='{
             case "$(basename "$d")" in .bare) dirname "$d" ;; *) echo "$d" ;; esac
         fi
     done
-}'
+} | awk "!seen[\$0]++"'
 
 usage() {
   echo "Tmux Session Manager"
