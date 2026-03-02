@@ -73,7 +73,7 @@ usage() {
   echo "                            Default (when unset): \$HOME + directories containing git repos within 4 levels"
   echo ""
   echo "  TSM_DEFAULT_WORKTREE_NAME Name of the default worktree created when opening a bare repo."
-  echo "                            Default: main"
+  echo "                            Default: base"
   echo ""
   echo "  EDITOR                    Editor used by 'tsm -l' when opening a log file with ctrl-o."
   echo "                            Falls back to vi if not set."
@@ -133,7 +133,7 @@ create_dir_session() {
   if is_bare_repo "$selected"; then
     local repo_name
     repo_name=$(basename "$selected" | tr -c 'a-zA-Z0-9_\-\n' '_')
-    local worktree_name="${TSM_DEFAULT_WORKTREE_NAME:-main}"
+    local worktree_name="${TSM_DEFAULT_WORKTREE_NAME:-base}"
     local git_dir
     git_dir=$(bare_git_dir "$selected")
 
@@ -347,7 +347,7 @@ configured_session() {
   if is_bare_repo "$root"; then
     # Bare repo: full worktree session mode
     repo_root="$root"
-    local worktree_name="${TSM_DEFAULT_WORKTREE_NAME:-main}"
+    local worktree_name="${TSM_DEFAULT_WORKTREE_NAME:-base}"
     local git_dir
     git_dir=$(bare_git_dir "$root")
 

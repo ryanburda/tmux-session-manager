@@ -410,7 +410,7 @@ This produces the following log structure which will be searchable when using `t
 
 A worktree session is a tmux session dedicated to a git worktree, where the session's working directory is the worktree directory itself.
 
-Git worktrees allow you to have multiple branches checked out at the same time in separate working directories. `tsm` piggybacks off this to seamlessly launch dedicated tmux sessions for your worktrees as needed, using `/` as a session name delimiter (e.g., `myproject/main`, `myproject/feature`).
+Git worktrees allow you to have multiple branches checked out at the same time in separate working directories. `tsm` piggybacks off this to seamlessly launch dedicated tmux sessions for your worktrees as needed, using `/` as a session name delimiter (e.g., `myproject/base`, `myproject/feature`).
 
 This works with both bare repositories and regular git repos.
 
@@ -476,7 +476,13 @@ The worktree workflow in `tsm` relies on a default worktree. When `tsm -d` or `t
 will always drop you into the default worktree. This means you don't have to think about worktrees until you
 choose to start a new session for a different one.
 
-The default worktree name is `main` but can be changed with the `TSM_DEFAULT_WORKTREE_NAME` environment variable.
+The default worktree name is `base` but can be changed with the `TSM_DEFAULT_WORKTREE_NAME` environment variable.
+
+The name `base` was chosen deliberately to avoid confusion with the `main` branch. In a bare repo
+worktree workflow, the worktree name and the branch name are independent concepts — a worktree named
+`main` that tracks the `main` branch can make it hard to tell which one is being discussed. Using
+`base` clearly signals "this is the primary worktree where I do my default work" without colliding
+with branch naming conventions.
 
 #### Setup
 
@@ -485,7 +491,7 @@ Create a bare repo and add a worktree:
 ```bash
 git clone --bare git@github.com:user/myproject.git myproject
 cd myproject
-git worktree add main main
+git worktree add base main
 ```
 
 <details>
@@ -496,7 +502,7 @@ git worktree add main main
 > ```bash
 > git clone --bare git@github.com:user/myproject.git myproject/.bare
 > cd myproject
-> git --git-dir=.bare worktree add main main
+> git --git-dir=.bare worktree add base main
 > ```
 >
 > This produces a cleaner layout:
@@ -504,7 +510,7 @@ git worktree add main main
 > ```
 > myproject/
 > ├── .bare/       ← git internals hidden here
-> ├── main/        ← worktrees are clean siblings
+> ├── base/        ← worktrees are clean siblings
 > └── feature/
 > ```
 >
@@ -516,7 +522,7 @@ git worktree add main main
 > ├── config
 > ├── objects/
 > ├── refs/
-> ├── main/
+> ├── base/
 > └── feature/
 > ```
 >
@@ -526,7 +532,7 @@ git worktree add main main
 
 When you run `tsm -d` and select a bare repo directory, `tsm` will automatically:
 1. Use an existing worktree if one exists, or create the default worktree
-2. Name the session `repo/worktree` (e.g., `myproject/main`)
+2. Name the session `repo/worktree` (e.g., `myproject/base`)
 3. Set `TSM_REPO_ROOT` on the session for worktree commands
 
 When you run `tsm -d` and select a regular git repo directory, `tsm` will set `TSM_REPO_ROOT` so that `tsm -w` works from the session.
@@ -549,7 +555,7 @@ bind-key w popup -E "tsm -w"
 
 Worktree support is automatically enabled when `ROOT` points to a bare git repository. When this is detected, `tsm` will:
 - Use an existing worktree or create the default worktree if needed
-- Name the session `config/worktree` (e.g., `myproject/main`)
+- Name the session `config/worktree` (e.g., `myproject/base`)
 - Pass the worktree path as `$2` (working directory) to `start()` and `kill()`
 
 When `ROOT` points to a regular git repo, `tsm` sets `TSM_REPO_ROOT` so that `tsm -w` works from the session.
