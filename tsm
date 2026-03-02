@@ -95,6 +95,11 @@ bare_git_dir() {
   fi
 }
 
+default_branch() {
+  local ref
+  ref=$(git -C "$1" symbolic-ref HEAD 2>/dev/null) && echo "${ref##refs/heads/}" || echo "main"
+}
+
 get_repo_root() {
   local dir="$1"
   local git_common_dir
@@ -149,7 +154,9 @@ create_dir_session() {
       worktree_path="$selected/$worktree_name"
       # Create worktree if it doesn't exist
       if [ ! -d "$worktree_path" ]; then
-        git -C "$git_dir" worktree add "$worktree_path" "$worktree_name" 2>/dev/null || \
+        local branch
+        branch=$(default_branch "$git_dir")
+        git -C "$git_dir" worktree add "$worktree_path" "$branch" 2>/dev/null || \
           git -C "$git_dir" worktree add "$worktree_path" -b "$worktree_name"
       fi
     fi
@@ -359,7 +366,9 @@ configured_session() {
     else
       worktree_path="$root/$worktree_name"
       if [ ! -d "$worktree_path" ]; then
-        git -C "$git_dir" worktree add "$worktree_path" "$worktree_name" 2>/dev/null || \
+        local branch
+        branch=$(default_branch "$git_dir")
+        git -C "$git_dir" worktree add "$worktree_path" "$branch" 2>/dev/null || \
           git -C "$git_dir" worktree add "$worktree_path" -b "$worktree_name"
       fi
     fi
