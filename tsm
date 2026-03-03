@@ -111,6 +111,38 @@ is_bare_git_repo_root() {
   [ "$(git -C "$directory" rev-parse --git-dir 2>/dev/null)" = "." ]
 }
 
+fzf_worktree_selector() {
+  # Shows an fzf picker for worktrees. Echoes the selected worktree path.
+  #
+  # Args:
+  #   $1: git_dir — path to the git directory (where `git worktree list` can be run)
+  #
+  # Returns: 0 = worktree selected (path on stdout), 1 = user cancelled or no worktrees
+  local git_dir="$1"
+
+  local worktrees
+  worktrees=$(list_worktrees "$git_dir")
+
+  if [ -z "$worktrees" ]; then
+    return 1
+  fi
+
+  local fzf_input
+  fzf_input=$(echo "$worktrees" | while read -r wt; do
+    printf '%s\t%s\n' "$wt" "${wt##*/}"
+  done)
+
+  local selected
+  selected=$(echo "$fzf_input" | fzf --cycle --with-nth=2 --delimiter=$'\t' --prompt "> " --header "Select worktree")
+
+  if [ -z "$selected" ]; then
+    return 1
+  fi
+
+  echo "${selected%%	*}"
+  return 0
+}
+
 bare_git_repo_root_worktree_selector() {
   # Selects a worktree for a bare git repo. Echoes the full worktree path.
   #
@@ -157,20 +189,7 @@ bare_git_repo_root_worktree_selector() {
   fi
 
   # Multiple worktrees, no default — show picker
-  local fzf_input
-  fzf_input=$(echo "$worktrees" | while read -r wt; do
-    printf '%s\t%s\n' "$wt" "${wt##*/}"
-  done)
-
-  local selected
-  selected=$(echo "$fzf_input" | fzf --cycle --with-nth=2 --delimiter=$'\t' --prompt "> " --header "Select worktree")
-
-  if [ -z "$selected" ]; then
-    return 1
-  fi
-
-  echo "${selected%%	*}"
-  return 0
+  fzf_worktree_selector "$git_dir"
 }
 
 ################
@@ -546,28 +565,8 @@ worktree_session() {
     exit 1
   fi
 
-  local worktrees
-  worktrees=$(list_worktrees "$git_dir")
-
-  if [ -z "$worktrees" ]; then
-    echo "No worktrees found"
-    exit 1
-  fi
-
-  local fzf_input
-  fzf_input=$(echo "$worktrees" | while read -r wt; do
-    printf '%s\t%s\n' "$wt" "${wt##*/}"
-  done)
-
-  local selected
-  selected=$(echo "$fzf_input" | fzf --cycle --with-nth=2 --delimiter=$'\t' --prompt "> " --header "Select worktree")
-
-  if [ -z "$selected" ]; then
-    echo "No worktree selected"
-    exit 0
-  fi
-
-  local selected_worktree_path="${selected%%	*}"
+  local selected_worktree_path
+  selected_worktree_path=$(fzf_worktree_selector "$git_dir") || { echo "No worktree selected"; exit 0; }
 
   local repo_name
   repo_name=$(sanitize_directory_session_name "$repo_root")
