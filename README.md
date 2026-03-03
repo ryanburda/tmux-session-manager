@@ -2,12 +2,11 @@
 
 A simple tmux session manager that lets you:
 
+- **Create** sessions
+    - that are rooted at a specific directory similar to **[tmux-sessionizer](https://github.com/ThePrimeagen/tmux-sessionizer)**
+    - have start up configuration scripts similar to **[tmuxinator](https://github.com/tmuxinator/tmuxinator)**
+    - that are dedicated to specific git worktrees
 - **Switch** between active tmux sessions
-- **Create** sessions rooted at a directory
-    - Similar to **[tmux-sessionizer](https://github.com/ThePrimeagen/tmux-sessionizer)**
-    - Optional **[Zoxide](https://github.com/ajeetdsouza/zoxide)** support
-- **Start** configured sessions with custom startup scripts
-    - Similar to **[tmuxinator](https://github.com/tmuxinator/tmuxinator)**
 - **Kill** sessions (with optional cleanup scripts)
 
 ## Dependencies
@@ -82,6 +81,7 @@ tsm [session]                  # Browse active sessions with fzf, or switch to s
 tsm -c, --configured [session] # Browse configured sessions with fzf, or start session if provided
 tsm -d, --dir [path]           # Browse directories with fzf, or start session at path if provided
 tsm -z, --zoxide [query]       # Browse zoxide entries with fzf, or start session at best match if provided
+tsm -w, --worktree             # Browse worktrees with fzf and switch to selection
 tsm -k, --kill [session]       # Kill a session (runs cleanup script if present)
 tsm -l, --logs [session]       # Browse all log files, or for named session if provided
 tsm -h, --help                 # Show help message
@@ -99,8 +99,9 @@ This makes `tsm` both user-friendly for daily use and suitable for scripting.
 bind-key s popup -E "tsm"
 bind-key c popup -E "tsm -c"
 bind-key d popup -E "tsm -d"
+bind-key w popup -E "tsm -w"
 bind-key k popup -E "tsm -k"
-bind-key k popup -E "tsm -l"
+bind-key l popup -E "tsm -l"
 bind-key X run-shell "tsm -k #{session_name}"
 
 # OPTIONAL
@@ -110,13 +111,14 @@ bind-key z popup -h 24 -w 80 -E "tsm -z"
 This maps:
 - `prefix + s` - Active session switcher
 - `prefix + c` - Configured session launcher
-- `prefix + d` - Directory rooted session launcher
+- `prefix + d` - Directory session launcher
+- `prefix + w` - Worktree session launcher
 - `prefix + k` - Kill session selector
 - `prefix + l` - Browse logs
 - `prefix + X` - Kill the current session and run kill script
 
 And optionally maps:
-- `prefix + z` - Zoxide directory rooted session launcher
+- `prefix + z` - Zoxide directory session launcher
 
 Modify these keybindings as needed.
 
@@ -160,7 +162,7 @@ Modify these keybindings as needed.
 
 ## Session Launcher Types
 
-`tsm` allows you to launch sessions in two different ways:
+`tsm` allows you to launch sessions in three different ways:
 
 - **[Directory Sessions](#directory-sessions)**: Open a new tmux session rooted at a specific directory.
 Ideal for quickly jumping into a project without any predefined configuration.
@@ -168,6 +170,9 @@ Ideal for quickly jumping into a project without any predefined configuration.
 - **[Configured Sessions](#configured-sessions)**: Ideal for projects you work on regularly that benefit from
 a consistent tmux window/pane layout. These use a script stored in `${XDG_CONFIG_HOME:-~/.config}/tsm/` that
 control how the session is created and killed.
+
+- **[Worktree Sessions](#worktree-sessions)**: Open a new tmux session dedicated to a specific git worktree.
+Ideal for parallelizing work across multiple branches of the same project.
 
 ## Directory Sessions
 
@@ -404,85 +409,74 @@ This produces the following log structure which will be searchable when using `t
 
 </details>
 
-## Optional Features
 
-### Worktree Sessions
+## Worktree Sessions
 
-A worktree session is a tmux session dedicated to a git worktree, where the session's working directory is the worktree directory itself.
+A worktree session is a tmux session dedicated to a git worktree, where the session's working directory is
+the worktree directory itself. Sessions are named with a `/` delimiter (e.g., `myproject/base`, `myproject/feature`)
+to clearly distinguish which worktree is active. This works with both bare repositories and regular git repos.
 
-Git worktrees allow you to have multiple branches checked out at the same time in separate working directories. `tsm` piggybacks off this to seamlessly launch dedicated tmux sessions for your worktrees as needed, using `/` as a session name delimiter (e.g., `myproject/base`, `myproject/feature`).
-
-This works with both bare repositories and regular git repos.
-
-#### Why Worktree Sessions?
-
-`cd`ing in and out of worktree folders is not difficult. The problem comes when you want to do work in two different worktrees in parallel.
-
-<details>
-<summary><strong style="font-size: 1.25em;">Workflow 1: Windows and Splits (Good)</strong></summary>
-
-> If you're using `tsm` then you are likely already familiar with tmux's pane splitting and windowing commands.
-> Your current workflow probably looks something like:
->
-> 1. `cd <repo>/<worktree1>`
-> 2. Do work...
-> 3. Realize you need to do something else in a different branch
-> 4. Create a new window or split
-> 5. In the new window/split run `cd ../worktree2`
-> 6. Do more work...
->
-> In this workflow your layer of isolation between worktrees is the dedicated window or split you created. You can
-> jump between these two locations to parallelize your work. This is fine, but it can be made better.
-
-</details>
-
-<details>
-<summary><strong style="font-size: 1.25em;">Workflow 2: Manual Sessions (Better)</strong></summary>
-
-> A better workflow is to create a dedicated tmux session when you want to do work in a different worktree. This is
-> similar to Workflow 1, but instead of creating a split or window for the worktree, you create a new tmux session.
->
-> Now your layer of isolation between worktrees is a tmux session. This is significantly better since you're less
-> likely to mistake which worktree you're operating on, especially if you give your sessions distinct names.
-
-</details>
-
-<details open>
-<summary><strong style="font-size: 1.25em;">Workflow 3: tsm (Best)</strong></summary>
-
-> The `tsm` workflow is an automated version of Workflow 2 via `tsm -w`. This pulls up a worktree picker for the
-> current session and automatically creates a new tmux session with its working directory set to the chosen worktree.
-> The session name is set to `<repo>/<worktree>` to clearly distinguish active sessions based in different worktrees.
->
-> This is especially helpful for agentic workflows. Tmux sessions provide a layer of isolation between different
-> worktrees of the same project. Combined with [configured sessions](#configured-sessions), this allows you to
-> effortlessly duplicate your preferred tmux window/split setup as many times as you want — parallelizing distinct
-> tasks in a familiar, custom-tailored environment with zero setup cost.
->
-> For example, you can create a worktree session for a large refactor ticket and delegate that work to an AI agent
-> to get things started. Meanwhile, in another worktree session, you can continue coding by hand.
-
-</details>
+Use `tsm -w` from inside an existing tmux session to browse worktrees with fzf and launch a session for the
+selected worktree. If the worktree already has an active session, `tsm` switches to it instead of creating a duplicate.
 
 > **Note:** `tsm -w` only works from inside an existing tmux session that contains a repo with worktrees.
-> You cannot call `tsm -w` outside of tmux.
 
 > **Note:** `tsm` does not manage your git worktrees — it only creates tmux sessions for them. Creating,
 > deleting, and otherwise managing worktrees is done with `git worktree` directly or with other tools.
 
+<details>
+<summary><strong style="font-size: 1.25em;">Why Worktree Sessions?</strong></summary>
+
+> `cd`ing in and out of worktree folders is not difficult. The problem comes when you want to do work in
+> two different worktrees in parallel.
+>
+> A common approach is to create a new tmux window or split, `cd` into the other worktree, and jump between
+> the two. This works, but the layer of isolation is just a pane — it's easy to lose track of which worktree
+> you're operating on.
+>
+> A better approach is to create a dedicated tmux session per worktree. Now your layer of isolation is a full
+> session with a distinct name, making it much harder to mix up worktrees.
+>
+> `tsm -w` automates this. It pulls up a worktree picker and creates (or switches to) a tmux session for
+> the selected worktree. Combined with [configured sessions](#configured-sessions), this lets you duplicate
+> your preferred window/pane layout across worktrees with zero setup cost — ideal for parallelizing tasks,
+> including delegating work to AI agents in separate worktree sessions.
+
+</details>
+
+#### How It Works
+
+Worktree session support is built into `tsm -d`, `tsm -c`, and `tsm -w`:
+
+- **`tsm -d` / `tsm -c`**: When the selected directory (or `ROOT`) points to a bare git repository, `tsm`
+  automatically resolves the default worktree and roots the session there. The session name becomes
+  `repo/worktree` (e.g., `myproject/base`). For regular git repos, `tsm` sets `TSM_REPO_ROOT` on the
+  session so that `tsm -w` is available from within it.
+
+- **`tsm -w`**: Reads `TSM_REPO_ROOT` from the current session, lists the repo's worktrees, and presents
+  them in fzf. Selecting a worktree creates a new session (or switches to an existing one) with its working
+  directory set to that worktree.
+
 #### Default Worktree
 
-The worktree workflow in `tsm` relies on a default worktree. When `tsm -d` or `tsm -c` detects a bare repo, it
-will always drop you into the default worktree. This means you don't have to think about worktrees until you
-choose to start a new session for a different one.
+When `tsm -d` or `tsm -c` detects a bare repo, it drops you into the default worktree automatically. This
+means you don't have to think about worktrees until you choose to start a new session for a different one.
 
 The default worktree name is `base` but can be changed with the `TSM_DEFAULT_WORKTREE_NAME` environment variable.
 
-The name `base` was chosen deliberately to avoid confusion with the `main` branch. In a bare repo
-worktree workflow, the worktree name and the branch name are independent concepts — a worktree named
-`main` that tracks the `main` branch can make it hard to tell which one is being discussed. Using
-`base` clearly signals "this is the primary worktree where I do my default work" without colliding
-with branch naming conventions.
+If only one worktree exists, it is auto-selected regardless of name. If multiple worktrees exist and none
+match the default name, fzf is shown. If no worktrees exist, `tsm` exits — you must create worktrees yourself
+with `git worktree add`.
+
+<details>
+<summary><strong style="font-size: 1.25em;">Why <code>base</code> instead of <code>main</code>?</strong></summary>
+
+> In a bare repo worktree workflow, the worktree name and the branch name are independent concepts — a worktree
+> named `main` that tracks the `main` branch can make it hard to tell which one is being discussed. Using `base`
+> clearly signals "this is the primary worktree where I do my default work" without colliding with branch
+> naming conventions.
+
+</details>
 
 #### Setup
 
@@ -530,47 +524,20 @@ git worktree add base main
 
 </details>
 
-When you run `tsm -d` and select a bare repo directory, `tsm` will automatically:
-1. Use an existing worktree if one exists, or create the default worktree
-2. Name the session `repo/worktree` (e.g., `myproject/base`)
-3. Set `TSM_REPO_ROOT` on the session for worktree commands
-
-When you run `tsm -d` and select a regular git repo directory, `tsm` will set `TSM_REPO_ROOT` so that `tsm -w` works from the session.
-
-#### Switching Worktrees
-
-From inside a git repo session, switch between worktrees:
-
-```bash
-tsm -w              # Browse existing worktrees with fzf and switch to selection
-```
-
-Suggested tmux keybinding:
-
-```bash
-bind-key w popup -E "tsm -w"
-```
-
 #### Configured Sessions with Worktrees
 
-Worktree support is automatically enabled when `ROOT` points to a bare git repository. When this is detected, `tsm` will:
-- Use an existing worktree or create the default worktree if needed
-- Name the session `config/worktree` (e.g., `myproject/base`)
-- Pass the worktree path as `$2` (working directory) to `start()` and `kill()`
-
-When `ROOT` points to a regular git repo, `tsm` sets `TSM_REPO_ROOT` so that `tsm -w` works from the session.
-
-No special handling is needed in `start()` or `kill()` — tsm resolves the working directory automatically:
+Worktree support is automatically enabled when a configured session's `ROOT` points to a bare git repository.
+No special handling is needed in `start()` or `kill()` — `tsm` resolves the working directory and passes the
+worktree path as `$2`:
 
 ```bash
 ROOT="$HOME/projects/myproject"
 
 start() {
-  local session="$1"      # e.g. "myproject" or "myproject/feature"
-  local root="$2"         # ROOT, or worktree path if worktree session
+  local session="$1"      # e.g. "myproject/base" or "myproject/feature"
+  local root="$2"         # worktree path (or ROOT if not a bare repo)
   local log_dir="$3"
 
-  # Session already created by tsm with cwd=$root
   tmux rename-window -t "$session" "code"
   tmux send-keys -t "$session:code" 'nvim' Enter
 }
