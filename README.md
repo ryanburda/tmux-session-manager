@@ -34,7 +34,8 @@ A simple tmux session manager
    Completions provide:
    - Active session names for `tsm` and `tsm -k`
    - Directory completion for `tsm -d`
-   - Configured session names for `tsm -c` and `tsm -l`
+   - Config names for `tsm -c`
+   - Session names with logs for `tsm -l`
 
    <details>
    <summary><strong>Bash</strong></summary>
@@ -75,7 +76,7 @@ A simple tmux session manager
 
 ```bash
 tsm [session]                  # Browse active sessions with fzf, or switch to session if provided
-tsm -c, --configured [session] # Browse configured sessions with fzf, or start session if provided
+tsm -c, --configured [config]  # Browse configured sessions with fzf, or start config if provided
 tsm -d, --dir [path]           # Browse directories with fzf, or start session at path if provided
 tsm -h, --help                 # Show help message
 tsm -k, --kill [session]       # Kill a session (runs cleanup script if present)
@@ -222,7 +223,7 @@ When no path is provided, fzf by default displays all non-hidden directories wit
 ## Worktree Sessions
 
 A worktree session is a tmux session dedicated to a git worktree. Run `tsm -w` from within a git repo to
-browse its worktrees. On creation the sessions working directory will be set to the worktree directory.
+browse its worktrees. On creation the session's working directory will be set to the worktree directory.
 
 This works with both bare repositories and regular git repos, and worktrees can live anywhere on the filesystem.
 
@@ -232,47 +233,46 @@ This works with both bare repositories and regular git repos, and worktrees can 
 ## Configured Sessions
 
 Configured sessions provide more control when starting a session. Session configurations are shell scripts
-stored in `${XDG_CONFIG_HOME:-~/.config}/tsm/<session-name>.sh`.
+stored in `${XDG_CONFIG_HOME:-~/.config}/tsm/<config-name>.sh`.
 
 Each session file defines:
-  - `ROOT` (required): Path to the project root directory.
-  - `start()` (required): Customizes the tmux session. tsm creates the session before calling `start()`, which receives:
-    - `$1`=session name
-    - `$2`=log directory
-  - `kill()` (optional): Runs asynchronously when the session is killed. Receives the same arguments as `start()`.
+  - `SESSION` (required): The tmux session name.
+  - `start()` (required): Creates and customizes the tmux session.
+  - `kill()` (optional): Runs asynchronously when the session is killed. Use this for cleanup tasks like stopping services.
 
 ### Example Session Configuration
 
 Create a session configuration for a project at `~/.config/tsm/myproject.sh`:
 
 ```bash
+SESSION="myproject"
 ROOT="$HOME/projects/myproject"
 
 start() {
-  local session="$1"
-  local log_dir="$2"
+  # Create the session rooted at the project directory.
+  tmux new-session -d -s "$SESSION" -c "$ROOT"
 
   # Rename the first window to 'code'.
   # This window will have two vertical splits:
   #     - nvim on top 80%
   #     - a terminal at the bottom 20% that runs the `ls` command
-  tmux rename-window -t "$session" "code"
-  tmux send-keys -t "$session:code" 'nvim' Enter
-  tmux split-window -v -l 20% -t "$session:code" -c "$ROOT"
-  tmux send-keys -t "$session:code" 'ls' Enter
+  tmux rename-window -t "$SESSION" "code"
+  tmux send-keys -t "$SESSION:code" 'nvim' Enter
+  tmux split-window -v -l 20% -t "$SESSION:code" -c "$ROOT"
+  tmux send-keys -t "$SESSION:code" 'ls' Enter
 
   # Create a second window named 'docker'.
   # This window will have an even-vertical layout with:
   #     - a terminal that starts docker compose on top
   #     - lazydocker on bottom
-  tmux new-window -t "$session" -n "docker" -c "$ROOT"
-  tmux send-keys -t "$session:docker" 'docker compose up --force-recreate --detach' Enter
-  tmux split-window -t "$session:docker" -v -c "$ROOT"
-  tmux send-keys -t "$session:docker" 'lazydocker' Enter
-  tmux select-layout -t "$session:docker" even-vertical
+  tmux new-window -t "$SESSION" -n "docker" -c "$ROOT"
+  tmux send-keys -t "$SESSION:docker" 'docker compose up --force-recreate --detach' Enter
+  tmux split-window -t "$SESSION:docker" -v -c "$ROOT"
+  tmux send-keys -t "$SESSION:docker" 'lazydocker' Enter
+  tmux select-layout -t "$SESSION:docker" even-vertical
 
   # Select first window
-  tmux select-window -t "$session:code"
+  tmux select-window -t "$SESSION:code"
 }
 
 # Optional: cleanup function runs in background when session is killed.
@@ -306,14 +306,14 @@ You can kick off commands in the background with `&` so they don't block session
 immediately while the command continues running, and its output is captured in the log file for later review.
 
 ```bash
+SESSION="webapp"
 ROOT="$HOME/projects/webapp"
 
 start() {
-  local session="$1"
-  local log_dir="$2"
+  tmux new-session -d -s "$SESSION" -c "$ROOT"
 
-  tmux rename-window -t "$session" "code"
-  tmux send-keys -t "$session:code" 'nvim' Enter
+  tmux rename-window -t "$SESSION" "code"
+  tmux send-keys -t "$SESSION:code" 'nvim' Enter
 
   # Start a service in the background so it doesn't block session startup.
   # Build output and errors are captured in the tsm log file.
@@ -322,63 +322,22 @@ start() {
 }
 
 kill() {
-  local session="$1"
-  local log_dir="$2"
-
   echo "$(date '+%Y-%m-%d %H:%M:%S'): Stopping my webapp"
   docker compose --project-directory "$ROOT" down
 }
 ```
 
-This logging approach works well for simple cases, but output from multiple backgrounded processes runs
-the risk of being interleaved in the log file since they all write to the same location concurrently.
-To get around this, both `start()` and `kill()` receive the session log directory as their second argument (`$2`).
-You can use this to write additional log files alongside `tsm.log`, keeping all logs for a session organized in
-one place:
-
-```bash
-ROOT="$HOME/projects/webapp"
-
-DOCKER_LOG_FILE="docker.log"
-POSTGRES_LOG_FILE="postgres.log"
-
-start() {
-  local session="$1"
-  local log_dir="$2"
-
-  tmux rename-window -t "$session" "code"
-  tmux send-keys -t "$session:code" 'nvim' Enter
-
-  # Redirect each process to its own log file to avoid interleaving.
-  docker compose --project-directory "$ROOT" up --build --force-recreate --detach > "$log_dir/$DOCKER_LOG_FILE" 2>&1 &
-  pg_ctl -D "$ROOT/data/postgres" -l "$log_dir/$POSTGRES_LOG_FILE" start
-}
-
-kill() {
-  local session="$1"
-  local log_dir="$2"
-
-  # Run cleanup tasks in parallel so one doesn't block the other.
-  docker compose --project-directory "$ROOT" down > "$log_dir/$DOCKER_LOG_FILE" 2>&1 &
-  pg_ctl -D "$ROOT/data/postgres" -l "$log_dir/$POSTGRES_LOG_FILE" stop &
-}
-```
-
-This produces the following log structure which will be searchable when using `tsm -l`:
-
-```
-~/.local/state/tsm/logs/webapp/
-├── docker.log
-├── postgres.log
-└── tsm.log
-```
-
-> **NOTE:** Prefer `>` (overwrite) over `>>` (append) when redirecting to log files. This matches how
-> `tsm.log` behaves by only keeping the output from the most recent invocation.
-
 > **NOTE:** Background cleanup tasks in `kill()` with `&` so they run in parallel. Although `kill()`
 > itself runs asynchronously, commands within it still run sequentially — if one hangs or is slow, it
 > will block the rest.
+
+> **NOTE:** When backgrounding multiple processes, their output may interleave in the tsm log file.
+> To avoid this, redirect each process to its own log file in the session's log directory:
+> ```bash
+> docker compose up --detach > "$HOME/.local/state/tsm/logs/$SESSION/docker.log" 2>&1 &
+> pg_ctl start -l "$HOME/.local/state/tsm/logs/$SESSION/postgres.log" &
+> ```
+> These files will be browsable with `tsm -l`.
 
 </details>
 

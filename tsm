@@ -37,22 +37,14 @@ usage() {
   echo "  tsm -l myproject   Browse log files for named session with fzf"
   echo ""
   echo "Configuration:"
-  echo "  Sessions are configured as \$HOME/.config/tsm/<session-name>.sh"
+  echo "  Sessions are configured as \$HOME/.config/tsm/<config-name>.sh"
   echo ""
-  echo "  <session-name>.sh   Script containing session configuration:"
+  echo "  <config-name>.sh    Script containing session configuration:"
   echo ""
-  echo "            ROOT variable:     Required. Path to project root directory."
-  echo ""
-  echo "            start()            Required. Customizes the tmux session."
-  echo "                               tsm creates the session before calling start()."
-  echo "                               Receives: \$1=session name, \$2=log directory."
+  echo "            SESSION variable:  Required. The tmux session name."
+  echo "            start()            Required. Creates and customizes the tmux session."
   echo "            kill()             Optional. Runs asynchronously when session is killed."
   echo "                               Use this for cleanup tasks like stopping services."
-  echo "                               Receives: \$1=session name, \$2=log directory."
-  echo ""
-  echo "            Log directory: \$HOME/.local/state/tsm/logs/<session-name>/"
-  echo "            tsm writes to tsm.log in this directory. Custom logs can be"
-  echo "            written here too, e.g.: some_cmd > \"\$2/other_service.log\" 2>&1"
   echo ""
   echo "Environment Variables:"
   echo "  TSM_DIRS_CMD              Command to generate directories for 'tsm -d'."
@@ -205,22 +197,22 @@ kill_session() {
   # Run kill function in background if it exists
   if [ -f "$session_file" ]; then
     echo "[$(date '+%Y-%m-%d %H:%M:%S')] Killing session '$session'" > "$log_file"
-    nohup bash -c "source '$session_file' && declare -F kill &>/dev/null && kill '$session' '$log_dir'" >> "$log_file" 2>&1 &
+    nohup bash -c "source '$session_file' && declare -F kill &>/dev/null && kill" >> "$log_file" 2>&1 &
   fi
 
   tmux kill-session -t "=$session"
 }
 
 configured_session() {
-  local session="$1"
+  local config="$1"
 
   if [ ! -d "$CONFIG_DIR" ]; then
     notify "No sessions configured. Create files in $CONFIG_DIR"
     exit 1
   fi
 
-  # If no session provided, use fzf to select from configured sessions
-  if [ -z "$session" ]; then
+  # If no config provided, use fzf to select from configured sessions
+  if [ -z "$config" ]; then
     local configured_sessions
     configured_sessions=$(for f in "$CONFIG_DIR"/*.sh; do [ -f "$f" ] && basename "$f" .sh; done)
 
@@ -229,38 +221,32 @@ configured_session() {
       exit 1
     fi
 
-    session=$(echo "$configured_sessions" | fzf --cycle --prompt "> " --header "Select configured session")
+    config=$(echo "$configured_sessions" | fzf --cycle --prompt "> " --header "Select configured session")
 
-    if [ -z "$session" ]; then
+    if [ -z "$config" ]; then
       exit 0
     fi
   fi
 
-  local session_file="$CONFIG_DIR/$session.sh"
+  local session_file="$CONFIG_DIR/$config.sh"
 
   if [ ! -f "$session_file" ]; then
-    notify "Error: Session '$session' not found in $CONFIG_DIR"
+    notify "Error: '$config' not found in $CONFIG_DIR"
     exit 1
   fi
 
   # Verify start function exists
   if ! bash -c "source '$session_file' && declare -F start" &>/dev/null; then
-    notify "Error: No start function defined in $session.sh for session '$session'"
+    notify "Error: No start function defined in $config.sh"
     exit 1
   fi
 
-  # Read ROOT from session file
-  local configured_name="$session"
-  local root
-  root=$(bash -c "source '$session_file' && echo \"\$ROOT\"")
+  # Read SESSION from config file
+  local session
+  session=$(bash -c "source '$session_file' && echo \"\$SESSION\"")
 
-  if [ -z "$root" ]; then
-    notify "Error: ROOT variable not defined in $session.sh for session '$session'"
-    exit 1
-  fi
-
-  if [ ! -d "$root" ]; then
-    notify "Error: ROOT directory '$root' does not exist"
+  if [ -z "$session" ]; then
+    notify "Error: SESSION variable not defined in $config.sh"
     exit 1
   fi
 
@@ -269,18 +255,13 @@ configured_session() {
     return
   fi
 
-  tmux new-session -d -s "$session" -c "$root"
-  local rc=$?
-
-  if [ "$rc" -eq 0 ]; then
-    local log_dir="$LOG_DIR/$session"
-    local log_file="$log_dir/tsm.log"
-    mkdir -p "$log_dir"
-    echo "[$(date '+%Y-%m-%d %H:%M:%S')] Starting session '$session'" > "$log_file"
-    bash -c "set -m; source '$session_file' && start '$session' '$root' '$log_dir'" >> "$log_file" 2>&1
-    tmux set-environment -t "=$session" TSM_CONFIGURED_SESSION "$configured_name"
-    switch_or_attach "$session"
-  fi
+  local log_dir="$LOG_DIR/$session"
+  local log_file="$log_dir/tsm.log"
+  mkdir -p "$log_dir"
+  echo "[$(date '+%Y-%m-%d %H:%M:%S')] Starting session '$session'" > "$log_file"
+  bash -c "set -m; source '$session_file' && start" >> "$log_file" 2>&1
+  tmux set-environment -t "=$session" TSM_CONFIGURED_SESSION "$config"
+  switch_or_attach "$session"
 }
 
 dir_session() {
@@ -317,7 +298,7 @@ dir_session() {
   selected=$(cd "$selected" && pwd -P)
 
   # Create the session
-  session_name=$(session_name_prompt $selected)
+  session_name=$(session_name_prompt "$selected")
   if tmux has-session -t "=$session_name" 2>/dev/null; then
     notify "Error: Session '$session_name' already exists"
     exit 1
@@ -352,7 +333,7 @@ zoxide_session() {
     fi
   fi
 
-  dir_session $selected
+  dir_session "$selected"
 }
 
 worktree_session() {
