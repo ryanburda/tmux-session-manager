@@ -6,6 +6,19 @@ A simple tmux session manager
 - **Switch** between active sessions
 - **Kill** sessions with optional cleanup scripts
 
+### Session switcher
+![Session Switcher](docs/session_switcher.gif)
+
+### Directory sessions
+![Launch Directory Sessions](docs/directory_launcher.gif)
+
+### Worktree sessions
+![Launch Worktree Sessions](docs/worktree_launcher.gif)
+
+### Configured sessions
+![Launch Configured Sessions](docs/configured_launcher.gif)
+
+
 ## Dependencies
 
 - `fzf`
@@ -255,11 +268,10 @@ start() {
   # Rename the first window to 'code'.
   # This window will have two vertical splits:
   #     - nvim on top 80%
-  #     - a terminal at the bottom 20% that runs the `ls` command
+  #     - a terminal at the bottom 20%
   tmux rename-window -t "$SESSION" "code"
   tmux send-keys -t "$SESSION:code" 'nvim' Enter
   tmux split-window -v -l 20% -t "$SESSION:code" -c "$ROOT"
-  tmux send-keys -t "$SESSION:code" 'ls' Enter
 
   # Create a second window named 'docker'.
   # This window will have an even-vertical layout with:
@@ -289,17 +301,18 @@ kill() {
 
 ### Logging
 
-Output from `start()` and `kill()` functions is redirected to a dedicated log file at
-`${XDG_STATE_HOME:-~/.local/state}/tsm/logs/<session-name>/tsm.log`. Each configured session
-gets its own log directory (e.g. `~/.local/state/tsm/logs/myproject/`). The `tsm.log` file is
-wiped on each call to `start()` or `kill()`, so it only contains output from the most recent
-invocation. This prevents log files from growing unbounded.
+Output from `start()` and `kill()` functions is redirected to a dedicated log file.
+Each configured session gets its own log directory.
+Logs can be found in `${XDG_STATE_HOME:-~/.local/state}/tsm/logs/<session-name>/tsm.log`. 
 
 Use `tsm -l` to browse all log files across sessions with fzf. The fzf preview pane shows the
-tail of the currently highlighted file. Use `tsm -l <name>` to browse logs for a specific session.
+tail of the currently highlighted file.
+
+> **NOTE:** Each configured session's specific `tsm.log` file is wiped on each call to `start()` or `kill()`,
+> so it only contains output from the most recent invocation. This prevents log files from growing unbounded.
 
 <details>
-<summary><strong style="font-size: 1.25em;">Advanced Configuration Examples</strong></summary>
+<summary><strong style="font-size: 1.5em;">Advanced Configuration Examples</strong></summary>
 
 Since each session file is a full shell script, you're not limited to running commands inside tmux panes and windows.
 You can kick off commands in the background with `&` so they don't block session startup. The session attaches
