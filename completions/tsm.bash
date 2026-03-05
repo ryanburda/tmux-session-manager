@@ -48,7 +48,14 @@ _tsm_completions() {
             return 0
             ;;
         -w|--worktree)
-            # No completion for worktree commands
+            # Complete with worktree names
+            local worktrees=$(git worktree list --porcelain 2>/dev/null | awk '
+                /^worktree / { path = substr($0, 10) }
+                /^bare$/ { path = "" }
+                /^$/ { if (path != "") { n = split(path, a, "/"); print a[n]; path = "" } }
+                END { if (path != "") { n = split(path, a, "/"); print a[n] } }
+            ')
+            COMPREPLY=($(compgen -W "$worktrees" -- "$cur"))
             return 0
             ;;
         tsm)

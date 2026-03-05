@@ -50,7 +50,17 @@ complete -c tsm -s k -l kill -d 'Kill a session' -xa '(__tsm_active_sessions)'
 complete -c tsm -s l -l logs -d 'Browse session logs' -xa '(__tsm_log_sessions)'
 complete -c tsm -s d -l dir -d 'Browse/start session at directory' -ra '(__fish_complete_directories)'
 complete -c tsm -s z -l zoxide -d 'Browse/start session via zoxide'
-complete -c tsm -s w -l worktree -d 'Browse worktrees for current git repo session'
+# Helper function: get worktree names
+function __tsm_worktrees
+    git worktree list --porcelain 2>/dev/null | awk '
+        /^worktree / { path = substr($0, 10) }
+        /^bare$/ { path = "" }
+        /^$/ { if (path != "") { n = split(path, a, "/"); print a[n]; path = "" } }
+        END { if (path != "") { n = split(path, a, "/"); print a[n] } }
+    '
+end
+
+complete -c tsm -s w -l worktree -d 'Browse worktrees for current git repo session' -xa '(__tsm_worktrees)'
 complete -c tsm -s h -l help -d 'Show help message'
 
 # Default (no flag): complete with active sessions

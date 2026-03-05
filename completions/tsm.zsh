@@ -23,6 +23,17 @@ _tsm_log_sessions() {
     fi
 }
 
+_tsm_worktrees() {
+    local worktrees
+    worktrees=(${(f)"$(git worktree list --porcelain 2>/dev/null | awk '
+        /^worktree / { path = substr($0, 10) }
+        /^bare$/ { path = "" }
+        /^$/ { if (path != "") { n = split(path, a, "/"); print a[n]; path = "" } }
+        END { if (path != "") { n = split(path, a, "/"); print a[n] } }
+    ')"})
+    _describe 'worktree' worktrees
+}
+
 _tsm_configured_sessions() {
     local config_dir="${XDG_CONFIG_HOME:-$HOME/.config}/tsm"
     local sessions
@@ -42,7 +53,7 @@ _tsm() {
         '(-c --configured -k --kill -l --logs -d --dir -z --zoxide -w --worktree -h --help)'{-l,--logs}'[Browse session logs]:session with logs:_tsm_log_sessions' \
         '(-c --configured -k --kill -l --logs -d --dir -z --zoxide -w --worktree -h --help)'{-d,--dir}'[Browse/start session at directory]:directory:_files -/' \
         '(-c --configured -k --kill -l --logs -d --dir -z --zoxide -w --worktree -h --help)'{-z,--zoxide}'[Browse/start session via zoxide]:zoxide query:' \
-        '(-c --configured -k --kill -l --logs -d --dir -z --zoxide -w --worktree -h --help)'{-w,--worktree}'[Browse worktrees for current git repo session]' \
+        '(-c --configured -k --kill -l --logs -d --dir -z --zoxide -w --worktree -h --help)'{-w,--worktree}'[Browse worktrees for current git repo session]:worktree:_tsm_worktrees' \
         '(-c --configured -k --kill -l --logs -d --dir -z --zoxide -w --worktree -h --help)'{-h,--help}'[Show help message]' \
         '1:active session:_tsm_active_sessions'
 }
