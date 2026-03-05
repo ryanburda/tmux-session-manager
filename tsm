@@ -45,14 +45,14 @@ usage() {
   echo ""
   echo "            start()            Required. Customizes the tmux session."
   echo "                               tsm creates the session before calling start()."
-  echo "                               Receives: \$1=session name, \$2=working directory, \$3=log directory."
+  echo "                               Receives: \$1=session name, \$2=log directory."
   echo "            kill()             Optional. Runs asynchronously when session is killed."
   echo "                               Use this for cleanup tasks like stopping services."
-  echo "                               Receives: \$1=session name, \$2=working directory, \$3=log directory."
+  echo "                               Receives: \$1=session name, \$2=log directory."
   echo ""
   echo "            Log directory: \$HOME/.local/state/tsm/logs/<session-name>/"
   echo "            tsm writes to tsm.log in this directory. Custom logs can be"
-  echo "            written here too, e.g.: some_cmd > \"\$3/other_service.log\" 2>&1"
+  echo "            written here too, e.g.: some_cmd > \"\$2/other_service.log\" 2>&1"
   echo ""
   echo "Environment Variables:"
   echo "  TSM_DIRS_CMD              Command to generate directories for 'tsm -d'."
@@ -202,13 +202,10 @@ kill_session() {
   configured_session=$(tmux show-environment -t "=$session" TSM_CONFIGURED_SESSION 2>/dev/null | sed 's/^TSM_CONFIGURED_SESSION=//')
   local session_file="$CONFIG_DIR/${configured_session:-$session}.sh"
 
-  local working_dir
-  working_dir=$(tmux show-environment -t "=$session" TSM_WORKING_DIR 2>/dev/null | sed 's/^TSM_WORKING_DIR=//')
-
   # Run kill function in background if it exists
   if [ -f "$session_file" ]; then
     echo "[$(date '+%Y-%m-%d %H:%M:%S')] Killing session '$session'" > "$log_file"
-    nohup bash -c "source '$session_file' && declare -F kill &>/dev/null && kill '$session' '$working_dir' '$log_dir'" >> "$log_file" 2>&1 &
+    nohup bash -c "source '$session_file' && declare -F kill &>/dev/null && kill '$session' '$log_dir'" >> "$log_file" 2>&1 &
   fi
 
   tmux kill-session -t "=$session"
@@ -282,7 +279,6 @@ configured_session() {
     echo "[$(date '+%Y-%m-%d %H:%M:%S')] Starting session '$session'" > "$log_file"
     bash -c "set -m; source '$session_file' && start '$session' '$root' '$log_dir'" >> "$log_file" 2>&1
     tmux set-environment -t "=$session" TSM_CONFIGURED_SESSION "$configured_name"
-    tmux set-environment -t "=$session" TSM_WORKING_DIR "$root"
     switch_or_attach "$session"
   fi
 }

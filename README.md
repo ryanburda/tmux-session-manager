@@ -238,8 +238,7 @@ Each session file defines:
   - `ROOT` (required): Path to the project root directory.
   - `start()` (required): Customizes the tmux session. tsm creates the session before calling `start()`, which receives:
     - `$1`=session name
-    - `$2`=working directory
-    - `$3`=log directory
+    - `$2`=log directory
   - `kill()` (optional): Runs asynchronously when the session is killed. Receives the same arguments as `start()`.
 
 ### Example Session Configuration
@@ -251,8 +250,7 @@ ROOT="$HOME/projects/myproject"
 
 start() {
   local session="$1"
-  local root="$2"
-  local log_dir="$3"
+  local log_dir="$2"
 
   # Rename the first window to 'code'.
   # This window will have two vertical splits:
@@ -260,16 +258,16 @@ start() {
   #     - a terminal at the bottom 20% that runs the `ls` command
   tmux rename-window -t "$session" "code"
   tmux send-keys -t "$session:code" 'nvim' Enter
-  tmux split-window -v -l 20% -t "$session:code" -c "$root"
+  tmux split-window -v -l 20% -t "$session:code" -c "$ROOT"
   tmux send-keys -t "$session:code" 'ls' Enter
 
   # Create a second window named 'docker'.
   # This window will have an even-vertical layout with:
   #     - a terminal that starts docker compose on top
   #     - lazydocker on bottom
-  tmux new-window -t "$session" -n "docker" -c "$root"
+  tmux new-window -t "$session" -n "docker" -c "$ROOT"
   tmux send-keys -t "$session:docker" 'docker compose up --force-recreate --detach' Enter
-  tmux split-window -t "$session:docker" -v -c "$root"
+  tmux split-window -t "$session:docker" -v -c "$ROOT"
   tmux send-keys -t "$session:docker" 'lazydocker' Enter
   tmux select-layout -t "$session:docker" even-vertical
 
@@ -282,10 +280,8 @@ start() {
 # cleanup tasks to complete, providing a snappier user experience especially
 # when cleanup involves slow operations like stopping services.
 kill() {
-  local root="$2"
-
   # Stop the docker compose service that was started earlier.
-  docker compose --project-directory "$root" down
+  docker compose --project-directory "$ROOT" down
 }
 ```
 
@@ -314,8 +310,7 @@ ROOT="$HOME/projects/webapp"
 
 start() {
   local session="$1"
-  local root="$2"
-  local log_dir="$3"
+  local log_dir="$2"
 
   tmux rename-window -t "$session" "code"
   tmux send-keys -t "$session:code" 'nvim' Enter
@@ -323,22 +318,21 @@ start() {
   # Start a service in the background so it doesn't block session startup.
   # Build output and errors are captured in the tsm log file.
   echo "$(date '+%Y-%m-%d %H:%M:%S'): Starting my webapp"
-  docker compose --project-directory "$root" up --build --force-recreate --detach &
+  docker compose --project-directory "$ROOT" up --build --force-recreate --detach &
 }
 
 kill() {
   local session="$1"
-  local root="$2"
-  local log_dir="$3"
+  local log_dir="$2"
 
   echo "$(date '+%Y-%m-%d %H:%M:%S'): Stopping my webapp"
-  docker compose --project-directory "$root" down
+  docker compose --project-directory "$ROOT" down
 }
 ```
 
 This logging approach works well for simple cases, but output from multiple backgrounded processes runs
 the risk of being interleaved in the log file since they all write to the same location concurrently.
-To get around this, both `start()` and `kill()` receive the session log directory as their third argument (`$3`).
+To get around this, both `start()` and `kill()` receive the session log directory as their second argument (`$2`).
 You can use this to write additional log files alongside `tsm.log`, keeping all logs for a session organized in
 one place:
 
@@ -350,25 +344,23 @@ POSTGRES_LOG_FILE="postgres.log"
 
 start() {
   local session="$1"
-  local root="$2"
-  local log_dir="$3"
+  local log_dir="$2"
 
   tmux rename-window -t "$session" "code"
   tmux send-keys -t "$session:code" 'nvim' Enter
 
   # Redirect each process to its own log file to avoid interleaving.
-  docker compose --project-directory "$root" up --build --force-recreate --detach > "$log_dir/$DOCKER_LOG_FILE" 2>&1 &
-  pg_ctl -D "$root/data/postgres" -l "$log_dir/$POSTGRES_LOG_FILE" start
+  docker compose --project-directory "$ROOT" up --build --force-recreate --detach > "$log_dir/$DOCKER_LOG_FILE" 2>&1 &
+  pg_ctl -D "$ROOT/data/postgres" -l "$log_dir/$POSTGRES_LOG_FILE" start
 }
 
 kill() {
   local session="$1"
-  local root="$2"
-  local log_dir="$3"
+  local log_dir="$2"
 
   # Run cleanup tasks in parallel so one doesn't block the other.
-  docker compose --project-directory "$root" down > "$log_dir/$DOCKER_LOG_FILE" 2>&1 &
-  pg_ctl -D "$root/data/postgres" -l "$log_dir/$POSTGRES_LOG_FILE" stop &
+  docker compose --project-directory "$ROOT" down > "$log_dir/$DOCKER_LOG_FILE" 2>&1 &
+  pg_ctl -D "$ROOT/data/postgres" -l "$log_dir/$POSTGRES_LOG_FILE" stop &
 }
 ```
 
