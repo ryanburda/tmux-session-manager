@@ -179,47 +179,22 @@ control how the session is created and killed.
 Use the `-d` flag to create a session rooted at a specific directory:
 
 ```bash
-tsm -d              # Browse directories with fzf and start session from selection
-tsm -d ~/projects   # Start a session directly at ~/projects
+tsm -d                   # Browse directories with fzf and start session from selection
+tsm -d ~/code/projectA   # Start a session directly at ~/code/projectA
 ```
 
-When no path is provided, fzf by default displays your `$HOME` directory along with any git repositories and
-git worktrees within 4 levels deep of your `$HOME` directory. This can be changed by setting the `TSM_DIRS_CMD`
-environment variable in your `.bashrc/.zshrc`. You likely only need to change this if `tsm -d` lags on start
-or specific directories are missing in the result.
+When no path is provided, fzf by default displays all non-hidden directories within 4 levels deep of your
+`$HOME` directory. This can be changed by setting the `TSM_DIRS_CMD` environment variable in your `.bashrc/.zshenv`.
 
 <details>
-<summary><strong style="font-size: 1.25em;">Overriding <code>TSM_DIRS_CMD</code></strong></summary>
+<summary><strong style="font-size: 1.25em;">Modifying <code>TSM_DIRS_CMD</code></strong></summary>
 
-> The following is a slight variation the default that returns:
-> - the `$HOME` directory
-> - directories in your `$HOME` directory that contain git repos (1 level deep)
-> - directories in your `$HOME/projects` directory that contain git repos (up to 3 levels deep)
-> 
+> The following shows the `$HOME` directory and limits the search to a specific directory (`$HOME/code`)
+> while also pruning the search once it finds the root of a git repo:
+>
 > ```bash
-> export TSM_DIRS_CMD='{
->     echo "$HOME"
->     find "$HOME/projects" -maxdepth 3 -name .git -type d 2>/dev/null | sed "s|/.git$||"
->     find "$HOME/projects" -maxdepth 3 -name .bare -type d 2>/dev/null | sed "s|/.bare$||"
->     find "$HOME/projects" -maxdepth 3 -name HEAD -not -path "*/.git/*" 2>/dev/null | while read -r f; do
->         d=$(dirname "$f")
->         if [ -d "$d/objects" ] && [ -d "$d/refs" ]; then
->             case "$(basename "$d")" in .bare) dirname "$d" ;; *) echo "$d" ;; esac
->         fi
->     done
-> }'
+> export TSM_DIRS_CMD='{ echo "$HOME"; find "$HOME/code" -maxdepth 4 -name ".*" -prune -o -type d \( -exec test -e {}/.git \; -print -prune -o -print \); }'
 > ```
-> This is a more targeted search rooted at `$HOME/projects` which may be slightly faster as a result.
-> 
-> The following lists all directories in your `$HOME` directory:
-> 
-> ```bash
-> export TSM_DIRS_CMD='find "$HOME" -type d 2>/dev/null'
-> ```
-> 
-> **Note:** This will likely be slow to produce the full result since it recursively walks every
-> directory under `$HOME`. However, fzf will begin displaying results as they stream in so you
-> can start searching before the full list is ready.
 
 </details>
 

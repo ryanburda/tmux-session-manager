@@ -4,17 +4,7 @@ CONFIG_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/tsm"
 LOG_DIR="${XDG_STATE_HOME:-$HOME/.local/state}/tsm/logs"
 mkdir -p "$CONFIG_DIR" "$LOG_DIR"
 
-TSM_DIRS_CMD_DEFAULT='{
-    echo "$HOME"
-    find "$HOME" -maxdepth 4 -name .git 2>/dev/null | sed "s|/.git$||"
-    find "$HOME" -maxdepth 4 -name .bare -type d 2>/dev/null | sed "s|/.bare$||"
-    find "$HOME" -maxdepth 4 -name HEAD -not -path "*/.git/*" 2>/dev/null | while read -r f; do
-        d=$(dirname "$f")
-        if [ -d "$d/objects" ] && [ -d "$d/refs" ]; then
-            case "$(basename "$d")" in .bare) dirname "$d" ;; *) echo "$d" ;; esac
-        fi
-    done
-} | awk "!seen[\$0]++"'
+TSM_DIRS_CMD_DEFAULT='find "$HOME" -maxdepth 4 -name ".*" -prune -o -type d \( -exec test -e {}/.git \; -print -prune -o -print \)'
 
 usage() {
   echo "Tmux Session Manager"
