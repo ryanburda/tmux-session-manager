@@ -38,7 +38,7 @@ _tsm_configured_sessions() {
     local config_dir="${XDG_CONFIG_HOME:-$HOME/.config}/tsm"
     local sessions
     if [[ -d "$config_dir" ]]; then
-        sessions=(${(f)"$(for dir in "$config_dir"/*/; do [[ -d "$dir" ]] && basename "$dir"; done 2>/dev/null)"})
+        sessions=(${(f)"$(for f in "$config_dir"/*.sh; do [[ -f "$f" ]] && basename "$f" .sh; done 2>/dev/null)"})
         _describe 'configured session' sessions
     fi
 }

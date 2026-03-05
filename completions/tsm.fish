@@ -16,9 +16,9 @@ function __tsm_configured_sessions
     set config_dir "$config_dir/tsm"
 
     if test -d "$config_dir"
-        for dir in $config_dir/*/
-            if test -d "$dir"
-                basename "$dir"
+        for f in $config_dir/*.sh
+            if test -f "$f"
+                basename "$f" .sh
             end
         end
     end

@@ -37,9 +37,9 @@ usage() {
   echo "  tsm -l myproject   Browse log files for named session with fzf"
   echo ""
   echo "Configuration:"
-  echo "  Sessions are configured in \$HOME/.config/tsm/<session-name>/"
+  echo "  Sessions are configured as \$HOME/.config/tsm/<session-name>.sh"
   echo ""
-  echo "  main.sh   Script containing session configuration:"
+  echo "  <session-name>.sh   Script containing session configuration:"
   echo ""
   echo "            ROOT variable:     Required. Path to project root directory."
   echo ""
@@ -199,15 +199,15 @@ kill_session() {
 
   local configured_session
   configured_session=$(tmux show-environment -t "=$session" TSM_CONFIGURED_SESSION 2>/dev/null | sed 's/^TSM_CONFIGURED_SESSION=//')
-  local session_dir="$CONFIG_DIR/${configured_session:-$session}"
+  local session_file="$CONFIG_DIR/${configured_session:-$session}.sh"
 
   local working_dir
   working_dir=$(tmux show-environment -t "=$session" TSM_WORKING_DIR 2>/dev/null | sed 's/^TSM_WORKING_DIR=//')
 
-  # Run kill function in background if it exists in main.sh
-  if [ -f "$session_dir/main.sh" ]; then
+  # Run kill function in background if it exists
+  if [ -f "$session_file" ]; then
     echo "[$(date '+%Y-%m-%d %H:%M:%S')] Killing session '$session'" > "$log_file"
-    nohup bash -c "source '$session_dir/main.sh' && declare -F kill &>/dev/null && kill '$session' '$working_dir' '$log_dir'" >> "$log_file" 2>&1 &
+    nohup bash -c "source '$session_file' && declare -F kill &>/dev/null && kill '$session' '$working_dir' '$log_dir'" >> "$log_file" 2>&1 &
   fi
 
   tmux kill-session -t "=$session"
@@ -217,14 +217,14 @@ configured_session() {
   local session="$1"
 
   if [ ! -d "$CONFIG_DIR" ]; then
-    notify "No sessions configured. Create directories in $CONFIG_DIR"
+    notify "No sessions configured. Create files in $CONFIG_DIR"
     exit 1
   fi
 
   # If no session provided, use fzf to select from configured sessions
   if [ -z "$session" ]; then
     local configured_sessions
-    configured_sessions=$(for dir in "$CONFIG_DIR"/*/; do [ -d "$dir" ] && echo "$(basename "$dir")"; done)
+    configured_sessions=$(for f in "$CONFIG_DIR"/*.sh; do [ -f "$f" ] && basename "$f" .sh; done)
 
     if [ -z "$configured_sessions" ]; then
       notify "No configured sessions"
@@ -238,31 +238,26 @@ configured_session() {
     fi
   fi
 
-  local session_dir="$CONFIG_DIR/$session"
+  local session_file="$CONFIG_DIR/$session.sh"
 
-  if [ ! -d "$session_dir" ]; then
+  if [ ! -f "$session_file" ]; then
     notify "Error: Session '$session' not found in $CONFIG_DIR"
     exit 1
   fi
 
-  if [ ! -f "$session_dir/main.sh" ]; then
-    notify "Error: No main.sh found for session '$session'"
-    exit 1
-  fi
-
   # Verify start function exists
-  if ! bash -c "source '$session_dir/main.sh' && declare -F start" &>/dev/null; then
-    notify "Error: No start function defined in main.sh for session '$session'"
+  if ! bash -c "source '$session_file' && declare -F start" &>/dev/null; then
+    notify "Error: No start function defined in $session.sh for session '$session'"
     exit 1
   fi
 
-  # Read ROOT from main.sh
+  # Read ROOT from session file
   local configured_name="$session"
   local root
-  root=$(bash -c "source '$session_dir/main.sh' && echo \"\$ROOT\"")
+  root=$(bash -c "source '$session_file' && echo \"\$ROOT\"")
 
   if [ -z "$root" ]; then
-    notify "Error: ROOT variable not defined in main.sh for session '$session'"
+    notify "Error: ROOT variable not defined in $session.sh for session '$session'"
     exit 1
   fi
 
@@ -284,7 +279,7 @@ configured_session() {
     local log_file="$log_dir/tsm.log"
     mkdir -p "$log_dir"
     echo "[$(date '+%Y-%m-%d %H:%M:%S')] Starting session '$session'" > "$log_file"
-    bash -c "set -m; source '$session_dir/main.sh' && start '$session' '$_TSM_WORKING_DIR' '$log_dir'" >> "$log_file" 2>&1
+    bash -c "set -m; source '$session_file' && start '$session' '$_TSM_WORKING_DIR' '$log_dir'" >> "$log_file" 2>&1
     tmux set-environment -t "=$session" TSM_CONFIGURED_SESSION "$configured_name"
     switch_or_attach "$session"
   fi

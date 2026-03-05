@@ -18,7 +18,7 @@ _tsm_completions() {
             # Complete with configured session names
             local config_dir="${XDG_CONFIG_HOME:-$HOME/.config}/tsm"
             if [ -d "$config_dir" ]; then
-                local sessions=$(for dir in "$config_dir"/*/; do [ -d "$dir" ] && basename "$dir"; done 2>/dev/null)
+                local sessions=$(for f in "$config_dir"/*.sh; do [ -f "$f" ] && basename "$f" .sh; done 2>/dev/null)
                 COMPREPLY=($(compgen -W "$sessions" -- "$cur"))
             fi
             return 0

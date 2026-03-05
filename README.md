@@ -229,22 +229,16 @@ This works with both bare repositories and regular git repos, and worktrees can 
 ## Configured Sessions
 
 Configured sessions provide more control when starting a session. Session configurations are shell scripts
-stored in `${XDG_CONFIG_HOME:-~/.config}/tsm/<session-name>/`.
+stored as `${XDG_CONFIG_HOME:-~/.config}/tsm/<session-name>.sh`.
 
-Each session directory is required to have a `main.sh` script that defines:
+Each session file defines:
   - `ROOT` (required): Path to the project root directory.
   - `start()` (required): Customizes the tmux session. tsm creates the session before calling `start()`, which receives `$1`=session name, `$2`=working directory, `$3`=log directory.
   - `kill()` (optional): Runs asynchronously when the session is killed. Receives the same arguments as `start()`.
 
 ### Example Session Configuration
 
-Create a session configuration for a project:
-
-```bash
-mkdir -p "${XDG_CONFIG_HOME:-$HOME/.config}/tsm/myproject"
-```
-
-Create `~/.config/tsm/myproject/main.sh`:
+Create a session configuration for a project at `~/.config/tsm/myproject.sh`:
 
 ```bash
 ROOT="$HOME/projects/myproject"
@@ -307,7 +301,7 @@ tail of the currently highlighted file. Use `tsm -l <name>` to browse logs for a
 <details>
 <summary><strong style="font-size: 1.25em;">Advanced Configuration Examples</strong></summary>
 
-Since `main.sh` is a full shell script, you're not limited to running commands inside tmux panes and windows.
+Since each session file is a full shell script, you're not limited to running commands inside tmux panes and windows.
 You can kick off commands in the background with `&` so they don't block session startup. The session attaches
 immediately while the command continues running, and its output is captured in the log file for later review.
 
