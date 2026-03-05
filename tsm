@@ -96,8 +96,9 @@ sanitize_directory_session_name() {
   basename "$1" | tr -c 'a-zA-Z0-9_\-\n' '_'
 }
 
-session_name_suggester() {
-  # Suggests a session name for a given path, prompting the user to confirm or override.
+session_name_prompt() {
+  # Prompts the user for a session name.
+  # Provides a sensible default that can be used if no input is given.
   # Echoes the final session name.
   #
   # Args:
@@ -116,7 +117,7 @@ session_name_suggester() {
     bare_leaf=$(basename "$bare_repo_path")
 
     local repo_name
-    if [ "$bare_leaf" = ".bare" ]; then
+    if [ "$bare_leaf" = ".bare" ] || [ "$bare_leaf" = ".git" ]; then
       repo_name=$(basename "$(dirname "$bare_repo_path")")
     else
       repo_name="$bare_leaf"
@@ -130,7 +131,7 @@ session_name_suggester() {
     default_name=$(sanitize_directory_session_name "$path")
   fi
 
-  read -rp "Session name [$default_name]: " user_input
+  read -rp "Enter session name [$(tput setaf 4)${default_name}$(tput sgr0)]: " user_input
   echo "${user_input:-$default_name}"
 }
 
@@ -320,7 +321,7 @@ dir_session() {
   selected=$(cd "$selected" && pwd -P)
 
   # Create the session
-  session_name=$(session_name_suggester $selected)
+  session_name=$(session_name_prompt $selected)
   tmux new-session -d -s "$session_name" -c "$selected"
   switch_or_attach "$session_name"
 }
