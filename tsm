@@ -66,6 +66,17 @@ usage() {
 ####################
 # helper functions #
 ####################
+notify() {
+  # Displays a message to the user.
+  # Uses tmux display-message when running inside tmux, otherwise falls back to echo.
+  local msg="$1"
+  if [ -n "$TMUX" ]; then
+    tmux display-message "$msg"
+  else
+    echo "$msg"
+  fi
+}
+
 get_active_sessions() {
   # Lists active tmux session names, one per line.
   tmux ls 2>/dev/null | awk -F: '{print $1}'
@@ -138,20 +149,19 @@ active_session() {
     active_sessions=$(get_active_sessions)
 
     if [ -z "$active_sessions" ]; then
-      echo "No active sessions"
+      notify "No active sessions"
       exit 1
     fi
 
     session=$(echo "$active_sessions" | fzf --cycle --prompt "> " --header "Select active session")
 
     if [ -z "$session" ]; then
-      echo "No session selected"
       exit 0
     fi
   fi
 
   if ! tmux has-session -t "=$session" 2>/dev/null; then
-    echo "Error: Session '$session' is not running"
+    notify "Error: Session '$session' is not running"
     exit 1
   fi
 
@@ -167,20 +177,19 @@ kill_session() {
     active_sessions=$(get_active_sessions)
 
     if [ -z "$active_sessions" ]; then
-      echo "No active sessions to kill"
+      notify "No active sessions to kill"
       exit 1
     fi
 
     session=$(echo "$active_sessions" | fzf --cycle --prompt "> " --header "Kill session")
 
     if [ -z "$session" ]; then
-      echo "No session selected"
       exit 0
     fi
   fi
 
   if ! tmux has-session -t "=$session" 2>/dev/null; then
-    echo "Error: Session '$session' is not running"
+    notify "Error: Session '$session' is not running"
     exit 1
   fi
 
@@ -208,7 +217,7 @@ configured_session() {
   local session="$1"
 
   if [ ! -d "$CONFIG_DIR" ]; then
-    echo "No sessions configured. Create directories in $CONFIG_DIR"
+    notify "No sessions configured. Create directories in $CONFIG_DIR"
     exit 1
   fi
 
@@ -218,14 +227,13 @@ configured_session() {
     configured_sessions=$(for dir in "$CONFIG_DIR"/*/; do [ -d "$dir" ] && echo "$(basename "$dir")"; done)
 
     if [ -z "$configured_sessions" ]; then
-      echo "No configured sessions"
+      notify "No configured sessions"
       exit 1
     fi
 
     session=$(echo "$configured_sessions" | fzf --cycle --prompt "> " --header "Select configured session")
 
     if [ -z "$session" ]; then
-      echo "No session selected"
       exit 0
     fi
   fi
@@ -233,18 +241,18 @@ configured_session() {
   local session_dir="$CONFIG_DIR/$session"
 
   if [ ! -d "$session_dir" ]; then
-    echo "Error: Session '$session' not found in $CONFIG_DIR"
+    notify "Error: Session '$session' not found in $CONFIG_DIR"
     exit 1
   fi
 
   if [ ! -f "$session_dir/main.sh" ]; then
-    echo "Error: No main.sh found for session '$session'"
+    notify "Error: No main.sh found for session '$session'"
     exit 1
   fi
 
   # Verify start function exists
   if ! bash -c "source '$session_dir/main.sh' && declare -F start" &>/dev/null; then
-    echo "Error: No start function defined in main.sh for session '$session'"
+    notify "Error: No start function defined in main.sh for session '$session'"
     exit 1
   fi
 
@@ -254,13 +262,18 @@ configured_session() {
   root=$(bash -c "source '$session_dir/main.sh' && echo \"\$ROOT\"")
 
   if [ -z "$root" ]; then
-    echo "Error: ROOT variable not defined in main.sh for session '$session'"
+    notify "Error: ROOT variable not defined in main.sh for session '$session'"
     exit 1
   fi
 
   if [ ! -d "$root" ]; then
-    echo "Error: ROOT directory '$root' does not exist"
+    notify "Error: ROOT directory '$root' does not exist"
     exit 1
+  fi
+
+  if tmux has-session -t "=$session" 2>/dev/null; then
+    switch_or_attach "$session"
+    return
   fi
 
   tmux new-session -d -s "$session" -c "$root"
@@ -287,7 +300,7 @@ dir_session() {
     selected="${target_dir/#\~/$HOME}"
 
     if [ ! -d "$selected" ]; then
-      echo "Error: Directory '$selected' does not exist"
+      notify "Error: Directory '$selected' does not exist"
       exit 1
     fi
   else
@@ -303,7 +316,6 @@ dir_session() {
     exec 3<&-
 
     if [ -z "$selected" ]; then
-      echo "No directory selected"
       exit 0
     fi
   fi
@@ -313,6 +325,10 @@ dir_session() {
 
   # Create the session
   session_name=$(session_name_prompt $selected)
+  if tmux has-session -t "=$session_name" 2>/dev/null; then
+    notify "Error: Session '$session_name' already exists"
+    exit 1
+  fi
   tmux new-session -d -s "$session_name" -c "$selected"
   switch_or_attach "$session_name"
 }
@@ -322,7 +338,7 @@ zoxide_session() {
   local selected
 
   if ! command -v zoxide &> /dev/null; then
-    echo "Error: zoxide is not installed"
+    notify "Error: zoxide is not installed"
     exit 1
   fi
 
@@ -331,7 +347,7 @@ zoxide_session() {
     selected=$(zoxide query "$query" 2>/dev/null)
 
     if [ -z "$selected" ]; then
-      echo "Error: No zoxide match found for '$query'"
+      notify "Error: No zoxide match found for '$query'"
       exit 1
     fi
   else
@@ -339,7 +355,6 @@ zoxide_session() {
     selected=$(zoxide query -i 2>/dev/null)
 
     if [ -z "$selected" ]; then
-      echo "No directory selected"
       exit 0
     fi
   fi
@@ -358,7 +373,7 @@ worktree_session() {
   ')
 
   if [ -z "$worktrees" ]; then
-    echo "No worktrees found"
+    notify "No worktrees found"
     exit 0
   fi
 
@@ -372,7 +387,7 @@ worktree_session() {
     done)
 
     if [ -z "$selected" ]; then
-      echo "No worktree found matching '$name'"
+      notify "No worktree found matching '$name'"
       exit 1
     fi
   else
@@ -384,7 +399,6 @@ worktree_session() {
     selected=$(echo "$fzf_input" | fzf --cycle --with-nth=2 --delimiter=$'\t' --prompt "> " --header "Select worktree")
 
     if [ -z "$selected" ]; then
-      echo "No worktree selected"
       exit 0
     fi
 
@@ -401,7 +415,7 @@ browse_logs() {
   if [ -n "$session" ]; then
     search_dir="$LOG_DIR/$session"
     if [ ! -d "$search_dir" ]; then
-      echo "Error: No log directory found for session '$session'"
+      notify "Error: No log directory found for session '$session'"
       exit 1
     fi
   else
@@ -412,7 +426,7 @@ browse_logs() {
   log_files=$(find "$search_dir" -type f -name '*.log' 2>/dev/null | sed "s|^$LOG_DIR/||" | sort)
 
   if [ -z "$log_files" ]; then
-    echo "No log files found"
+    notify "No log files found"
     exit 1
   fi
 
@@ -428,7 +442,6 @@ browse_logs() {
     --preview-window follow)
 
   if [ -z "$selected" ]; then
-    echo "No log file selected"
     exit 0
   fi
 
@@ -464,7 +477,7 @@ case "$1" in
     usage
     ;;
   -*)
-    echo "Error: Unknown option '$1'"
+    notify "Error: Unknown option '$1'"
     usage
     exit 1
     ;;
