@@ -1,13 +1,10 @@
 # tmux-session-manager
 
-A simple tmux session manager that lets you:
+A simple tmux session manager
 
-- **Create** sessions
-    - that are rooted at a specific directory similar to **[tmux-sessionizer](https://github.com/ThePrimeagen/tmux-sessionizer)**
-    - with start up configuration scripts similar to **[tmuxinator](https://github.com/tmuxinator/tmuxinator)**
-    - that are dedicated to specific git worktrees
-- **Switch** between active tmux sessions
-- **Kill** sessions (with optional cleanup scripts)
+- **Create** sessions rooted at directories, git worktrees, or defined by configuration scripts
+- **Switch** between active sessions
+- **Kill** sessions with optional cleanup scripts
 
 ## Dependencies
 
@@ -36,7 +33,7 @@ A simple tmux session manager that lets you:
 
    Completions provide:
    - Active session names for `tsm` and `tsm -k`
-   - Directory completion for `tsm -d` and `tsm -z`
+   - Directory completion for `tsm -d`
    - Configured session names for `tsm -c` and `tsm -l`
 
    <details>
@@ -80,11 +77,11 @@ A simple tmux session manager that lets you:
 tsm [session]                  # Browse active sessions with fzf, or switch to session if provided
 tsm -c, --configured [session] # Browse configured sessions with fzf, or start session if provided
 tsm -d, --dir [path]           # Browse directories with fzf, or start session at path if provided
-tsm -z, --zoxide [query]       # Browse zoxide entries with fzf, or start session at best match if provided
-tsm -w, --worktree             # Browse worktrees for current git repo with fzf
+tsm -h, --help                 # Show help message
 tsm -k, --kill [session]       # Kill a session (runs cleanup script if present)
 tsm -l, --logs [session]       # Browse all log files, or for named session if provided
-tsm -h, --help                 # Show help message
+tsm -w, --worktree [name]      # Browse worktrees for current git repo with fzf, or start worktree if provided
+tsm -z, --zoxide [query]       # Browse zoxide entries with fzf, or start session at best match if provided
 ```
 
 When session/path arguments are omitted, `tsm` uses fzf for interactive selection.
@@ -99,9 +96,9 @@ to confirm or override the suggested session name before the session is created.
 bind-key s popup -E "tsm"
 bind-key c popup -E "tsm -c"
 bind-key d popup -E "tsm -d"
-bind-key w popup -E "tsm -w"
 bind-key k popup -E "tsm -k"
 bind-key l popup -E "tsm -l"
+bind-key w popup -E "tsm -w"
 bind-key X run-shell "tsm -k #{session_name}"
 
 # OPTIONAL
@@ -112,9 +109,9 @@ This maps:
 - `prefix + s` - Active session switcher
 - `prefix + c` - Configured session launcher
 - `prefix + d` - Directory session launcher
-- `prefix + w` - Worktree session launcher
 - `prefix + k` - Kill session selector
 - `prefix + l` - Browse logs
+- `prefix + w` - Worktree session launcher
 - `prefix + X` - Kill the current session and run kill script
 
 And optionally maps:
@@ -165,14 +162,14 @@ Modify these keybindings as needed.
 Sessions can be launched in three different ways:
 
 - **[Directory Sessions](#directory-sessions)**: Open a new tmux session rooted at a specific directory.
-Ideal for quickly jumping into a project without any predefined configuration.
+Ideal for quickly jumping into a project.
 
-- **[Worktree Sessions](#worktree-sessions)**: Open a new tmux session dedicated to a specific git worktree.
+- **[Worktree Sessions](#worktree-sessions)**: Open a new tmux session rooted at a git worktree directory.
 Ideal for parallelizing work across multiple branches of the same project.
 
-- **[Configured Sessions](#configured-sessions)**: Ideal for projects you work on regularly that benefit from
-a consistent tmux window/pane layout. These use a script stored in `${XDG_CONFIG_HOME:-~/.config}/tsm/` that
-control how the session is created and killed.
+- **[Configured Sessions](#configured-sessions)**: Script up your perfect window/pane layout. Great for
+automating tasks like starting up services when a session starts. Ideal for projects you work on regularly
+to keep things consistent and reproducible.
 
 ## Directory Sessions
 
@@ -189,11 +186,17 @@ When no path is provided, fzf by default displays all non-hidden directories wit
 <details>
 <summary><strong style="font-size: 1.25em;">Modifying <code>TSM_DIRS_CMD</code></strong></summary>
 
-> The following shows the `$HOME` directory and limits the search to a specific directory (`$HOME/code`)
-> while also pruning the search once it finds the root of a git repo:
+> `TSM_DIRS_CMD` can be set to any command that returns directories.
+>
+> The following example shows:
+> - directories 1 level deep in the `$HOME` directory
+> - directories 4 levels deep in `$HOME/code` while also pruning the search once it finds the root of a git repo
 >
 > ```bash
-> export TSM_DIRS_CMD='{ echo "$HOME"; find "$HOME/code" -maxdepth 4 -name ".*" -prune -o -type d \( -exec test -e {}/.git \; -print -prune -o -print \); }'
+> export TSM_DIRS_CMD='{
+>   find "$HOME" -maxdepth 1 -name ".*" -prune -o -type d -print;
+>   find "$HOME/code" -maxdepth 4 -name ".*" -prune -o -type d \( -exec test -e {}/.git \; -print -prune -o -print \);
+> }'
 > ```
 
 </details>
@@ -229,11 +232,14 @@ This works with both bare repositories and regular git repos, and worktrees can 
 ## Configured Sessions
 
 Configured sessions provide more control when starting a session. Session configurations are shell scripts
-stored as `${XDG_CONFIG_HOME:-~/.config}/tsm/<session-name>.sh`.
+stored in `${XDG_CONFIG_HOME:-~/.config}/tsm/<session-name>.sh`.
 
 Each session file defines:
   - `ROOT` (required): Path to the project root directory.
-  - `start()` (required): Customizes the tmux session. tsm creates the session before calling `start()`, which receives `$1`=session name, `$2`=working directory, `$3`=log directory.
+  - `start()` (required): Customizes the tmux session. tsm creates the session before calling `start()`, which receives:
+    - `$1`=session name
+    - `$2`=working directory
+    - `$3`=log directory
   - `kill()` (optional): Runs asynchronously when the session is killed. Receives the same arguments as `start()`.
 
 ### Example Session Configuration
@@ -295,8 +301,6 @@ invocation. This prevents log files from growing unbounded.
 
 Use `tsm -l` to browse all log files across sessions with fzf. The fzf preview pane shows the
 tail of the currently highlighted file. Use `tsm -l <name>` to browse logs for a specific session.
-
-> NOTE: The `tsm -l` `ctrl-o` keybind opens the selected log file in `$EDITOR` (falls back to `vi` if not set)
 
 <details>
 <summary><strong style="font-size: 1.25em;">Advanced Configuration Examples</strong></summary>

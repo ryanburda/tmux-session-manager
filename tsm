@@ -25,7 +25,7 @@ usage() {
   echo "  tsm myproject      Switch to active session"
   echo "  tsm -c             Browse configured sessions with fzf"
   echo "  tsm -c myproject   Start configured session"
-  echo "  tsm -d             Browse directories with fzf (\$HOME + git repos)"
+  echo "  tsm -d             Browse directories with fzf"
   echo "  tsm -d ~/projects  Start session at ~/projects"
   echo "  tsm -z             Browse zoxide entries interactively"
   echo "  tsm -z proj        Start session at best zoxide match for 'proj'"
@@ -57,7 +57,8 @@ usage() {
   echo "Environment Variables:"
   echo "  TSM_DIRS_CMD              Command to generate directories for 'tsm -d'."
   echo "                            The command is evaluated at runtime and piped to fzf."
-  echo "                            Default (when unset): \$HOME + directories containing git repos within 4 levels"
+  echo "                            Default (when unset): non-hidden directories within 4 levels of \$HOME,"
+  echo "                            pruning at git repo roots"
   echo ""
   echo "  EDITOR                    Editor used by 'tsm -l' when opening a log file with ctrl-o."
   echo "                            Falls back to vi if not set."
@@ -279,8 +280,9 @@ configured_session() {
     local log_file="$log_dir/tsm.log"
     mkdir -p "$log_dir"
     echo "[$(date '+%Y-%m-%d %H:%M:%S')] Starting session '$session'" > "$log_file"
-    bash -c "set -m; source '$session_file' && start '$session' '$_TSM_WORKING_DIR' '$log_dir'" >> "$log_file" 2>&1
+    bash -c "set -m; source '$session_file' && start '$session' '$root' '$log_dir'" >> "$log_file" 2>&1
     tmux set-environment -t "=$session" TSM_CONFIGURED_SESSION "$configured_name"
+    tmux set-environment -t "=$session" TSM_WORKING_DIR "$root"
     switch_or_attach "$session"
   fi
 }
