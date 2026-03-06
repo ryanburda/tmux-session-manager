@@ -2,7 +2,7 @@
 
 A simple tmux session manager
 
-- **Create** sessions rooted at directories, git worktrees, or defined by configuration scripts
+- **Create** sessions rooted at directories or defined by configuration scripts
 - **Switch** between active sessions
 - **Kill** sessions with optional cleanup scripts
 
@@ -12,10 +12,6 @@ A simple tmux session manager
 ### Create a new tmux session rooted at a chosen directory
 ![Launch Directory Sessions](docs/directory_launcher.gif)
 
-### Create a new tmux session for a git worktree
-**NOTE:** must be run from a directory where `git worktree list` works
-![Launch Worktree Sessions](docs/worktree_launcher.gif)
-
 ### Start a configured tmux session
 ![Launch Configured Sessions](docs/configured_launcher.gif)
 
@@ -23,7 +19,6 @@ A simple tmux session manager
 ## Dependencies
 
 - `fzf`
-- `zoxide` (optional)
 
 ## Installation
 
@@ -90,18 +85,24 @@ A simple tmux session manager
 
 ```bash
 tsm [session]                  # Browse active sessions with fzf, or switch to session if provided
-tsm -c, --configured [config]  # Browse configured sessions with fzf, or start config if provided
-tsm -d, --dir [path]           # Browse directories with fzf, or start session at path if provided
-tsm -h, --help                 # Show help message
 tsm -k, --kill [session]       # Kill a session (runs cleanup script if present)
-tsm -l, --logs [session]       # Browse all log files, or for named session if provided
+
+# Directory based sessions
+tsm -d, --dir [path]           # Browse directories with fzf, or start session at path if provided
+tsm -g, --git                  # Browse git repositories with fzf
 tsm -w, --worktree [name]      # Browse worktrees for current git repo with fzf, or start worktree if provided
 tsm -z, --zoxide [query]       # Browse zoxide entries with fzf, or start session at best match if provided
+
+# Configuration based sessions
+tsm -c, --configured [config]  # Browse configured sessions with fzf, or start config if provided
+tsm -l, --logs [session]       # Browse configured session logs
+
+tsm -h, --help                 # Show help message
 ```
 
 When session/path arguments are omitted, `tsm` uses fzf for interactive selection.
-When creating a new session with `tsm -d`, `tsm -z`, or `tsm -w`, you are prompted
-to confirm or override the suggested session name before the session is created.
+When creating a new directory based session you are prompted to confirm or override
+the suggested session name before the session is created.
 
 ## tmux Keybindings
 
@@ -109,30 +110,30 @@ to confirm or override the suggested session name before the session is created.
 
 ```bash
 bind-key s popup -E "tsm"
-bind-key c popup -E "tsm -c"
-bind-key d popup -E "tsm -d"
 bind-key k popup -E "tsm -k"
-bind-key l popup -E "tsm -l"
-bind-key w popup -E "tsm -w"
 bind-key X run-shell "tsm -k #{session_name}"
 
-# OPTIONAL
-bind-key z popup -h 24 -w 80 -E "tsm -z"
+# Directory based sessions
+bind-key d popup -E "tsm -d"
+bind-key g popup -E "tsm -g"
+bind-key w popup -E "tsm -w"
+bind-key z popup -E "tsm -z"
+
+# Configuration based sessions
+bind-key c popup -E "tsm -c"
+bind-key l popup -E "tsm -l"
 ```
 
 This maps:
 - `prefix + s` - Active session switcher
-- `prefix + c` - Configured session launcher
-- `prefix + d` - Directory session launcher
 - `prefix + k` - Kill session selector
-- `prefix + l` - Browse logs
-- `prefix + w` - Worktree session launcher
 - `prefix + X` - Kill the current session and run kill script
-
-And optionally maps:
+- `prefix + d` - Directory session launcher
+- `prefix + g` - Git repository session launcher
+- `prefix + w` - Worktree session launcher
 - `prefix + z` - Zoxide directory session launcher
-
-Modify these keybindings as needed.
+- `prefix + c` - Configured session launcher
+- `prefix + l` - Browse configured session logs
 
 <details>
 <summary><strong style="font-size: 1.25em;">Troubleshooting Keybinds</strong></summary>
@@ -174,13 +175,14 @@ Modify these keybindings as needed.
 
 ## Session Launcher Types
 
-Sessions can be launched in three different ways:
+Sessions can be launched in two different ways:
 
 - **[Directory Sessions](#directory-sessions)**: Open a new tmux session rooted at a specific directory.
-Ideal for quickly jumping into a project.
-
-- **[Worktree Sessions](#worktree-sessions)**: Open a new tmux session rooted at a git worktree directory.
-Ideal for parallelizing work across multiple branches of the same project.
+Several directory sources are available including:
+    - direct path (`-d`)
+    - git repositories (`-g`)
+    - git worktrees (`-w`)
+    - zoxide (`-z`)
 
 - **[Configured Sessions](#configured-sessions)**: Script up your perfect window/pane layout. Great for
 automating tasks like starting up services when a session starts. Ideal for projects you work on regularly
@@ -188,63 +190,96 @@ to keep things consistent and reproducible.
 
 ## Directory Sessions
 
-Use the `-d` flag to create a session rooted at a specific directory:
+All directory sessions work the same way: pick a directory, name the session, and go. The flags `-d`, `-g`,
+`-w`, and `-z` simply offer different ways to pick that directory.
 
-```bash
-tsm -d                   # Browse directories with fzf and start session from selection
-tsm -d ~/code/projectA   # Start a session directly at ~/code/projectA
-```
+### Browse Directories (`-d`)
 
-When no path is provided, fzf by default displays all non-hidden directories within 4 levels deep of your
-`$HOME` directory. This can be changed by setting the `TSM_DIRS_CMD` environment variable in your `.bashrc/.zshenv`.
-
-<details>
-<summary><strong style="font-size: 1.25em;">Modifying <code>TSM_DIRS_CMD</code></strong></summary>
-
-> `TSM_DIRS_CMD` can be set to any command that returns directories.
->
-> The following example shows:
-> - directories 1 level deep in the `$HOME` directory
-> - directories 4 levels deep in `$HOME/code` while also pruning the search once it finds the root of a git repo
->
 > ```bash
-> export TSM_DIRS_CMD='{
->   find "$HOME" -maxdepth 1 -name ".*" -prune -o -type d -print;
->   find "$HOME/code" -maxdepth 4 -name ".*" -prune -o -type d \( -exec test -e {}/.git \; -print -prune -o -print \);
-> }'
+> tsm -d                   # Browse directories with fzf and start session from selection
+> tsm -d ~/code/projectA   # Start a session directly at ~/code/projectA
 > ```
-
-</details>
-
-<details><summary><strong style="font-size: 1.25em;">Zoxide Integration (Optional)</strong></summary>
-
-> If you have **[zoxide](https://github.com/ajeetdsouza/zoxide)** installed, you can use the `-z` flag to create
-> sessions from your zoxide directory history:
+> 
+> When no path is provided, fzf by default displays all non-hidden directories within 4 levels deep of your
+> `$HOME` directory. This can be changed by setting the `TSM_DIRS_CMD` environment variable in your `.bashrc/.zshenv`.
+> 
+> <details>
+> <summary><strong style="font-size: 1.25em;">Modifying <code>TSM_DIRS_CMD</code></strong></summary>
+> 
+> > `TSM_DIRS_CMD` can be set to any command that returns directories.
+> >
+> > The following example shows:
+> > - directories 1 level deep in the `$HOME` directory
+> > - directories 4 levels deep in `$HOME/code` while also pruning the search once it finds the root of a git repo
+> >
+> > ```bash
+> > export TSM_DIRS_CMD='{
+> >   find "$HOME" -maxdepth 1 -name ".*" -prune -o -type d -print;
+> >   find "$HOME/code" -maxdepth 4 -name ".*" -prune -o -type d \( -exec test -e {}/.git \; -print -prune -o -print \);
+> > }'
+> > ```
+> </details>
 >
+> ![Launch Directory Sessions](docs/directory_launcher.gif)
+
+### Browse Git Repositories (`-g`)
+
+> ```bash
+> tsm -g   # Browse git repositories with fzf and start session from selection
+> ```
+> 
+> Scans for git repositories and presents them in fzf with a brief status showing the current branch,
+> ahead/behind counts, and pending changes. On selection, a session is created rooted at the chosen repository.
+> 
+> By default, `tsm -g` finds all directories containing `.git` within 5 levels of `$HOME`. This can be
+> changed by setting the `TSM_GIT_DIRS_CMD` environment variable in your `.bashrc/.zshenv`.
+> 
+> Optional flags:
+> - `--hide-brief` — Skip displaying git status information in the picker.
+> - `--skip-fetch` — Skip running `git fetch` before displaying status. Useful for faster startup when
+>   you don't need the latest remote tracking info.
+> 
+> <details>
+> <summary><strong style="font-size: 1.25em;">Modifying <code>TSM_GIT_DIRS_CMD</code></strong></summary>
+> 
+> > `TSM_GIT_DIRS_CMD` can be set to any command that returns directories of git repositories.
+> >
+> > ```bash
+> > export TSM_GIT_DIRS_CMD='find "$HOME/code" -maxdepth 4 -name ".git" 2>/dev/null | sed "s/\/\.git$//"'
+> > ```
+> 
+> </details>
+>
+> **TODO: Add gif**
+
+### Browse Worktrees (`-w`)
+
+> ```bash
+> tsm -w         # Browse worktrees for current git repo with fzf
+> tsm -w other   # Start session for worktree named 'other'
+> ```
+> 
+> Browse git worktrees for the current repository and create a session rooted at the selected worktree directory.
+>
+> > **NOTE:** Must be run from a directory where `git worktree list` works.
+> 
+> ![Launch Worktree Sessions](docs/worktree_launcher.gif)
+
+### Browse Zoxide Entries (`-z`, Optional)
+
 > ```bash
 > tsm -z              # Browse zoxide entries interactively and start session from selection
 > tsm -z proj         # Start a session at the best zoxide match for "proj"
 > ```
->
+> Requires **[zoxide](https://github.com/ajeetdsouza/zoxide)**.
+> 
 > Zoxide tracks directories you visit frequently, ranking them by "frecency" (frequency + recency). This makes
 > it easy to jump to projects with just a few characters of the directory name.
->
+> 
 > When no query is provided, `tsm -z` uses `zoxide query -i` for interactive selection with fzf. When a query is
 > provided, it uses `zoxide query` to find the best match directly.
->
+> 
 > ![Zoxide Session Launcher](docs/zoxide_launcher.gif)
-
-</details>
-
-## Worktree Sessions
-
-A worktree session is a tmux session dedicated to a git worktree. Run `tsm -w` from within a git repo to
-browse its worktrees. On creation the session's working directory will be set to the worktree directory.
-
-This works with both bare repositories and regular git repos, and worktrees can live anywhere on the filesystem.
-
-> **Note:** `tsm` only creates tmux sessions for your worktrees. It does not contain any functionality related
-> to worktree management.
 
 ## Configured Sessions
 
