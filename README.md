@@ -250,7 +250,7 @@ All directory sessions work the same way: pick a directory, name the session, an
 > 
 > </details>
 >
-> **TODO: Add gif**
+> ![Launch Git Sessions](docs/git_launcher.gif)
 
 ### Browse Worktrees (`-w`)
 
