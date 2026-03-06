@@ -17,7 +17,7 @@ usage() {
   echo "  -c, --configured [name]  Browse configured sessions with fzf, or start session if provided"
   echo "  -d, --dir [path]         Browse directories with fzf, or start session at path if provided"
   echo "  -z, --zoxide [query]     Browse zoxide entries with fzf, or query zoxide if provided"
-  echo "  -g, --git [--hide-brief] Browse git repositories with fzf"
+  echo "  -g, --git [--hide-brief] [--skip-fetch] Browse git repositories with fzf"
   echo "  -w, --worktree [name]    Browse worktrees for current git repo with fzf, or start worktree if provided"
   echo "  -k, --kill [name]        Run kill(), if it exists, and kill the session"
   echo "  -l, --logs [name]        Browse all log files, or for named session if provided"
@@ -102,9 +102,11 @@ git_brief(){
   # Returns a brief git status for the repo located in $1
   # Format: branch ↑ahead↓behind +insertions-deletions
   local dir="$1"
+  local skip_fetch="$2"
   local branch ahead behind stats added removed
 
   branch=$(git -C "$dir" branch --show-current 2>/dev/null) || return
+  [ "$skip_fetch" != "--skip-fetch" ] && git -C "$dir" fetch --quiet 2>/dev/null
   ahead=$(git -C "$dir" log @{u}..HEAD --oneline 2>/dev/null | wc -l | tr -d ' ')
   behind=$(git -C "$dir" log HEAD..@{u} --oneline 2>/dev/null | wc -l | tr -d ' ')
   stats=$(git -C "$dir" diff --shortstat 2>/dev/null)
@@ -366,16 +368,36 @@ zoxide_session() {
 }
 
 git_session() {
-  local show_brief="$1"
+  local hide_brief="" skip_fetch=""
+  for arg in "$@"; do
+    case "$arg" in
+      --hide-brief) hide_brief=1 ;;
+      --skip-fetch) skip_fetch="--skip-fetch" ;;
+    esac
+  done
   local git_dirs_cmd="${TSM_GIT_DIRS_CMD:-$TSM_GIT_DIRS_CMD_DEFAULT}"
 
-  local selected
-  if [ "$show_brief" = "--hide-brief" ]; then
-    selected=$(eval "$git_dirs_cmd" | sort | fzf --cycle --prompt "> " --header "Select git repository")
+  local dirs selected
+  dirs=$(eval "$git_dirs_cmd" | sort)
+
+  if [ -z "$dirs" ]; then
+    notify "No git repositories found"
+    exit 1
+  fi
+
+  if [ -n "$hide_brief" ]; then
+    selected=$(echo "$dirs" | fzf --cycle --prompt "> " --header "Select git repository")
   else
-    selected=$(eval "$git_dirs_cmd" | sort \
+    if [ -z "$skip_fetch" ]; then
+      while read -r dir; do
+        git -C "$dir" fetch --quiet 2>/dev/null &
+      done <<< "$dirs"
+      wait
+    fi
+
+    selected=$(echo "$dirs" \
       | while read -r dir; do
-          printf '%s\t%s  %s\n' "$dir" "$dir" "$(git_brief "$dir")"
+          printf '%s\t%s  %s\n' "$dir" "$dir" "$(git_brief "$dir" --skip-fetch)"
         done \
       | fzf --ansi --cycle --delimiter=$'\t' --with-nth=2 --prompt "> " --header "Select git repository")
     selected="${selected%%	*}"
@@ -497,7 +519,7 @@ case "$1" in
     browse_logs "$2"
     ;;
   -g|--git)
-    git_session "$2"
+    shift; git_session "$@"
     ;;
   -d|--dir)
     dir_session "$2"
