@@ -231,6 +231,8 @@ When no path is provided, fzf by default displays all non-hidden directories wit
 >
 > When no query is provided, `tsm -z` uses `zoxide query -i` for interactive selection with fzf. When a query is
 > provided, it uses `zoxide query` to find the best match directly.
+>
+> ![Zoxide Session Launcher](docs/zoxide_launcher.gif)
 
 </details>
 
@@ -254,52 +256,6 @@ Each session file defines:
   - `start()` (required): Creates and customizes the tmux session.
   - `kill()` (optional): Runs asynchronously when the session is killed. Use this for cleanup tasks like stopping services.
 
-### Example Session Configuration
-
-Create a session configuration for a project at `~/.config/tsm/myproject.sh`:
-
-```bash
-SESSION="myproject"
-ROOT="$HOME/projects/myproject"
-
-start() {
-  # Create the session rooted at the project directory.
-  tmux new-session -d -s "$SESSION" -c "$ROOT"
-
-  # Rename the first window to 'code'.
-  # This window will have two vertical splits:
-  #     - nvim on top 80%
-  #     - a terminal at the bottom 20%
-  tmux rename-window -t "$SESSION" "code"
-  tmux send-keys -t "$SESSION:code" 'nvim' Enter
-  tmux split-window -v -l 20% -t "$SESSION:code" -c "$ROOT"
-
-  # Create a second window named 'docker'.
-  # This window will have an even-vertical layout with:
-  #     - a terminal that starts docker compose on top
-  #     - lazydocker on bottom
-  tmux new-window -t "$SESSION" -n "docker" -c "$ROOT"
-  tmux send-keys -t "$SESSION:docker" 'docker compose up --force-recreate --detach' Enter
-  tmux split-window -t "$SESSION:docker" -v -c "$ROOT"
-  tmux send-keys -t "$SESSION:docker" 'lazydocker' Enter
-  tmux select-layout -t "$SESSION:docker" even-vertical
-
-  # Select first window
-  tmux select-window -t "$SESSION:code"
-}
-
-# Optional: cleanup function runs in background when session is killed.
-# This allows the tmux session to be killed immediately without waiting for
-# cleanup tasks to complete, providing a snappier user experience especially
-# when cleanup involves slow operations like stopping services.
-kill() {
-  # Stop the docker compose service that was started earlier.
-  docker compose --project-directory "$ROOT" down
-}
-```
-
-> See `man tmux` for a full list of available tmux specific commands.
-
 ### Logging
 
 Output from `start()` and `kill()` functions is redirected to a dedicated log file.
@@ -313,38 +269,88 @@ tail of the currently highlighted file.
 > so it only contains output from the most recent invocation. This prevents log files from growing unbounded.
 
 <details>
-<summary><strong style="font-size: 1.5em;">Advanced Configuration Examples</strong></summary>
+<summary><strong style="font-size: 1.25em;">Example Session Configuration</strong></summary>
 
-Since each session file is a full shell script, you're not limited to running commands inside tmux panes and windows.
-You can kick off commands in the background with `&` so they don't block session startup. The session attaches
-immediately while the command continues running, and its output is captured in the log file for later review.
+> Create a session configuration for a project at `~/.config/tsm/myproject.sh`:
+> 
+> ```bash
+> SESSION="myproject"
+> ROOT="$HOME/projects/myproject"
+> 
+> start() {
+>   # Create the session rooted at the project directory.
+>   tmux new-session -d -s "$SESSION" -c "$ROOT"
+> 
+>   # Rename the first window to 'code'.
+>   # This window will have two vertical splits:
+>   #     - nvim on top 80%
+>   #     - a terminal at the bottom 20%
+>   tmux rename-window -t "$SESSION" "code"
+>   tmux send-keys -t "$SESSION:code" 'nvim' Enter
+>   tmux split-window -v -l 20% -t "$SESSION:code" -c "$ROOT"
+> 
+>   # Create a second window named 'docker'.
+>   # This window will have an even-vertical layout with:
+>   #     - a terminal that starts docker compose on top
+>   #     - lazydocker on bottom
+>   tmux new-window -t "$SESSION" -n "docker" -c "$ROOT"
+>   tmux send-keys -t "$SESSION:docker" 'docker compose up --force-recreate --detach' Enter
+>   tmux split-window -t "$SESSION:docker" -v -c "$ROOT"
+>   tmux send-keys -t "$SESSION:docker" 'lazydocker' Enter
+>   tmux select-layout -t "$SESSION:docker" even-vertical
+> 
+>   # Select first window
+>   tmux select-window -t "$SESSION:code"
+> }
+> 
+> # Optional: cleanup function runs in background when session is killed.
+> # This allows the tmux session to be killed immediately without waiting for
+> # cleanup tasks to complete, providing a snappier user experience especially
+> # when cleanup involves slow operations like stopping services.
+> kill() {
+>   # Stop the docker compose service that was started earlier.
+>   docker compose --project-directory "$ROOT" down
+> }
+> ```
+> 
+> See `man tmux` for a full list of available tmux specific commands.
 
-```bash
-SESSION="webapp"
-ROOT="$HOME/projects/webapp"
+</details>
 
-start() {
-  tmux new-session -d -s "$SESSION" -c "$ROOT"
+<details>
+<summary><strong style="font-size: 1.25em;">Advanced Configuration Examples</strong></summary>
 
-  tmux rename-window -t "$SESSION" "code"
-  tmux send-keys -t "$SESSION:code" 'nvim' Enter
-
-  # Start a service in the background so it doesn't block session startup.
-  # Build output and errors are captured in the tsm log file.
-  echo "$(date '+%Y-%m-%d %H:%M:%S'): Starting my webapp"
-  docker compose --project-directory "$ROOT" up --build --force-recreate --detach &
-}
-
-kill() {
-  echo "$(date '+%Y-%m-%d %H:%M:%S'): Stopping my webapp"
-  docker compose --project-directory "$ROOT" down
-}
-```
-
+> Since each session file is a full shell script, you're not limited to running commands inside tmux panes and windows.
+>
+> You can kick off commands in the background with `&` so they don't block session startup. The session attaches
+> immediately while the command continues running, and its output is captured in the log file for later review.
+> 
+> ```bash
+> SESSION="webapp"
+> ROOT="$HOME/projects/webapp"
+> 
+> start() {
+>   tmux new-session -d -s "$SESSION" -c "$ROOT"
+> 
+>   tmux rename-window -t "$SESSION" "code"
+>   tmux send-keys -t "$SESSION:code" 'nvim' Enter
+> 
+>   # Start a service in the background so it doesn't block session startup.
+>   # Build output and errors are captured in the tsm log file.
+>   echo "$(date '+%Y-%m-%d %H:%M:%S'): Starting my webapp"
+>   docker compose --project-directory "$ROOT" up --build --force-recreate --detach &
+> }
+> 
+> kill() {
+>   echo "$(date '+%Y-%m-%d %H:%M:%S'): Stopping my webapp"
+>   docker compose --project-directory "$ROOT" down
+> }
+> ```
+> 
 > **NOTE:** Background cleanup tasks in `kill()` with `&` so they run in parallel. Although `kill()`
 > itself runs asynchronously, commands within it still run sequentially — if one hangs or is slow, it
 > will block the rest.
-
+>
 > **NOTE:** When backgrounding multiple processes, their output may interleave in the tsm log file.
 > To avoid this, redirect each process to its own log file in the session's log directory:
 > ```bash
