@@ -6,16 +6,17 @@ A simple tmux session manager
 - **Switch** between active sessions
 - **Kill** sessions with optional cleanup scripts
 
-### Session switcher
+### Switch between active tmux sessions
 ![Session Switcher](docs/session_switcher.gif)
 
-### Directory sessions
+### Create a new tmux session rooted at a chosen directory
 ![Launch Directory Sessions](docs/directory_launcher.gif)
 
-### Worktree sessions
+### Create a new tmux session for a git worktree
+**NOTE:** must be run from a directory where `git worktree list` works
 ![Launch Worktree Sessions](docs/worktree_launcher.gif)
 
-### Configured sessions
+### Start a configured tmux session
 ![Launch Configured Sessions](docs/configured_launcher.gif)
 
 
