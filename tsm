@@ -5,6 +5,7 @@ LOG_DIR="${XDG_STATE_HOME:-$HOME/.local/state}/tsm/logs"
 mkdir -p "$CONFIG_DIR" "$LOG_DIR"
 
 TSM_DIRS_CMD_DEFAULT='find "$HOME" -maxdepth 4 -name ".*" -prune -o -type d \( -exec test -e {}/.git \; -print -prune -o -print \)'
+TSM_GIT_DIRS_CMD_DEFAULT='find "$HOME" -maxdepth 5 -name ".git" 2>/dev/null | sed "s/\/\.git$//"'
 
 usage() {
   echo "Tmux Session Manager"
@@ -12,13 +13,14 @@ usage() {
   echo "Usage: tsm [session] [options]"
   echo ""
   echo "Options:"
-  echo "  -h, --help              Show this help message"
-  echo "  -c, --configured [name] Browse configured sessions with fzf, or start session if provided"
-  echo "  -d, --dir [path]        Browse directories with fzf, or start session at path if provided"
-  echo "  -z, --zoxide [query]    Browse zoxide entries with fzf, or query zoxide if provided"
-  echo "  -w, --worktree [name]   Browse worktrees for current git repo with fzf, or start worktree if provided"
-  echo "  -k, --kill [name]       Run kill(), if it exists, and kill the session"
-  echo "  -l, --logs [name]       Browse all log files, or for named session if provided"
+  echo "  -h, --help               Show this help message"
+  echo "  -c, --configured [name]  Browse configured sessions with fzf, or start session if provided"
+  echo "  -d, --dir [path]         Browse directories with fzf, or start session at path if provided"
+  echo "  -z, --zoxide [query]     Browse zoxide entries with fzf, or query zoxide if provided"
+  echo "  -g, --git [--hide-brief] Browse git repositories with fzf"
+  echo "  -w, --worktree [name]    Browse worktrees for current git repo with fzf, or start worktree if provided"
+  echo "  -k, --kill [name]        Run kill(), if it exists, and kill the session"
+  echo "  -l, --logs [name]        Browse all log files, or for named session if provided"
   echo ""
   echo "Examples:"
   echo "  tsm                Browse active sessions with fzf"
@@ -29,6 +31,7 @@ usage() {
   echo "  tsm -d ~/projects  Start session at ~/projects"
   echo "  tsm -z             Browse zoxide entries interactively"
   echo "  tsm -z proj        Start session at best zoxide match for 'proj'"
+  echo "  tsm -g             Browse git repositories with fzf"
   echo "  tsm -w             Browse worktrees for current git repo"
   echo "  tsm -w other       Start session for worktree named 'other'"
   echo "  tsm -k             Select session to kill with fzf"
@@ -51,6 +54,10 @@ usage() {
   echo "                            The command is evaluated at runtime and piped to fzf."
   echo "                            Default (when unset): non-hidden directories within 4 levels of \$HOME,"
   echo "                            pruning at git repo roots"
+  echo ""
+  echo "  TSM_GIT_DIRS_CMD          Command to generate git repository paths for 'tsm -g'."
+  echo "                            The command is evaluated at runtime. Each line should be a repo path."
+  echo "                            Default (when unset): directories containing .git within 5 levels of \$HOME"
   echo ""
   echo "  EDITOR                    Editor used by 'tsm -l' when opening a log file with ctrl-o."
   echo "                            Falls back to vi if not set."
@@ -89,6 +96,28 @@ sanitize_directory_session_name() {
   # Converts a directory path to a valid tmux session name by taking the
   # basename and replacing non-alphanumeric characters (except _ and -) with _.
   basename "$1" | tr -c 'a-zA-Z0-9_\-\n' '_'
+}
+
+git_brief(){
+  # Returns a brief git status for the repo located in $1
+  # Format: branch ↑ahead↓behind +insertions-deletions
+  local dir="$1"
+  local branch ahead behind stats added removed
+
+  branch=$(git -C "$dir" branch --show-current 2>/dev/null) || return
+  ahead=$(git -C "$dir" log @{u}..HEAD --oneline 2>/dev/null | wc -l | tr -d ' ')
+  behind=$(git -C "$dir" log HEAD..@{u} --oneline 2>/dev/null | wc -l | tr -d ' ')
+  stats=$(git -C "$dir" diff --shortstat 2>/dev/null)
+  added=$(echo "$stats" | grep -o '[0-9]* insertion' | grep -o '[0-9]*')
+  removed=$(echo "$stats" | grep -o '[0-9]* deletion' | grep -o '[0-9]*')
+
+  local blue='\033[34m' yellow='\033[33m' green='\033[32m' red='\033[31m' reset='\033[0m'
+  local out="${blue}${branch}${reset}"
+  [ "${ahead:-0}" -gt 0 ] && out+=" ${yellow}↑${ahead}${reset}"
+  [ "${behind:-0}" -gt 0 ] && out+=" ${yellow}↓${behind}${reset}"
+  [ "${added:-0}" -gt 0 ] && out+=" ${green}+${added}${reset}"
+  [ "${removed:-0}" -gt 0 ] && out+=" ${red}-${removed}${reset}"
+  printf '%b\n' "$out"
 }
 
 session_name_prompt() {
@@ -336,6 +365,29 @@ zoxide_session() {
   dir_session "$selected"
 }
 
+git_session() {
+  local show_brief="$1"
+  local git_dirs_cmd="${TSM_GIT_DIRS_CMD:-$TSM_GIT_DIRS_CMD_DEFAULT}"
+
+  local selected
+  if [ "$show_brief" = "--hide-brief" ]; then
+    selected=$(eval "$git_dirs_cmd" | sort | fzf --cycle --prompt "> " --header "Select git repository")
+  else
+    selected=$(eval "$git_dirs_cmd" | sort \
+      | while read -r dir; do
+          printf '%s\t%s  %s\n' "$dir" "$dir" "$(git_brief "$dir")"
+        done \
+      | fzf --ansi --cycle --delimiter=$'\t' --with-nth=2 --prompt "> " --header "Select git repository")
+    selected="${selected%%	*}"
+  fi
+
+  if [ -z "$selected" ]; then
+    exit 0
+  fi
+
+  dir_session "$selected"
+}
+
 worktree_session() {
   local name="$1"
   local worktree_data
@@ -443,6 +495,9 @@ case "$1" in
     ;;
   -l|--logs)
     browse_logs "$2"
+    ;;
+  -g|--git)
+    git_session "$2"
     ;;
   -d|--dir)
     dir_session "$2"
