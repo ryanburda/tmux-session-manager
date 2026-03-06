@@ -338,22 +338,23 @@ zoxide_session() {
 
 worktree_session() {
   local name="$1"
-  local worktrees
-  worktrees=$(git worktree list --porcelain | awk '
-    /^worktree / { path = substr($0, 10) }
+  local worktree_data
+  worktree_data=$(git worktree list --porcelain | awk '
+    /^worktree / { path = substr($0, 10); branch = "" }
+    /^branch / { branch = substr($0, 8); sub("refs/heads/", "", branch) }
     /^bare$/ { path = "" }
-    /^$/ { if (path != "") print path; path = "" }
-    END { if (path != "") print path }
+    /^$/ { if (path != "") print path "\t" (branch != "" ? branch : "(detached)"); path = ""; branch = "" }
+    END { if (path != "") print path "\t" (branch != "" ? branch : "(detached)") }
   ')
 
-  if [ -z "$worktrees" ]; then
+  if [ -z "$worktree_data" ]; then
     notify "No worktrees found"
     exit 0
   fi
 
   local selected
   if [ -n "$name" ]; then
-    selected=$(echo "$worktrees" | while read -r wt; do
+    selected=$(echo "$worktree_data" | while IFS=$'\t' read -r wt _; do
       if [ "${wt##*/}" = "$name" ]; then
         echo "$wt"
         break
@@ -365,12 +366,17 @@ worktree_session() {
       exit 1
     fi
   else
-    local fzf_input
-    fzf_input=$(echo "$worktrees" | while read -r wt; do
-      printf '%s\t%s\n' "$wt" "${wt##*/}"
+    local fzf_input max_name=0 max_branch=0
+    while IFS=$'\t' read -r wt branch; do
+      local wt_name="${wt##*/}"
+      (( ${#wt_name} > max_name )) && max_name=${#wt_name}
+      (( ${#branch} > max_branch )) && max_branch=${#branch}
+    done <<< "$worktree_data"
+    fzf_input=$(echo "$worktree_data" | while IFS=$'\t' read -r wt branch; do
+      printf '%s\t%-*s  \033[32m%-*s\033[0m  %s\n' "$wt" "$max_name" "${wt##*/}" "$max_branch" "$branch" "$wt"
     done)
 
-    selected=$(echo "$fzf_input" | fzf --cycle --with-nth=2 --delimiter=$'\t' --prompt "> " --header "Select worktree")
+    selected=$(echo "$fzf_input" | fzf --ansi --cycle --with-nth=2 --delimiter=$'\t' --prompt "> " --header "Select worktree")
 
     if [ -z "$selected" ]; then
       exit 0
