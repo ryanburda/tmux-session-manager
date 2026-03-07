@@ -157,8 +157,21 @@ session_name_prompt() {
     default_name=$(sanitize_directory_session_name "$path")
   fi
 
-  read -rp "Enter session name [$(tput setaf 4)${default_name}$(tput sgr0)]: " user_input
-  echo "${user_input:-$default_name}"
+  local session_name="$default_name"
+  printf "%s\n" "$(tput setaf 8)$path$(tput sgr0)" >&2
+  while true; do
+    local prompt="Enter session name"
+    if ! tmux has-session -t "=$session_name" 2>/dev/null; then
+      prompt="$prompt [$(tput setaf 4)${session_name}$(tput sgr0)]"
+    fi
+    read -rp "$prompt: " user_input
+    session_name="${user_input:-$session_name}"
+    if ! tmux has-session -t "=$session_name" 2>/dev/null; then
+      break
+    fi
+    printf "$(tput setaf 1)Session '%s' already exists.$(tput sgr0)\n" "$session_name" >&2
+  done
+  echo "$session_name"
 }
 
 #################
@@ -330,10 +343,6 @@ dir_session() {
 
   # Create the session
   session_name=$(session_name_prompt "$selected")
-  if tmux has-session -t "=$session_name" 2>/dev/null; then
-    notify "Error: Session '$session_name' already exists"
-    exit 1
-  fi
   tmux new-session -d -s "$session_name" -c "$selected"
   switch_or_attach "$session_name"
 }
