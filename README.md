@@ -223,7 +223,7 @@ There are several options that offer different ways to pick the directory.
 > 
 > Optional flags:
 > - `--hide-brief` — Skip displaying git status information in the picker.
-> - `--skip-fetch` — Skip running `git fetch` before displaying status. Useful for faster startup when
+> - `--no-fetch` — Skip running `git fetch` before displaying status. Useful for faster startup when
 >   you don't need the latest remote tracking info.
 > 
 > <details>
