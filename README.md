@@ -6,16 +6,6 @@ A simple tmux session manager
 - **Switch** between active sessions
 - **Kill** sessions with optional cleanup scripts
 
-### Switch between active tmux sessions
-![Session Switcher](docs/session_switcher.gif)
-
-### Create a new tmux session rooted at a chosen directory
-![Launch Directory Sessions](docs/directory_launcher.gif)
-
-### Start a configured tmux session
-![Launch Configured Sessions](docs/configured_launcher.gif)
-
-
 ## Dependencies
 
 - `fzf`
@@ -84,17 +74,17 @@ A simple tmux session manager
 ## Usage
 
 ```bash
-tsm [session]                  # Browse active sessions with fzf, or switch to session if provided
-tsm -k, --kill [session]       # Kill a session (runs cleanup script if present)
+tsm [session]                  # Switch to session
+tsm -k, --kill [session]       # Kill session (run cleanup script if present)
 
 # Directory based sessions
-tsm -d, --dir [path]           # Browse directories with fzf, or start session at path if provided
-tsm -g, --git                  # Browse git repositories with fzf
-tsm -w, --worktree [name]      # Browse worktrees for current git repo with fzf, or start worktree if provided
-tsm -z, --zoxide [query]       # Browse zoxide entries with fzf, or start session at best match if provided
+tsm -d, --dir [path]           # Create session at path
+tsm -g, --git                  # Browse git repositories with fzf, creates session at path
+tsm -w, --worktree [name]      # Create session at git worktree path
+tsm -z, --zoxide [query]       # Create session for zoxide match path
 
 # Configuration based sessions
-tsm -c, --configured [config]  # Browse configured sessions with fzf, or start config if provided
+tsm -c, --configured [config]  # Create configured session
 tsm -l, --logs [session]       # Browse configured session logs
 
 tsm -h, --help                 # Show help message
@@ -173,27 +163,24 @@ This maps:
 
 </details>
 
-## Session Launcher Types
+# Command Overview
 
-Sessions can be launched in two different ways:
+## Session Switcher
 
-- **[Directory Sessions](#directory-sessions)**: Open a new tmux session rooted at a specific directory.
-Several directory sources are available including:
-    - direct path (`-d`)
-    - git repositories (`-g`)
-    - git worktrees (`-w`)
-    - zoxide (`-z`)
+```bash
+tsm                # Browse active sessions with fzf and switch to selection
+tsm session-name   # Switch to 'session-name'
+```
 
-- **[Configured Sessions](#configured-sessions)**: Script up your perfect window/pane layout. Great for
-automating tasks like starting up services when a session starts. Ideal for projects you work on regularly
-to keep things consistent and reproducible.
+![Session Switcher](docs/session_switcher.gif)
 
 ## Directory Sessions
 
-All directory sessions work the same way: pick a directory, name the session, and go. The flags `-d`, `-g`,
-`-w`, and `-z` simply offer different ways to pick that directory.
+Directory sessions allow you to open a new tmux session rooted at a specific directory.
+All directory sessions work the same way: pick a directory, name the session, and go.
+There are several options that offer different ways to pick the directory.
 
-### Browse Directories (`-d`)
+### Direct Path (`-d`)
 
 > ```bash
 > tsm -d                   # Browse directories with fzf and start session from selection
@@ -222,7 +209,7 @@ All directory sessions work the same way: pick a directory, name the session, an
 >
 > ![Launch Directory Sessions](docs/directory_launcher.gif)
 
-### Browse Git Repositories (`-g`)
+### Git Repositories (`-g`)
 
 > ```bash
 > tsm -g   # Browse git repositories with fzf and start session from selection
@@ -231,7 +218,7 @@ All directory sessions work the same way: pick a directory, name the session, an
 > Scans for git repositories and presents them in fzf with a brief status showing the current branch,
 > ahead/behind counts, and pending changes. On selection, a session is created rooted at the chosen repository.
 > 
-> By default, `tsm -g` finds all directories containing `.git` within 5 levels of `$HOME`. This can be
+> By default, `tsm -g` finds all directories containing `.git` within 4 levels of `$HOME`. This can be
 > changed by setting the `TSM_GIT_DIRS_CMD` environment variable in your `.bashrc/.zshenv`.
 > 
 > Optional flags:
@@ -252,7 +239,7 @@ All directory sessions work the same way: pick a directory, name the session, an
 >
 > ![Launch Git Sessions](docs/git_launcher.gif)
 
-### Browse Worktrees (`-w`)
+### Git Worktrees (`-w`)
 
 > ```bash
 > tsm -w         # Browse worktrees for current git repo with fzf
@@ -261,11 +248,11 @@ All directory sessions work the same way: pick a directory, name the session, an
 > 
 > Browse git worktrees for the current repository and create a session rooted at the selected worktree directory.
 >
-> > **NOTE:** Must be run from a directory where `git worktree list` works.
+> > **NOTE:** Can only be run when the current working directory is inside a git repo
 > 
 > ![Launch Worktree Sessions](docs/worktree_launcher.gif)
 
-### Browse Zoxide Entries (`-z`, Optional)
+### Zoxide (`-z`, Optional)
 
 > ```bash
 > tsm -z              # Browse zoxide entries interactively and start session from selection
@@ -281,15 +268,19 @@ All directory sessions work the same way: pick a directory, name the session, an
 > 
 > ![Zoxide Session Launcher](docs/zoxide_launcher.gif)
 
-## Configured Sessions
+## Configured Sessions (`-c`)
 
-Configured sessions provide more control when starting a session. Session configurations are shell scripts
-stored in `${XDG_CONFIG_HOME:-~/.config}/tsm/<config-name>.sh`.
+Script up the perfect window/pane layout and automate tasks like starting up services when a session starts.
+Ideal for projects you work on regularly to keep things consistent and reproducible.
+
+Session configurations are shell scripts stored in `${XDG_CONFIG_HOME:-~/.config}/tsm/<config-name>.sh`.
 
 Each session file defines:
   - `SESSION` (required): The tmux session name.
   - `start()` (required): Creates and customizes the tmux session.
   - `kill()` (optional): Runs asynchronously when the session is killed. Use this for cleanup tasks like stopping services.
+
+![Launch Configured Sessions](docs/configured_launcher.gif)
 
 ### Logging
 
