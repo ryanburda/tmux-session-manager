@@ -231,8 +231,14 @@ There are several options that offer different ways to pick the directory.
 > 
 > > `TSM_GIT_DIRS_CMD` can be set to any command that returns directories of git repositories.
 > >
+> > It is a good idea to limit this search to a directory where you keep your projects:
 > > ```bash
 > > export TSM_GIT_DIRS_CMD='find "$HOME/code" -maxdepth 4 -name ".git" 2>/dev/null | sed "s/\/\.git$//"'
+> > ```
+> >
+> > Or you could get the `$ROOT` paths of all of your configured sessions:
+> > ```bash
+> > export TSM_GIT_DIRS_CMD='for f in "$HOME/.config/tsm/"*.sh; do ROOT=""; source "$f"; [ -n "$ROOT" ] && echo "$ROOT"; done'
 > > ```
 > 
 > </details>
