@@ -215,9 +215,11 @@ There are several options that offer different ways to pick the directory.
 > tsm -g   # Browse git repositories with fzf and start session from selection
 > ```
 > 
-> Scans for git repositories and presents them in fzf with a brief status showing the current branch,
-> ahead/behind counts, and pending changes. On selection, a session is created rooted at the chosen repository.
-> 
+> Works like `-d` but is tailored to git repositories by displaying a brief git status summary showing:
+> - the current branch
+> - ahead/behind counts
+> - unstaged changes
+>
 > By default, `tsm -g` finds all directories containing `.git` within 4 levels of `$HOME`. This can be
 > changed by setting the `TSM_GIT_DIRS_CMD` environment variable in your `.bashrc/.zshenv`.
 > 
@@ -236,7 +238,7 @@ There are several options that offer different ways to pick the directory.
 > > export TSM_GIT_DIRS_CMD='find "$HOME/code" -maxdepth 4 -name ".git" 2>/dev/null | sed "s/\/\.git$//"'
 > > ```
 > >
-> > Or you could get the `$ROOT` paths of all of your configured sessions:
+> > Or you could get the `$ROOT` paths of all of your [configured sessions](#configured-sessions):
 > > ```bash
 > > export TSM_GIT_DIRS_CMD='for f in "$HOME/.config/tsm/"*.sh; do ROOT=""; source "$f"; [ -n "$ROOT" ] && echo "$ROOT"; done'
 > > ```
@@ -273,6 +275,8 @@ There are several options that offer different ways to pick the directory.
 > provided, it uses `zoxide query` to find the best match directly.
 > 
 > ![Zoxide Session Launcher](docs/zoxide_launcher.gif)
+
+<a id="configured-sessions"></a>
 
 ## Configured Sessions (`-c`)
 
