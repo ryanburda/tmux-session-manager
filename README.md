@@ -74,20 +74,20 @@ A simple tmux session manager
 ## Usage
 
 ```bash
-tsm [session]                  # Switch to session
-tsm -k, --kill [session]       # Kill session (run cleanup script if present)
+tsm [session]                             # Switch to session
+tsm -k, --kill [session]                  # Kill session (run cleanup script if present)
 
 # Directory based sessions
-tsm -d, --dir [path]           # Create session at path
-tsm -g, --git                  # Browse git repositories with fzf, creates session at path
-tsm -w, --worktree [name]      # Create session at git worktree path
-tsm -z, --zoxide [query]       # Create session for zoxide match path
+tsm -d, --dir [path]                      # Create session at path
+tsm -g, --git [--hide-brief] [--no-fetch] # Browse git repositories with fzf, creates session at path
+tsm -w, --worktree [name]                 # Create session at git worktree path
+tsm -z, --zoxide [query]                  # Create session for zoxide match path
 
 # Configuration based sessions
-tsm -c, --configured [config]  # Create configured session
-tsm -l, --logs [session]       # Browse configured session logs
+tsm -c, --configured [config]             # Create configured session
+tsm -l, --logs [session]                  # Browse configured session logs
 
-tsm -h, --help                 # Show help message
+tsm -h, --help                            # Show help message
 ```
 
 When session/path arguments are omitted, `tsm` uses fzf for interactive selection.
