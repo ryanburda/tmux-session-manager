@@ -10,10 +10,14 @@ _tsm_completions() {
     prev="${COMP_WORDS[COMP_CWORD-1]}"
 
     # Available options
-    opts="-c --configured -k --kill -l --logs -d --dir -z --zoxide -w --worktree -h --help"
+    opts="-a --agents -c --configured -k --kill -l --logs -d --dir -z --zoxide -w --worktree -h --help"
 
     # Complete based on previous word
     case "$prev" in
+        --agent-state)
+            COMPREPLY=($(compgen -W "working blocked done idle clear" -- "$cur"))
+            return 0
+            ;;
         -c|--configured)
             # Complete with configured session names
             local config_dir="${XDG_CONFIG_HOME:-$HOME/.config}/tsm"

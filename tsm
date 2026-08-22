@@ -6,6 +6,8 @@ mkdir -p "$CONFIG_DIR" "$LOG_DIR"
 
 TSM_DIRS_CMD_DEFAULT='find "$HOME" -maxdepth 4 -name ".*" -prune -o -type d \( -exec test -e {}/.git \; -print -prune -o -print \)'
 TSM_GIT_DIRS_CMD_DEFAULT='find "$HOME" -maxdepth 4 -name ".*" -prune -o -type d -exec test -e {}/.git \; -print -prune 2>/dev/null'
+TSM_AGENT_CMDS_DEFAULT='claude codex aider cursor-agent opencode goose gemini amp crush copilot droid'
+TSM_AGENT_STATE_OPT='@tsm_agent_state'
 
 usage() {
   echo "Tmux Session Manager"
@@ -18,6 +20,9 @@ usage() {
   echo "  tsm -g, --git [--hide-brief] [--no-fetch] # Browse git repositories with fzf, creates session at path"
   echo "  tsm -w, --worktree [name]                 # Create session at git worktree path"
   echo "  tsm -z, --zoxide [query]                  # Create session for zoxide match path"
+  echo "  "
+  echo "  tsm -a, --agents                          # Browse panes running an AI agent"
+  echo "  tsm --agent-state [state]                 # Record agent state on the current pane (for agent hooks)"
   echo "  "
   echo "  tsm -c, --configured [config]             # Create configured session"
   echo "  tsm -l, --logs [session]                  # Browse configured session logs"
@@ -136,6 +141,78 @@ session_name_prompt() {
     printf "$(tput setaf 1)Session '%s' already exists.$(tput sgr0)\n" "$session_name" >&2
   done
   echo "$session_name"
+}
+
+agent_panes() {
+  # Lists tmux panes that are running an AI agent, one per line:
+  #   state<TAB>pane_id<TAB>session:window<TAB>command<TAB>path
+  #
+  # A pane qualifies if it has a recorded state (set by `tsm --agent-state`
+  # from the agent's notification hooks) or if a known agent command is found
+  # anywhere in the pane's process tree. Panes matched only by process get the
+  # state "unknown".
+  local tab=$'\t'
+  local fmt="#{${TSM_AGENT_STATE_OPT}}${tab}#{pane_id}${tab}#{pane_pid}${tab}#{session_name}:#{window_index}${tab}#{pane_current_command}${tab}#{pane_current_path}"
+
+  local panes
+  panes=$(tmux list-panes -a -F "$fmt" 2>/dev/null)
+  [ -n "$panes" ] || return
+
+  # Build ^(claude|codex|...)$ from the configured agent command names.
+  local pattern
+  pattern=$(printf '%s' "${TSM_AGENT_CMDS:-$TSM_AGENT_CMDS_DEFAULT}" | tr -s '[:space:]' '|')
+  pattern="${pattern#|}"
+  pattern="^(${pattern%|})$"
+
+  awk -F'\t' -v pat="$pattern" '
+    # First input: pid, ppid, command name of every running process.
+    FNR == NR { comm[$1] = $3; kids[$2] = kids[$2] " " $1; next }
+
+    # Second input: one line per pane. Walk the pane process tree unless the
+    # pane already carries a recorded state.
+    {
+      state = $1
+      agent = (state != "")
+
+      if (!agent) {
+        delete seen; delete queue
+        n = 0; i = 0
+        queue[++n] = $3
+        while (++i <= n) {
+          p = queue[i]
+          if (p in seen) continue
+          seen[p] = 1
+          if (comm[p] ~ pat) { agent = 1; break }
+          m = split(kids[p], child, " ")
+          for (j = 1; j <= m; j++) if (child[j] != "") queue[++n] = child[j]
+        }
+      }
+
+      if (agent) printf "%s\t%s\t%s\t%s\t%s\n", (state == "" ? "unknown" : state), $2, $4, $5, $6
+    }
+  ' <(ps -eo pid=,ppid=,comm= 2>/dev/null | awk '{print $1 "\t" $2 "\t" $3}') <(printf '%s\n' "$panes")
+}
+
+agent_state_rank() {
+  # Sort key for an agent state — the ones that want your attention come first.
+  case "$1" in
+    blocked) echo 0 ;;
+    done)    echo 1 ;;
+    idle)    echo 2 ;;
+    working) echo 3 ;;
+    *)       echo 4 ;;
+  esac
+}
+
+agent_state_label() {
+  # Renders an agent state as a colored, fixed width status dot.
+  case "$1" in
+    blocked) printf '\033[31m● %-7s\033[0m' "$1" ;;
+    working) printf '\033[33m● %-7s\033[0m' "$1" ;;
+    done)    printf '\033[32m● %-7s\033[0m' "$1" ;;
+    idle)    printf '\033[34m● %-7s\033[0m' "$1" ;;
+    *)       printf '\033[90m● %-7s\033[0m' "$1" ;;
+  esac
 }
 
 #################
@@ -475,6 +552,82 @@ browse_logs() {
   tail -n 1000 -f "$LOG_DIR/$selected"
 }
 
+agent_picker() {
+  # Browses panes running an AI agent with fzf, previewing each pane's screen,
+  # and jumps to the selected pane.
+  local agents
+  agents=$(agent_panes)
+
+  if [ -z "$agents" ]; then
+    notify "No agents running"
+    exit 0
+  fi
+
+  # Pad the location and command columns so the paths line up.
+  local max_loc=0 max_cmd=0
+  while IFS=$'\t' read -r _ _ loc cmd _; do
+    [ ${#loc} -gt $max_loc ] && max_loc=${#loc}
+    [ ${#cmd} -gt $max_cmd ] && max_cmd=${#cmd}
+  done <<< "$agents"
+
+  local selected
+  selected=$(
+    while IFS=$'\t' read -r state pane loc cmd path; do
+      printf '%s\t%s\t%s  %-*s  %-*s  %s\n' \
+        "$(agent_state_rank "$state")" "$pane" "$(agent_state_label "$state")" \
+        "$max_loc" "$loc" "$max_cmd" "$cmd" "${path/#$HOME/\~}"
+    done <<< "$agents" \
+      | sort -t$'\t' -k1,1n -k3,3 \
+      | fzf --ansi \
+            --cycle \
+            --delimiter=$'\t' \
+            --with-nth=3 \
+            --prompt "> " --header "Select agent" \
+            --preview 'tmux capture-pane -pe -S -200 -t {2}' \
+            --preview-window "up,60%,border-bottom,follow" \
+            --bind=ctrl-d:preview-half-page-down \
+            --bind=ctrl-u:preview-half-page-up
+  )
+
+  if [ -z "$selected" ]; then
+    exit 0
+  fi
+
+  local pane
+  pane=$(printf '%s' "$selected" | cut -f2)
+
+  if [ -z "$pane" ]; then
+    exit 0
+  fi
+
+  # Point the target session at the right window and pane, then switch to it.
+  tmux select-window -t "$pane"
+  tmux select-pane -t "$pane"
+  switch_or_attach "$(tmux display-message -p -t "$pane" '#{session_name}')"
+}
+
+record_agent_state() {
+  # Records an AI agent's state on the tmux pane it is running in, so that
+  # `tsm -a` can show it. Meant to be called from an agent's notification
+  # hooks — see the README for a Claude Code configuration.
+  #
+  # Args:
+  #   $1: state — working|blocked|done|idle|clear
+  #
+  # Never fails: a non-zero exit here would surface as an error in the agent.
+  if [ -n "$TMUX_PANE" ]; then
+    case "$1" in
+      working|blocked|done|idle)
+        tmux set-option -p -t "$TMUX_PANE" "$TSM_AGENT_STATE_OPT" "$1" 2>/dev/null
+        ;;
+      clear)
+        tmux set-option -pu -t "$TMUX_PANE" "$TSM_AGENT_STATE_OPT" 2>/dev/null
+        ;;
+    esac
+  fi
+  exit 0
+}
+
 # Parse arguments
 if [ $# -eq 0 ]; then
   active_session
@@ -482,6 +635,12 @@ if [ $# -eq 0 ]; then
 fi
 
 case "$1" in
+  -a|--agents)
+    agent_picker
+    ;;
+  --agent-state)
+    record_agent_state "$2"
+    ;;
   -c|--configured)
     configured_session "$2"
     ;;

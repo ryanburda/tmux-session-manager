@@ -9,6 +9,7 @@ A simple tmux session manager
 ## Dependencies
 
 - `fzf`
+- `ps` (only for `tsm -a`)
 
 ## Installation
 
@@ -83,6 +84,10 @@ tsm -g, --git [--hide-brief] [--no-fetch] # Browse git repositories with fzf, cr
 tsm -w, --worktree [name]                 # Create session at git worktree path
 tsm -z, --zoxide [query]                  # Create session for zoxide match path
 
+# AI agent sessions
+tsm -a, --agents                          # Browse panes running an AI agent
+tsm --agent-state [state]                 # Record agent state on the current pane (for agent hooks)
+
 # Configuration based sessions
 tsm -c, --configured [config]             # Create configured session
 tsm -l, --logs [session]                  # Browse configured session logs
@@ -109,6 +114,9 @@ bind-key g popup -E "tsm -g"
 bind-key w popup -E "tsm -w"
 bind-key z popup -E "tsm -z"
 
+# AI agent sessions
+bind-key a popup -E "tsm -a"
+
 # Configuration based sessions
 bind-key c popup -E "tsm -c"
 bind-key l popup -E "tsm -l"
@@ -122,6 +130,7 @@ This maps:
 - `prefix + g` - Git repository session launcher
 - `prefix + w` - Worktree session launcher
 - `prefix + z` - Zoxide directory session launcher
+- `prefix + a` - AI agent picker
 - `prefix + c` - Configured session launcher
 - `prefix + l` - Browse configured session logs
 
@@ -275,6 +284,100 @@ There are several options that offer different ways to pick the directory.
 > provided, it uses `zoxide query` to find the best match directly.
 > 
 > ![Zoxide Session Launcher](docs/zoxide_launcher.gif)
+
+## AI Agents (`-a`)
+
+```bash
+tsm -a   # Browse panes running an AI agent with fzf and jump to the selection
+```
+
+Long running agents scatter across sessions and windows, and the one you need is usually the one
+that finished or is waiting on you. `tsm -a` gives you a flat, cross-session list of every pane
+running an agent, sorted so the ones wanting your attention float to the top, with a live preview
+of the pane's screen. Selecting an entry switches session, window, and pane in one step.
+
+```
+● blocked  work/api:2       claude  ~/code/api
+● done     dotfiles:1       claude  ~/code/config
+● idle     tsm/base:1       claude  ~/code/tmux-session-manager/base
+● working  work/webapp:3    codex   ~/code/webapp
+```
+
+A pane shows up in the picker if either of the following is true:
+
+1. It has a recorded agent state (see [Agent State Hooks](#agent-state-hooks) below).
+2. A known agent command is running anywhere in the pane's process tree. These panes are listed
+   with the state `unknown` — the agent is running, but nothing has told `tsm` what it is doing.
+
+The commands recognized in step 2 default to:
+
+```
+claude codex aider cursor-agent opencode goose gemini amp crush copilot droid
+```
+
+Override the list with the `TSM_AGENT_CMDS` environment variable (whitespace separated):
+
+```bash
+export TSM_AGENT_CMDS="claude codex my-agent"
+```
+
+<a id="agent-state-hooks"></a>
+
+### Agent State Hooks
+
+Process detection tells you an agent is *running*; it can't tell you whether it is churning through
+a task, waiting on a permission prompt, or done. Agents that support notification hooks can report
+that themselves.
+
+`tsm --agent-state <state>` records a state on the pane it is called from, as the pane-scoped tmux
+option `@tsm_agent_state`. Valid states, in the order they sort in the picker:
+
+| State | Meaning |
+|-------|---------|
+| `blocked` | The agent needs input — a permission prompt or a question |
+| `done` | The agent finished its turn and its response is waiting |
+| `idle` | The agent is running but has nothing in flight |
+| `working` | The agent is busy |
+| `clear` | Not a state — removes the option, dropping the pane back to process detection |
+
+The command is safe to call from anywhere: it does nothing outside of tmux, ignores unknown states,
+and always exits `0` so a misconfiguration never surfaces as an error inside the agent.
+
+<details>
+<summary><strong>Claude Code</strong></summary>
+
+> Add to `~/.claude/settings.json`:
+>
+> ```json
+> {
+>   "hooks": {
+>     "SessionStart": [
+>       { "hooks": [{ "type": "command", "command": "tsm --agent-state idle" }] }
+>     ],
+>     "UserPromptSubmit": [
+>       { "hooks": [{ "type": "command", "command": "tsm --agent-state working" }] }
+>     ],
+>     "Notification": [
+>       { "hooks": [{ "type": "command", "command": "tsm --agent-state blocked" }] }
+>     ],
+>     "Stop": [
+>       { "hooks": [{ "type": "command", "command": "tsm --agent-state done" }] }
+>     ],
+>     "SessionEnd": [
+>       { "hooks": [{ "type": "command", "command": "tsm --agent-state clear" }] }
+>     ]
+>   }
+> }
+> ```
+>
+> **NOTE:** Hooks run in a non-interactive shell, so `tsm` must be on the PATH that shell starts with
+> — the same requirement as the tmux keybindings above. Use the absolute path to the script
+> (`$HOME/.local/bin/tsm --agent-state idle`) if that is inconvenient.
+
+</details>
+
+Any agent with an equivalent hook system works the same way — point its lifecycle events at
+`tsm --agent-state <state>`.
 
 <a id="configured-sessions"></a>
 

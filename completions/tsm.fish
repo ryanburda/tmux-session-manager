@@ -45,6 +45,8 @@ end
 complete -c tsm -f
 
 # Options
+complete -c tsm -s a -l agents -d 'Browse panes running an AI agent'
+complete -c tsm -l agent-state -d 'Record agent state on the current pane' -xa 'working blocked done idle clear'
 complete -c tsm -s c -l configured -d 'Browse/start configured sessions' -xa '(__tsm_configured_sessions)'
 complete -c tsm -s k -l kill -d 'Kill a session' -xa '(__tsm_active_sessions)'
 complete -c tsm -s l -l logs -d 'Browse session logs' -xa '(__tsm_log_sessions)'
