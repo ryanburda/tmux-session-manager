@@ -340,6 +340,12 @@ option `@tsm_agent_state`. Valid states, in the order they sort in the picker:
 | `working` | The agent is busy |
 | `clear` | Not a state — removes the option, dropping the pane back to process detection |
 
+Plus one pseudo-state:
+
+| Argument | Meaning |
+|----------|---------|
+| `notification` | Derive the state from an agent notification payload on stdin (see below) |
+
 The command is safe to call from anywhere: it does nothing outside of tmux, ignores unknown states,
 and always exits `0` so a misconfiguration never surfaces as an error inside the agent.
 
@@ -358,7 +364,7 @@ and always exits `0` so a misconfiguration never surfaces as an error inside the
 >       { "hooks": [{ "type": "command", "command": "tsm --agent-state working" }] }
 >     ],
 >     "Notification": [
->       { "hooks": [{ "type": "command", "command": "tsm --agent-state blocked" }] }
+>       { "hooks": [{ "type": "command", "command": "tsm --agent-state notification" }] }
 >     ],
 >     "Stop": [
 >       { "hooks": [{ "type": "command", "command": "tsm --agent-state done" }] }
@@ -376,8 +382,30 @@ and always exits `0` so a misconfiguration never surfaces as an error inside the
 
 </details>
 
+#### Why `Notification` is not just `blocked`
+
+Claude Code's `Notification` event is not only "the agent needs you". It also fires once the
+session has been sitting at the prompt for `messageIdleNotifThresholdMs` (60 seconds by default),
+and again for auth and usage-limit chatter. Wiring the whole event to `blocked` means every agent
+you don't return to within a minute eventually claims to be blocked, and `idle` never appears at
+all — the two most useful states collapse into one.
+
+`tsm --agent-state notification` reads the hook's JSON payload from stdin and maps its
+`notification_type` field instead:
+
+| `notification_type` | State |
+|---------------------|-------|
+| `permission_prompt`, `worker_permission_prompt`, `agent_needs_input` | `blocked` |
+| `idle_prompt` | `idle` |
+| `agent_completed` | `done` |
+| anything else (`auth_success`, `quota_*`, …) | *unchanged* |
+
+Payloads it doesn't recognize leave the pane's current state alone rather than overwriting it. If
+the payload has no `notification_type` — older releases didn't send one — it falls back to matching
+the `message` text.
+
 Any agent with an equivalent hook system works the same way — point its lifecycle events at
-`tsm --agent-state <state>`.
+`tsm --agent-state <state>`, and anything notification-shaped at `tsm --agent-state notification`.
 
 <a id="configured-sessions"></a>
 

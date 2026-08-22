@@ -629,19 +629,60 @@ agent_picker() {
   switch_or_attach "$(tmux display-message -p -t "$pane" '#{session_name}')"
 }
 
+notification_state() {
+  # Maps a Claude Code Notification hook payload (JSON on stdin) to an agent
+  # state, echoing it. Echoes nothing for notifications that say nothing about
+  # whether the agent wants you, so the caller leaves the current state alone.
+  #
+  # The Notification event covers more than "the agent needs you" — it also
+  # fires after messageIdleNotifThresholdMs (60s by default) of sitting at the
+  # prompt, and for auth/quota chatter. Mapping the whole event to one state is
+  # what makes every agent eventually look blocked.
+  local payload type message
+
+  # Never block on a terminal when invoked by hand.
+  [ -t 0 ] || payload=$(cat 2>/dev/null | tr -d '\n')
+  [ -n "$payload" ] || return
+
+  type=$(printf '%s' "$payload" | sed -n 's/.*"notification_type"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')
+
+  case "$type" in
+    permission_prompt|worker_permission_prompt|agent_needs_input) echo blocked ;;
+    idle_prompt) echo idle ;;
+    agent_completed) echo done ;;
+    "")
+      # Older releases sent no notification_type — fall back to the message.
+      message=$(printf '%s' "$payload" | sed -n 's/.*"message"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')
+      case "$message" in
+        *permission*) echo blocked ;;
+        *"waiting for your input"*) echo idle ;;
+      esac
+      ;;
+  esac
+}
+
 record_agent_state() {
   # Records an AI agent's state on the tmux pane it is running in, so that
   # `tsm -a` can show it. Meant to be called from an agent's notification
   # hooks — see the README for a Claude Code configuration.
   #
   # Args:
-  #   $1: state — working|blocked|done|idle|clear
+  #   $1: state — working|blocked|done|idle|clear, or `notification` to derive
+  #       the state from a Claude Code Notification payload on stdin
   #
   # Never fails: a non-zero exit here would surface as an error in the agent.
+  local state="$1"
+
+  if [ "$state" = "notification" ]; then
+    state=$(notification_state)
+    # Nothing actionable in the payload — leave the pane as it is.
+    [ -n "$state" ] || exit 0
+  fi
+
   if [ -n "$TMUX_PANE" ]; then
-    case "$1" in
+    case "$state" in
       working|blocked|done|idle)
-        tmux set-option -p -t "$TMUX_PANE" "$TSM_AGENT_STATE_OPT" "$1" 2>/dev/null
+        tmux set-option -p -t "$TMUX_PANE" "$TSM_AGENT_STATE_OPT" "$state" 2>/dev/null
         ;;
       clear)
         tmux set-option -pu -t "$TMUX_PANE" "$TSM_AGENT_STATE_OPT" 2>/dev/null
