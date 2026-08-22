@@ -552,16 +552,16 @@ browse_logs() {
   tail -n 1000 -f "$LOG_DIR/$selected"
 }
 
-agent_picker() {
-  # Browses panes running an AI agent with fzf, previewing each pane's screen,
-  # and jumps to the selected pane.
+agent_rows() {
+  # Prints the picker's rows, sorted so the states that want your attention
+  # come first, one per line:
+  #   rank<TAB>pane_id<TAB>display
+  #
+  # Split out from agent_picker so that fzf can re-run it on a timer via
+  # `tsm --agent-list`, keeping the states live while the picker is open.
   local agents
   agents=$(agent_panes)
-
-  if [ -z "$agents" ]; then
-    notify "No agents running"
-    exit 0
-  fi
+  [ -n "$agents" ] || return
 
   # Pad the location and command columns so the paths line up.
   local max_loc=0 max_cmd=0
@@ -570,23 +570,46 @@ agent_picker() {
     [ ${#cmd} -gt $max_cmd ] && max_cmd=${#cmd}
   done <<< "$agents"
 
+  while IFS=$'\t' read -r state pane loc cmd path; do
+    printf '%s\t%s\t%s  %-*s  %-*s  %s\n' \
+      "$(agent_state_rank "$state")" "$pane" "$(agent_state_label "$state")" \
+      "$max_loc" "$loc" "$max_cmd" "$cmd" "${path/#$HOME/\~}"
+  done <<< "$agents" \
+    | sort -t$'\t' -k1,1n -k3,3
+}
+
+agent_picker() {
+  # Browses panes running an AI agent with fzf, mirroring the selected pane's
+  # screen in a live preview, and jumps to the selected pane.
+  #
+  # Two things refresh on a timer while the picker is open:
+  #   - the list, via fzf's every(2) event re-running `tsm --agent-list`, so a
+  #     state flipping working -> done re-colors and re-sorts in place.
+  #     --track --id-nth 2 keys the cursor to the pane id so it stays put.
+  #   - the preview, whose command loops rather than running once: it repaints
+  #     the capture once a second, clearing between frames so fzf's `follow`
+  #     tails it instead of accumulating. fzf kills the loop when the selection
+  #     changes or it exits.
+  if [ -z "$(agent_panes)" ]; then
+    notify "No agents running"
+    exit 0
+  fi
+
+  local self
+  self=$(printf '%q' "$0")
+
   local selected
   selected=$(
-    while IFS=$'\t' read -r state pane loc cmd path; do
-      printf '%s\t%s\t%s  %-*s  %-*s  %s\n' \
-        "$(agent_state_rank "$state")" "$pane" "$(agent_state_label "$state")" \
-        "$max_loc" "$loc" "$max_cmd" "$cmd" "${path/#$HOME/\~}"
-    done <<< "$agents" \
-      | sort -t$'\t' -k1,1n -k3,3 \
-      | fzf --ansi \
-            --cycle \
-            --delimiter=$'\t' \
-            --with-nth=3 \
-            --prompt "> " --header "Select agent" \
-            --preview 'tmux capture-pane -pe -S -200 -t {2}' \
-            --preview-window "up,60%,border-bottom,follow" \
-            --bind=ctrl-d:preview-half-page-down \
-            --bind=ctrl-u:preview-half-page-up
+    fzf --ansi \
+        --cycle \
+        --delimiter=$'\t' \
+        --with-nth=3 \
+        --track \
+        --id-nth=2 \
+        --prompt "> " --header "Select agent" \
+        --bind "start,every(2):reload-sync($self --agent-list)" \
+        --preview 'while :; do printf "\033[2J\033[H"; tmux capture-pane -pe -t {2}; sleep 1; done' \
+        --preview-window "up,60%,border-bottom,follow" < /dev/null
   )
 
   if [ -z "$selected" ]; then
@@ -640,6 +663,10 @@ case "$1" in
     ;;
   --agent-state)
     record_agent_state "$2"
+    ;;
+  --agent-list)
+    # Internal: the row source fzf re-runs on a timer from agent_picker.
+    agent_rows
     ;;
   -c|--configured)
     configured_session "$2"
