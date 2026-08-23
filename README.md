@@ -5,6 +5,7 @@ A simple tmux session manager
 - **Create** sessions rooted at directories or defined by configuration scripts
 - **Switch** between active sessions
 - **Kill** sessions with optional cleanup scripts
+- **Find** the AI agent that wants your attention, wherever it is running
 
 ## Dependencies
 
@@ -84,13 +85,13 @@ tsm -g, --git [--hide-brief] [--no-fetch] # Browse git repositories with fzf, cr
 tsm -w, --worktree [name]                 # Create session at git worktree path
 tsm -z, --zoxide [query]                  # Create session for zoxide match path
 
-# AI agent sessions
-tsm -a, --agents                          # Browse panes running an AI agent
-tsm --agent-state [state]                 # Record agent state on the current pane (for agent hooks)
-
 # Configuration based sessions
 tsm -c, --configured [config]             # Create configured session
 tsm -l, --logs [session]                  # Browse configured session logs
+
+# AI agent panes
+tsm -a, --agents                          # Browse panes running an AI agent
+tsm --agent-state [state]                 # Record agent state on the current pane (for agent hooks)
 
 tsm -h, --help                            # Show help message
 ```
