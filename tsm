@@ -428,10 +428,15 @@ git_session() {
     selected=$(echo "$dirs" | fzf --cycle --prompt "Repo > ")
   else
     if [ -z "$no_fetch" ]; then
-      while read -r dir; do
-        git -C "$dir" fetch --quiet 2>/dev/null &
-      done <<< "$dirs"
-      wait
+      # Fetch in parallel, but bounded. Backgrounding one `git fetch` per repo
+      # and then waiting forks the whole list at once — and each fetch forks an
+      # ssh or git-remote-https child of its own — so a machine with a few
+      # hundred repos under $HOME opens that many remote connections at once
+      # and can run into the process limit. xargs keeps a fixed number in
+      # flight instead. NUL separation so repo paths with spaces survive.
+      printf '%s\n' "$dirs" | tr '\n' '\0' \
+        | xargs -0 -P "${TSM_GIT_FETCH_JOBS:-8}" -n 1 \
+                sh -c 'git -C "$1" fetch --quiet 2>/dev/null' _
     fi
 
     selected=$(echo "$dirs" \

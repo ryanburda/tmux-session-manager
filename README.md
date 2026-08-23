@@ -236,6 +236,17 @@ There are several options that offer different ways to pick the directory.
 > - `--hide-brief` — Skip displaying git status information in the picker.
 > - `--no-fetch` — Skip running `git fetch` before displaying status. Useful for faster startup when
 >   you don't need the latest remote tracking info.
+>
+> The fetches run in parallel, 8 repositories at a time. `TSM_GIT_FETCH_JOBS` raises or lowers that
+> cap:
+>
+> ```bash
+> export TSM_GIT_FETCH_JOBS=4
+> ```
+>
+> The cap matters because every fetch also opens a connection to a remote. Lower it if a wide
+> `TSM_GIT_DIRS_CMD` makes the picker slow to appear or your connection is metered, and use
+> `--no-fetch` to skip fetching altogether.
 > 
 > <details>
 > <summary><strong style="font-size: 1.25em;">Modifying <code>TSM_GIT_DIRS_CMD</code></strong></summary>
