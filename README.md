@@ -297,10 +297,11 @@ running an agent, ordered by session, window, and pane. Selecting an entry switc
 window, and pane in one step.
 
 ```
-● done     dotfiles:1:0       claude
-● idle     tsm/base:1:0       claude
-● blocked  work/api:2:1       claude
-● working  work/webapp:3:0    codex
+  state    session:window:pane  agent
+● done     dotfiles:1:0         claude
+● idle     tsm/base:1:0         claude
+● blocked  work/api:2:1         claude
+● working  work/webapp:3:0      codex
 ```
 
 A pane shows up in the picker if either of the following is true:

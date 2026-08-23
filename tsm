@@ -542,8 +542,15 @@ browse_logs() {
 }
 
 agent_rows() {
-  # Prints the picker's rows, ordered by session:window:pane, one per line:
+  # Prints the picker's column header, then its rows ordered by
+  # session:window:pane, one per line:
   #   pane_id<TAB>display
+  #
+  # The header comes out of here, as the first line and with an empty pane id,
+  # because it is padded to the same column widths as the rows and it counts
+  # toward them: `session:window:pane` is wider than a location like s1:1:1,
+  # so a list of short locations widens to fit the label rather than the label
+  # overhanging the column. agent_picker peels the line off for fzf --header.
   #
   # The sort is -V so that window 10 lands after window 2 rather than before
   # it, and it runs on the raw records — sorting the rendered rows would key
@@ -553,11 +560,18 @@ agent_rows() {
   agents=$(agent_panes | sort -t$'\t' -k3,3V)
   [ -n "$agents" ] || return
 
-  # Pad the location column so the commands line up.
-  local max_loc=0
+  # Widest location, the header label included, so the commands line up.
+  local loc_label='session:window:pane'
+  local max_loc=${#loc_label}
   while IFS=$'\t' read -r _ _ loc _; do
     [ ${#loc} -gt $max_loc ] && max_loc=${#loc}
   done <<< "$agents"
+
+  # The state column is whatever agent_state_label emits: a dot and a space,
+  # then the state padded to 7. The header mirrors that as two leading spaces
+  # and its own 7 wide field, which puts `state` over the state names. 7 needs
+  # no widening — it already exceeds `state`, and every state name fits it.
+  printf '\t  %-7s  %-*s  %s\n' 'state' "$max_loc" "$loc_label" 'agent'
 
   while IFS=$'\t' read -r state pane loc cmd; do
     printf '%s\t%s  %-*s  %s\n' \
@@ -580,13 +594,18 @@ agent_picker() {
     exit 0
   fi
 
+  # Split agent_rows' leading header line off from the rows it sizes.
+  local header list
+  header=$(printf '%s\n' "$rows" | head -n 1 | cut -f2-)
+  list=$(printf '%s\n' "$rows" | tail -n +2)
+
   local selected
   selected=$(
-    printf '%s\n' "$rows" | fzf --ansi \
+    printf '%s\n' "$list" | fzf --ansi \
         --cycle \
         --delimiter=$'\t' \
         --with-nth=2 \
-        --prompt "> " --header "Select agent"
+        --prompt "Select AI > " --header "$header"
   )
 
   if [ -z "$selected" ]; then
