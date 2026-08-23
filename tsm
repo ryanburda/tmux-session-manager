@@ -193,17 +193,6 @@ agent_panes() {
   ' <(ps -eo pid=,ppid=,comm= 2>/dev/null | awk '{print $1 "\t" $2 "\t" $3}') <(printf '%s\n' "$panes")
 }
 
-agent_state_rank() {
-  # Sort key for an agent state — the ones that want your attention come first.
-  case "$1" in
-    blocked) echo 0 ;;
-    done)    echo 1 ;;
-    idle)    echo 2 ;;
-    working) echo 3 ;;
-    *)       echo 4 ;;
-  esac
-}
-
 agent_state_label() {
   # Renders an agent state as a colored, fixed width status dot.
   case "$1" in
@@ -553,29 +542,29 @@ browse_logs() {
 }
 
 agent_rows() {
-  # Prints the picker's rows, sorted so the states that want your attention
-  # come first, one per line:
-  #   rank<TAB>pane_id<TAB>display
+  # Prints the picker's rows, ordered by session:window, one per line:
+  #   pane_id<TAB>display
   #
   # Split out from agent_picker so that fzf can re-run it on a timer via
   # `tsm --agent-list`, keeping the states live while the picker is open.
+  #
+  # The sort is -V so that window 10 lands after window 2 rather than before
+  # it, and it runs on the raw records — sorting the rendered rows would key
+  # off the status dot's color escapes instead.
   local agents
-  agents=$(agent_panes)
+  agents=$(agent_panes | sort -t$'\t' -k3,3V)
   [ -n "$agents" ] || return
 
-  # Pad the location and command columns so the paths line up.
-  local max_loc=0 max_cmd=0
-  while IFS=$'\t' read -r _ _ loc cmd _; do
+  # Pad the location column so the commands line up.
+  local max_loc=0
+  while IFS=$'\t' read -r _ _ loc _ _; do
     [ ${#loc} -gt $max_loc ] && max_loc=${#loc}
-    [ ${#cmd} -gt $max_cmd ] && max_cmd=${#cmd}
   done <<< "$agents"
 
-  while IFS=$'\t' read -r state pane loc cmd path; do
-    printf '%s\t%s\t%s  %-*s  %-*s  %s\n' \
-      "$(agent_state_rank "$state")" "$pane" "$(agent_state_label "$state")" \
-      "$max_loc" "$loc" "$max_cmd" "$cmd" "${path/#$HOME/\~}"
-  done <<< "$agents" \
-    | sort -t$'\t' -k1,1n -k3,3
+  while IFS=$'\t' read -r state pane loc cmd _; do
+    printf '%s\t%s  %-*s  %s\n' \
+      "$pane" "$(agent_state_label "$state")" "$max_loc" "$loc" "$cmd"
+  done <<< "$agents"
 }
 
 agent_picker() {
@@ -598,9 +587,9 @@ agent_picker() {
     fzf --ansi \
         --cycle \
         --delimiter=$'\t' \
-        --with-nth=3 \
+        --with-nth=2 \
         --track \
-        --id-nth=2 \
+        --id-nth=1 \
         --prompt "> " --header "Select agent" \
         --bind "start,every(2):reload-sync($self --agent-list)" < /dev/null
   )
@@ -610,7 +599,7 @@ agent_picker() {
   fi
 
   local pane
-  pane=$(printf '%s' "$selected" | cut -f2)
+  pane=$(printf '%s' "$selected" | cut -f1)
 
   if [ -z "$pane" ]; then
     exit 0

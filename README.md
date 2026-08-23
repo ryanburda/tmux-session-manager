@@ -293,14 +293,14 @@ tsm -a   # Browse panes running an AI agent with fzf and jump to the selection
 
 Long running agents scatter across sessions and windows, and the one you need is usually the one
 that finished or is waiting on you. `tsm -a` gives you a flat, cross-session list of every pane
-running an agent, sorted so the ones wanting your attention float to the top. Selecting an entry
-switches session, window, and pane in one step.
+running an agent, ordered by session and window. Selecting an entry switches session, window, and
+pane in one step.
 
 ```
-● blocked  work/api:2       claude  ~/code/api
-● done     dotfiles:1       claude  ~/code/config
-● idle     tsm/base:1       claude  ~/code/tmux-session-manager/base
-● working  work/webapp:3    codex   ~/code/webapp
+● done     dotfiles:1       claude
+● idle     tsm/base:1       claude
+● blocked  work/api:2       claude
+● working  work/webapp:3    codex
 ```
 
 A pane shows up in the picker if either of the following is true:
