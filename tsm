@@ -145,14 +145,14 @@ session_name_prompt() {
 
 agent_panes() {
   # Lists tmux panes that are running an AI agent, one per line:
-  #   state<TAB>pane_id<TAB>session:window<TAB>command<TAB>path
+  #   state<TAB>pane_id<TAB>session:window:pane<TAB>command
   #
   # A pane qualifies if it has a recorded state (set by `tsm --agent-state`
   # from the agent's notification hooks) or if a known agent command is found
   # anywhere in the pane's process tree. Panes matched only by process get the
   # state "unknown".
   local tab=$'\t'
-  local fmt="#{${TSM_AGENT_STATE_OPT}}${tab}#{pane_id}${tab}#{pane_pid}${tab}#{session_name}:#{window_index}${tab}#{pane_current_command}${tab}#{pane_current_path}"
+  local fmt="#{${TSM_AGENT_STATE_OPT}}${tab}#{pane_id}${tab}#{pane_pid}${tab}#{session_name}:#{window_index}:#{pane_index}${tab}#{pane_current_command}"
 
   local panes
   panes=$(tmux list-panes -a -F "$fmt" 2>/dev/null)
@@ -188,7 +188,7 @@ agent_panes() {
         }
       }
 
-      if (agent) printf "%s\t%s\t%s\t%s\t%s\n", (state == "" ? "unknown" : state), $2, $4, $5, $6
+      if (agent) printf "%s\t%s\t%s\t%s\n", (state == "" ? "unknown" : state), $2, $4, $5
     }
   ' <(ps -eo pid=,ppid=,comm= 2>/dev/null | awk '{print $1 "\t" $2 "\t" $3}') <(printf '%s\n' "$panes")
 }
@@ -542,26 +542,24 @@ browse_logs() {
 }
 
 agent_rows() {
-  # Prints the picker's rows, ordered by session:window, one per line:
+  # Prints the picker's rows, ordered by session:window:pane, one per line:
   #   pane_id<TAB>display
-  #
-  # Split out from agent_picker so that fzf can re-run it on a timer via
-  # `tsm --agent-list`, keeping the states live while the picker is open.
   #
   # The sort is -V so that window 10 lands after window 2 rather than before
   # it, and it runs on the raw records — sorting the rendered rows would key
-  # off the status dot's color escapes instead.
+  # off the status dot's color escapes instead. The location's pane index is
+  # for reading; the pane id in field 1 is what the picker actually targets.
   local agents
   agents=$(agent_panes | sort -t$'\t' -k3,3V)
   [ -n "$agents" ] || return
 
   # Pad the location column so the commands line up.
   local max_loc=0
-  while IFS=$'\t' read -r _ _ loc _ _; do
+  while IFS=$'\t' read -r _ _ loc _; do
     [ ${#loc} -gt $max_loc ] && max_loc=${#loc}
   done <<< "$agents"
 
-  while IFS=$'\t' read -r state pane loc cmd _; do
+  while IFS=$'\t' read -r state pane loc cmd; do
     printf '%s\t%s  %-*s  %s\n' \
       "$pane" "$(agent_state_label "$state")" "$max_loc" "$loc" "$cmd"
   done <<< "$agents"
@@ -570,28 +568,25 @@ agent_rows() {
 agent_picker() {
   # Browses panes running an AI agent with fzf and jumps to the selected pane.
   #
-  # The list refreshes on a timer while the picker is open, via fzf's every(2)
-  # event re-running `tsm --agent-list`, so a state flipping working -> done
-  # re-colors and re-sorts in place. --track --id-nth 2 keys the cursor to the
-  # pane id so it stays put.
-  if [ -z "$(agent_panes)" ]; then
+  # The list is a snapshot: states are read once, when the picker opens, so an
+  # agent that finishes while you are looking at it keeps its old status dot.
+  # Rows are built up front and reused for the empty check, since scanning is
+  # the whole cost of opening the picker — a tmux pane list plus a full `ps`.
+  local rows
+  rows=$(agent_rows)
+
+  if [ -z "$rows" ]; then
     notify "No agents running"
     exit 0
   fi
 
-  local self
-  self=$(printf '%q' "$0")
-
   local selected
   selected=$(
-    fzf --ansi \
+    printf '%s\n' "$rows" | fzf --ansi \
         --cycle \
         --delimiter=$'\t' \
         --with-nth=2 \
-        --track \
-        --id-nth=1 \
-        --prompt "> " --header "Select agent" \
-        --bind "start,every(2):reload-sync($self --agent-list)" < /dev/null
+        --prompt "> " --header "Select agent"
   )
 
   if [ -z "$selected" ]; then
@@ -686,10 +681,6 @@ case "$1" in
     ;;
   --agent-state)
     record_agent_state "$2"
-    ;;
-  --agent-list)
-    # Internal: the row source fzf re-runs on a timer from agent_picker.
-    agent_rows
     ;;
   -c|--configured)
     configured_session "$2"
