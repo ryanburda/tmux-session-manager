@@ -220,7 +220,7 @@ active_session() {
       exit 1
     fi
 
-    session=$(echo "$active_sessions" | fzf --cycle --prompt "> " --header "Select active session")
+    session=$(echo "$active_sessions" | fzf --cycle --prompt "Session > ")
 
     if [ -z "$session" ]; then
       exit 0
@@ -248,7 +248,7 @@ kill_session() {
       exit 1
     fi
 
-    session=$(echo "$active_sessions" | fzf --cycle --prompt "> " --header "Kill session")
+    session=$(echo "$active_sessions" | fzf --cycle --prompt "Kill Session > ")
 
     if [ -z "$session" ]; then
       exit 0
@@ -295,7 +295,7 @@ configured_session() {
       exit 1
     fi
 
-    config=$(echo "$configured_sessions" | fzf --cycle --prompt "> " --header "Select configured session")
+    config=$(echo "$configured_sessions" | fzf --cycle --prompt "Configured Session > ")
 
     if [ -z "$config" ]; then
       exit 0
@@ -358,7 +358,7 @@ dir_session() {
     # Use process substitution to allow killing the directory generator after fzf exits
     exec 3< <(eval "$dirs_cmd")
     local dirs_pid=$!
-    selected=$(fzf --cycle --prompt "> " --header "Select directory" <&3)
+    selected=$(fzf --cycle --prompt "Directory > " <&3)
     kill "$dirs_pid" 2>/dev/null
     wait "$dirs_pid" 2>/dev/null
     exec 3<&-
@@ -425,7 +425,7 @@ git_session() {
   fi
 
   if [ -n "$hide_brief" ]; then
-    selected=$(echo "$dirs" | fzf --cycle --prompt "> " --header "Select git repository")
+    selected=$(echo "$dirs" | fzf --cycle --prompt "Repo > ")
   else
     if [ -z "$no_fetch" ]; then
       while read -r dir; do
@@ -438,7 +438,7 @@ git_session() {
       | while read -r dir; do
           printf '%s\t%s  %s\n' "$dir" "$dir" "$(git_brief "$dir" --no-fetch)"
         done \
-      | fzf --ansi --cycle --delimiter=$'\t' --with-nth=2 --prompt "> " --header "Select git repository")
+      | fzf --ansi --cycle --delimiter=$'\t' --with-nth=2 --prompt "Repo > ")
     selected="${selected%%	*}"
   fi
 
@@ -495,7 +495,7 @@ worktree_session() {
     done)
     header=$(printf '%-*s  %-*s  %s' "$max_name" "$name_label" "$max_branch" "$branch_label" 'path')
 
-    selected=$(echo "$fzf_input" | fzf --ansi --cycle --with-nth=2 --delimiter=$'\t' --prompt "Select Worktree > " --header "$header")
+    selected=$(echo "$fzf_input" | fzf --ansi --cycle --with-nth=2 --delimiter=$'\t' --prompt "Worktree > " --header "$header")
 
     if [ -z "$selected" ]; then
       exit 0
@@ -535,7 +535,7 @@ browse_logs() {
     --bind=ctrl-d:preview-half-page-down \
     --bind=ctrl-u:preview-half-page-up \
     --bind="ctrl-o:execute(${EDITOR:-vi} '$LOG_DIR/{}')" \
-    --prompt "> " \
+    --prompt "Logs > " \
     --header $':: \e[33mEnter\e[0m to \e[31mtail\e[0m | \e[33mctrl-o\e[0m to \e[31mopen in editor\e[0m | \e[33mctrl-d\e[0m to \e[31mpreview page down\e[0m | \e[33mctrl-u\e[0m to \e[31mpreview page up\e[0m' \
     --preview "tail -n 100000 -f '$LOG_DIR/{}'" \
     --preview-window follow)
@@ -611,7 +611,7 @@ agent_picker() {
         --cycle \
         --delimiter=$'\t' \
         --with-nth=2 \
-        --prompt "Select AI > " --header "$header"
+        --prompt "Agent > " --header "$header"
   )
 
   if [ -z "$selected" ]; then
