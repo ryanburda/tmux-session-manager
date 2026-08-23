@@ -395,31 +395,6 @@ and always exits `0` so a misconfiguration never surfaces as an error inside the
 
 </details>
 
-#### Why `Notification` is not just `blocked`
-
-Claude Code's `Notification` event is not only "the agent needs you". It also fires once the
-session has been sitting at the prompt for `messageIdleNotifThresholdMs` (60 seconds by default),
-and again for auth and usage-limit chatter. Wiring the whole event to `blocked` means every agent
-you don't return to within a minute eventually claims to be blocked, and `idle` never appears at
-all — the two most useful states collapse into one.
-
-`tsm --agent-state notification` reads the hook's JSON payload from stdin and maps its
-`notification_type` field instead:
-
-| `notification_type` | State |
-|---------------------|-------|
-| `permission_prompt`, `worker_permission_prompt`, `agent_needs_input` | `blocked` |
-| `idle_prompt` | `idle` |
-| `agent_completed` | `done` |
-| anything else (`auth_success`, `quota_*`, …) | *unchanged* |
-
-Payloads it doesn't recognize leave the pane's current state alone rather than overwriting it. If
-the payload has no `notification_type` — older releases didn't send one — it falls back to matching
-the `message` text.
-
-Any agent with an equivalent hook system works the same way — point its lifecycle events at
-`tsm --agent-state <state>`, and anything notification-shaped at `tsm --agent-state notification`.
-
 <a id="configured-sessions"></a>
 
 ## Configured Sessions (`-c`)
