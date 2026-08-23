@@ -479,7 +479,12 @@ worktree_session() {
       exit 1
     fi
   else
-    local fzf_input max_name=0 max_branch=0
+    # The header labels are measured alongside the values, so a column of
+    # short worktree names still widens to fit `wt` rather than the label
+    # overhanging it. fzf indents --header by the two columns its pointer
+    # takes on the rows below, so the two line up with no padding of our own.
+    local name_label='wt' branch_label='branch'
+    local fzf_input header max_name=${#name_label} max_branch=${#branch_label}
     while IFS=$'\t' read -r wt branch; do
       local wt_name="${wt##*/}"
       (( ${#wt_name} > max_name )) && max_name=${#wt_name}
@@ -488,8 +493,9 @@ worktree_session() {
     fzf_input=$(echo "$worktree_data" | while IFS=$'\t' read -r wt branch; do
       printf '%s\t%-*s  \033[32m%-*s\033[0m  %s\n' "$wt" "$max_name" "${wt##*/}" "$max_branch" "$branch" "$wt"
     done)
+    header=$(printf '%-*s  %-*s  %s' "$max_name" "$name_label" "$max_branch" "$branch_label" 'path')
 
-    selected=$(echo "$fzf_input" | fzf --ansi --cycle --with-nth=2 --delimiter=$'\t' --prompt "> " --header "Select worktree")
+    selected=$(echo "$fzf_input" | fzf --ansi --cycle --with-nth=2 --delimiter=$'\t' --prompt "Select Worktree > " --header "$header")
 
     if [ -z "$selected" ]; then
       exit 0
