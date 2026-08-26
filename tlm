@@ -2,48 +2,57 @@
 #
 # tlm - tmux layout manager
 #
-# A small shell library for building tmux layouts, meant to be sourced from a
-# tsm session configuration:
+# A command for building tmux layouts, used from a tsm session configuration
+# the same way tsm itself is used -- off PATH, no sourcing:
 #
-#   source "$(command -v tlm)"
-#
-#   SESSION="myproject"
-#   ROOT="$HOME/code/myproject"
+#   export SESSION="myproject"
+#   export ROOT="$HOME/code/myproject"
 #
 #   start() {
-#     code=$(tlm_session code)
-#     ai=$(tlm_split -h 35% "$code")
-#     tlm_run "$code" nvim
-#     tlm_run "$ai" ai
-#     tlm_focus "$code"
+#     code=$(tlm new-session code)
+#     ai=$(tlm split-pane -h 35% "$code")
+#     tlm run "$code" nvim
+#     tlm run "$ai" ai
+#     tlm focus-pane "$code"
 #   }
 #
-# Every function that creates a pane prints that pane's id, so layouts are
-# built by capturing ids and splitting off them rather than by addressing
-# panes positionally. Positional targets ("$SESSION:code.1") shift underneath
-# you as soon as a later split renumbers the window; ids never do.
+# tlm keeps no state of its own -- everything it touches lives in the tmux
+# server -- so running it as a separate process costs nothing but the fork.
+# The variables have to be exported to survive that fork, which is why the
+# configuration exports them. tsm also exports them around start() and kill(),
+# so a configuration that forgets still works.
 #
 # $SESSION and $ROOT are the same variables tsm already requires of a session
 # config. $ROOT is used as the working directory for every new window and pane,
 # so the -c flag that otherwise appears on every tmux call is unnecessary.
+#
+# Every subcommand that creates a pane prints that pane's id, so layouts are
+# built by capturing ids and splitting off them rather than by addressing
+# panes positionally. Positional targets ("$SESSION:code.1") shift underneath
+# you as soon as a later split renumbers the window; ids never do.
+#
+# The file also still works when sourced, which defines a single `tlm` shell
+# function with the same subcommands. The underscore-prefixed functions it
+# dispatches to are implementation details and are not meant to be called
+# directly.
 
 ####################
 # internal helpers #
 ####################
-tlm_die() {
+_tlm_err() {
   # Writes a message to stderr and returns non-zero. tsm captures the start()
   # function's output in the session log, so this is where it will surface.
   echo "tlm: $1" >&2
   return 1
 }
 
-tlm_target_session() {
+_tlm_target_session() {
   # Prints the session tlm operates on, erroring if the config never set it.
-  [ -n "$SESSION" ] || { tlm_die "SESSION is not set"; return 1; }
+  [ -n "$SESSION" ] || { _tlm_err "SESSION is not set"; return 1; }
   echo "$SESSION"
 }
 
-tlm_client_size() {
+_tlm_client_size() {
   # Prints "WIDTH HEIGHT" for the client that will end up attaching, or
   # nothing if neither source can tell us.
   #
@@ -71,32 +80,38 @@ tlm_client_size() {
 ########################
 # layout construction #
 ########################
-tlm_session() {
+_tlm_new_session() {
   # Creates the detached session rooted at $ROOT, sized to the attaching
   # client, and renames its first window to $1. Prints the first pane's id.
   local window="$1"
-  local session width height
+  local session width height pane
 
-  session=$(tlm_target_session) || return 1
-  [ -n "$window" ] || { tlm_die "tlm_session: window name required"; return 1; }
+  session=$(_tlm_target_session) || return 1
+  [ -n "$window" ] || { _tlm_err "new-session: window name required"; return 1; }
 
-  read -r width height < <(tlm_client_size)
+  read -r width height < <(_tlm_client_size)
 
-  tmux new-session -d -s "$session" -c "${ROOT:-$PWD}" \
-    ${width:+-x "$width"} ${height:+-y "$height"} || return 1
-  tmux rename-window -t "$session" "$window" || return 1
+  # -P -F reports the pane new-session itself created, rather than whichever
+  # pane happens to be active once the command returns. The two differ as soon
+  # as an after-new-session hook splits or focuses something else.
+  pane=$(tmux new-session -d -P -F '#{pane_id}' -s "$session" -c "${ROOT:-$PWD}" \
+    ${width:+-x "$width"} ${height:+-y "$height"}) || return 1
 
-  tlm_pane "$session:$window"
+  # Renaming through the pane names the window holding it; -t "$session" would
+  # mean "the session's current window", which the same hook could have moved.
+  tmux rename-window -t "$pane" "$window" || return 1
+
+  echo "$pane"
 }
 
-tlm_window() {
+_tlm_new_window() {
   # Creates a new window named $1 in the session and prints its pane id.
   #
-  #   tlm_window nav [-c <dir>]
+  #   tlm new-window nav [-c <dir>]
   local window="" dir="${ROOT:-$PWD}"
   local session
 
-  session=$(tlm_target_session) || return 1
+  session=$(_tlm_target_session) || return 1
 
   while [ $# -gt 0 ]; do
     case "$1" in
@@ -105,15 +120,15 @@ tlm_window() {
     esac
   done
 
-  [ -n "$window" ] || { tlm_die "tlm_window: window name required"; return 1; }
+  [ -n "$window" ] || { _tlm_err "new-window: window name required"; return 1; }
 
   tmux new-window -P -F '#{pane_id}' -t "$session" -n "$window" -c "$dir"
 }
 
-tlm_split() {
+_tlm_split_pane() {
   # Splits an existing pane and prints the new pane's id.
   #
-  #   tlm_split -h|-v <size> <target-pane> [-c <dir>]
+  #   tlm split-pane -h|-v <size> <target-pane> [-c <dir>]
   #
   # <size> is passed to tmux -l, so it accepts both "35%" and a cell count.
   local orientation="" size="" target="" dir="${ROOT:-$PWD}"
@@ -129,9 +144,9 @@ tlm_split() {
     esac
   done
 
-  [ -n "$orientation" ] || { tlm_die "tlm_split: -h or -v required"; return 1; }
-  [ -n "$size" ]        || { tlm_die "tlm_split: size required"; return 1; }
-  [ -n "$target" ]      || { tlm_die "tlm_split: target pane required"; return 1; }
+  [ -n "$orientation" ] || { _tlm_err "split-pane: -h or -v required"; return 1; }
+  [ -n "$size" ]        || { _tlm_err "split-pane: size required"; return 1; }
+  [ -n "$target" ]      || { _tlm_err "split-pane: target pane required"; return 1; }
 
   tmux split-window -P -F '#{pane_id}' "$orientation" -l "$size" -t "$target" -c "$dir"
 }
@@ -139,63 +154,59 @@ tlm_split() {
 ###############
 # pane access #
 ###############
-tlm_pane() {
-  # Prints the id of the active pane of $1, defaulting to the session's
-  # current pane.
+_tlm_get_current_pane() {
+  # Prints the id of the active pane of the target $1, defaulting to the
+  # session's current pane.
+  #
+  #   tlm get-current-pane [target-pane]
+  #
+  # $1 is a tmux target, which does not have to name a pane: a session
+  # ("$SESSION", "$0") resolves to that session's current pane and a window
+  # ("$SESSION:code", "@1") to that window's active pane, the same way tmux
+  # resolves a partial target itself.
   local session
 
   if [ -n "$1" ]; then
     tmux display-message -p -t "$1" '#{pane_id}'
   else
-    session=$(tlm_target_session) || return 1
+    session=$(_tlm_target_session) || return 1
     tmux display-message -p -t "$session" '#{pane_id}'
   fi
 }
 
-tlm_run() {
+_tlm_run() {
   # Types a command into a pane and presses Enter.
   #
-  #   tlm_run "$pane" nvim lua/init.lua
+  #   tlm run "$pane" nvim lua/init.lua
   local pane="$1"
   shift
 
-  [ -n "$pane" ] || { tlm_die "tlm_run: pane required"; return 1; }
-  [ $# -gt 0 ]   || { tlm_die "tlm_run: command required"; return 1; }
+  [ -n "$pane" ] || { _tlm_err "run: pane required"; return 1; }
+  [ $# -gt 0 ]   || { _tlm_err "run: command required"; return 1; }
 
   tmux send-keys -t "$pane" "$*" Enter
 }
 
-tlm_focus() {
+_tlm_focus_pane() {
   # Makes $1 the active pane of its window. Does not change which window is
-  # current -- use tlm_select_window for that.
-  [ -n "$1" ] || { tlm_die "tlm_focus: pane required"; return 1; }
+  # current -- use `tlm focus-window` for that.
+  [ -n "$1" ] || { _tlm_err "focus-pane: pane required"; return 1; }
   tmux select-pane -t "$1"
 }
 
-tlm_select_window() {
+_tlm_focus_window() {
   # Makes $1 the current window of the session. Worth calling explicitly at
   # the end of a multi-window start(), since the last window created is
   # otherwise the one you attach to.
   local session
 
-  session=$(tlm_target_session) || return 1
-  [ -n "$1" ] || { tlm_die "tlm_select_window: window name required"; return 1; }
+  session=$(_tlm_target_session) || return 1
+  [ -n "$1" ] || { _tlm_err "focus-window: window name required"; return 1; }
 
   tmux select-window -t "$session:$1"
 }
 
-tlm_layout() {
-  # Applies one of tmux's preset layouts (even-horizontal, tiled, ...) to a
-  # window, for cases where an exact split order does not matter.
-  local session
-
-  session=$(tlm_target_session) || return 1
-  [ -n "$1" ] && [ -n "$2" ] || { tlm_die "tlm_layout: window and layout required"; return 1; }
-
-  tmux select-layout -t "$session:$1" "$2"
-}
-
-tlm_usage() {
+_tlm_usage() {
   echo "tmux Layout Manager"
   echo ""
   echo "A library of convenience functions for building tmux layouts."
@@ -204,25 +215,51 @@ tlm_usage() {
   echo "tlm removes boilerplate for common cases with a convenient api."
   echo "Use these commands along side tmux's to build your layouts."
   echo ""
-  echo "Functions"
-  echo "  tlm_session <window>                    # Create the session sized to the client, print first pane id"
-  echo "  tlm_window <window> [-c dir]            # Create a window, print its pane id"
-  echo "  tlm_split -h|-v <size> <pane> [-c dir]  # Split a pane, print the new pane id"
-  echo "  "
-  echo "  tlm_run <pane> <command...>             # Type a command into a pane and press Enter"
-  echo "  tlm_focus <pane>                        # Make a pane active within its window"
-  echo "  tlm_pane [target]                       # Print the active pane id of a target"
-  echo "  "
-  echo "  tlm_select_window <window>              # Make a window current"
-  echo "  tlm_layout <window> <layout>            # Apply a preset tmux layout to a window"
+  echo "Usage: tlm <command> [args]"
   echo ""
-  echo "Reads SESSION and ROOT from the session configuration."
+  echo "Commands"
+  echo "  new-session <window>                     # Create the session sized to the client, print first pane id"
+  echo "  new-window <window> [-c dir]             # Create a window, print its pane id"
+  echo "  split-pane -h|-v <size> <pane> [-c dir]  # Split a pane, print the new pane id"
+  echo "  "
+  echo "  focus-pane <pane>                        # Make a pane active within its window"
+  echo "  focus-window <window>                    # Make a window current"
+  echo "  get-current-pane [target-pane]           # Print the active pane id of a session, window or pane"
+  echo "  "
+  echo "  run <pane> <command...>                  # Run a command in a pane"
+  echo "  "
+  echo "  help                                     # Print this message"
+  echo ""
+  echo "Reads the exported SESSION and ROOT of the session configuration."
   echo "See https://github.com/ryanburda/tmux-session-manager for more documentation"
 }
 
-# Sourcing is the supported entry point; running it directly only explains how
-# to use it.
+############
+# dispatch #
+############
+tlm() {
+  # The single entry point. Every capability above is reached as a subcommand
+  # of this function, so sourcing tlm adds one name to the config's namespace.
+  local command="${1:-help}"
+  # Guarded so the no-argument case does not return non-zero under `set -e`.
+  [ $# -eq 0 ] || shift
+
+  case "$command" in
+    new-session)      _tlm_new_session "$@" ;;
+    new-window)       _tlm_new_window "$@" ;;
+    split-pane)       _tlm_split_pane "$@" ;;
+    focus-pane)       _tlm_focus_pane "$@" ;;
+    focus-window)     _tlm_focus_window "$@" ;;
+    get-current-pane) _tlm_get_current_pane "$@" ;;
+    run)              _tlm_run "$@" ;;
+    ''|help|-h|--help) _tlm_usage ;;
+    *)                _tlm_err "unknown command '$command' (try 'tlm help')"; return 1 ;;
+  esac
+}
+
+# Running the file is the normal entry point; sourcing it defines the same
+# dispatch as a shell function instead.
 if [ "${BASH_SOURCE[0]}" = "$0" ]; then
-  tlm_usage
-  exit 0
+  tlm "$@"
+  exit $?
 fi

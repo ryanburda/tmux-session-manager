@@ -5,8 +5,7 @@
 #   curl -fsSL https://raw.githubusercontent.com/ryanburda/tmux-session-manager/main/install.sh | sh
 #
 # Both commands need to be on PATH, not just readable: `tsm` is invoked
-# directly, and session configurations locate the `tlm` layout library with
-# `source "$(command -v tlm)"`.
+# directly, and session configurations invoke `tlm` the same way.
 #
 # Environment overrides:
 #   TSM_HOME  where the repo is cloned  (default: ~/.local/share/tmux-session-manager)
@@ -50,9 +49,9 @@ fi
 
 mkdir -p "$BIN_DIR"
 
-# Check every command before linking any of them. Session configurations
-# source tlm through PATH, so a run that linked tsm and then bailed on tlm
-# would leave those configs broken.
+# Check every command before linking any of them. Session configurations call
+# tlm through PATH, so a run that linked tsm and then bailed on tlm would leave
+# those configs broken.
 for cmd in $COMMANDS; do
     src="$TSM_HOME/$cmd"
     dest="$BIN_DIR/$cmd"

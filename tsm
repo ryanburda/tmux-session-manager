@@ -271,7 +271,7 @@ kill_session() {
   # Run kill function in background if it exists
   if [ -f "$session_file" ]; then
     echo "[$(date '+%Y-%m-%d %H:%M:%S')] Killing session '$session'" > "$log_file"
-    nohup bash -c "source '$session_file' && declare -F kill &>/dev/null && kill" >> "$log_file" 2>&1 &
+    nohup bash -c "source '$session_file' && export SESSION ROOT && declare -F kill &>/dev/null && kill" >> "$log_file" 2>&1 &
   fi
 
   tmux kill-session -t "=$session"
@@ -333,7 +333,10 @@ configured_session() {
   local log_file="$log_dir/tsm.log"
   mkdir -p "$log_dir"
   echo "[$(date '+%Y-%m-%d %H:%M:%S')] Starting session '$session'" > "$log_file"
-  bash -c "set -m; source '$session_file' && start" >> "$log_file" 2>&1
+  # SESSION and ROOT are exported so `tlm`, which runs as a command rather than
+  # a sourced library, inherits them. Configs are expected to export them too;
+  # this makes one that forgets work anyway.
+  bash -c "set -m; source '$session_file' && export SESSION ROOT && start" >> "$log_file" 2>&1
   tmux set-environment -t "=$session" TSM_CONFIGURED_SESSION "$config"
   switch_or_attach "$session"
 }
