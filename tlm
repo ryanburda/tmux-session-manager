@@ -1,0 +1,227 @@
+#!/bin/bash
+#
+# tlm - tmux layout manager
+#
+# A small shell library for building tmux layouts, meant to be sourced from a
+# tsm session configuration:
+#
+#   source "$(command -v tlm)"
+#
+#   SESSION="myproject"
+#   ROOT="$HOME/code/myproject"
+#
+#   start() {
+#     code=$(tlm_session code)
+#     ai=$(tlm_split -h 35% "$code")
+#     tlm_run "$code" nvim
+#     tlm_run "$ai" ai
+#     tlm_focus "$code"
+#   }
+#
+# Every function that creates a pane prints that pane's id, so layouts are
+# built by capturing ids and splitting off them rather than by addressing
+# panes positionally. Positional targets ("$SESSION:code.1") shift underneath
+# you as soon as a later split renumbers the window; ids never do.
+#
+# $SESSION and $ROOT are the same variables tsm already requires of a session
+# config. $ROOT is used as the working directory for every new window and pane,
+# so the -c flag that otherwise appears on every tmux call is unnecessary.
+
+####################
+# internal helpers #
+####################
+tlm_die() {
+  # Writes a message to stderr and returns non-zero. tsm captures the start()
+  # function's output in the session log, so this is where it will surface.
+  echo "tlm: $1" >&2
+  return 1
+}
+
+tlm_target_session() {
+  # Prints the session tlm operates on, erroring if the config never set it.
+  [ -n "$SESSION" ] || { tlm_die "SESSION is not set"; return 1; }
+  echo "$SESSION"
+}
+
+tlm_client_size() {
+  # Prints "WIDTH HEIGHT" for the client that will end up attaching, or
+  # nothing if neither source can tell us.
+  #
+  # tmux creates detached sessions at 80x24, so a percentage split made before
+  # the client attaches is computed against 80 columns and drifts toward 50/50
+  # once the real size arrives. Sizing the session up front avoids that.
+  local width height
+
+  width=$(tmux display-message -p '#{client_width}' 2>/dev/null)
+  height=$(tmux display-message -p '#{client_height}' 2>/dev/null)
+
+  # Outside tmux there is no client to ask, so fall back to the terminal tsm
+  # was invoked from.
+  if [ -z "$width" ] || [ -z "$height" ]; then
+    read -r height width < <({ stty size < /dev/tty; } 2>/dev/null)
+  fi
+
+  case "$width$height" in
+    *[!0-9]* | '') return 1 ;;
+  esac
+
+  echo "$width $height"
+}
+
+########################
+# layout construction #
+########################
+tlm_session() {
+  # Creates the detached session rooted at $ROOT, sized to the attaching
+  # client, and renames its first window to $1. Prints the first pane's id.
+  local window="$1"
+  local session width height
+
+  session=$(tlm_target_session) || return 1
+  [ -n "$window" ] || { tlm_die "tlm_session: window name required"; return 1; }
+
+  read -r width height < <(tlm_client_size)
+
+  tmux new-session -d -s "$session" -c "${ROOT:-$PWD}" \
+    ${width:+-x "$width"} ${height:+-y "$height"} || return 1
+  tmux rename-window -t "$session" "$window" || return 1
+
+  tlm_pane "$session:$window"
+}
+
+tlm_window() {
+  # Creates a new window named $1 in the session and prints its pane id.
+  #
+  #   tlm_window nav [-c <dir>]
+  local window="" dir="${ROOT:-$PWD}"
+  local session
+
+  session=$(tlm_target_session) || return 1
+
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      -c) dir="$2"; shift 2 ;;
+      *)  window="$1"; shift ;;
+    esac
+  done
+
+  [ -n "$window" ] || { tlm_die "tlm_window: window name required"; return 1; }
+
+  tmux new-window -P -F '#{pane_id}' -t "$session" -n "$window" -c "$dir"
+}
+
+tlm_split() {
+  # Splits an existing pane and prints the new pane's id.
+  #
+  #   tlm_split -h|-v <size> <target-pane> [-c <dir>]
+  #
+  # <size> is passed to tmux -l, so it accepts both "35%" and a cell count.
+  local orientation="" size="" target="" dir="${ROOT:-$PWD}"
+
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      -h|-v) orientation="$1"; shift ;;
+      -c)    dir="$2"; shift 2 ;;
+      *)
+        if [ -z "$size" ]; then size="$1"; else target="$1"; fi
+        shift
+        ;;
+    esac
+  done
+
+  [ -n "$orientation" ] || { tlm_die "tlm_split: -h or -v required"; return 1; }
+  [ -n "$size" ]        || { tlm_die "tlm_split: size required"; return 1; }
+  [ -n "$target" ]      || { tlm_die "tlm_split: target pane required"; return 1; }
+
+  tmux split-window -P -F '#{pane_id}' "$orientation" -l "$size" -t "$target" -c "$dir"
+}
+
+###############
+# pane access #
+###############
+tlm_pane() {
+  # Prints the id of the active pane of $1, defaulting to the session's
+  # current pane.
+  local session
+
+  if [ -n "$1" ]; then
+    tmux display-message -p -t "$1" '#{pane_id}'
+  else
+    session=$(tlm_target_session) || return 1
+    tmux display-message -p -t "$session" '#{pane_id}'
+  fi
+}
+
+tlm_run() {
+  # Types a command into a pane and presses Enter.
+  #
+  #   tlm_run "$pane" nvim lua/init.lua
+  local pane="$1"
+  shift
+
+  [ -n "$pane" ] || { tlm_die "tlm_run: pane required"; return 1; }
+  [ $# -gt 0 ]   || { tlm_die "tlm_run: command required"; return 1; }
+
+  tmux send-keys -t "$pane" "$*" Enter
+}
+
+tlm_focus() {
+  # Makes $1 the active pane of its window. Does not change which window is
+  # current -- use tlm_select_window for that.
+  [ -n "$1" ] || { tlm_die "tlm_focus: pane required"; return 1; }
+  tmux select-pane -t "$1"
+}
+
+tlm_select_window() {
+  # Makes $1 the current window of the session. Worth calling explicitly at
+  # the end of a multi-window start(), since the last window created is
+  # otherwise the one you attach to.
+  local session
+
+  session=$(tlm_target_session) || return 1
+  [ -n "$1" ] || { tlm_die "tlm_select_window: window name required"; return 1; }
+
+  tmux select-window -t "$session:$1"
+}
+
+tlm_layout() {
+  # Applies one of tmux's preset layouts (even-horizontal, tiled, ...) to a
+  # window, for cases where an exact split order does not matter.
+  local session
+
+  session=$(tlm_target_session) || return 1
+  [ -n "$1" ] && [ -n "$2" ] || { tlm_die "tlm_layout: window and layout required"; return 1; }
+
+  tmux select-layout -t "$session:$1" "$2"
+}
+
+tlm_usage() {
+  echo "tmux Layout Manager"
+  echo ""
+  echo "A library of shell functions for building tmux layouts in a tsm session"
+  echo "configuration. Source it, do not run it:"
+  echo ""
+  echo "  source \"\$(command -v tlm)\""
+  echo ""
+  echo "Functions"
+  echo "  tlm_session <window>                    # Create the session sized to the client, print first pane id"
+  echo "  tlm_window <window> [-c dir]            # Create a window, print its pane id"
+  echo "  tlm_split -h|-v <size> <pane> [-c dir]  # Split a pane, print the new pane id"
+  echo "  "
+  echo "  tlm_run <pane> <command...>             # Type a command into a pane and press Enter"
+  echo "  tlm_focus <pane>                        # Make a pane active within its window"
+  echo "  tlm_pane [target]                       # Print the active pane id of a target"
+  echo "  "
+  echo "  tlm_select_window <window>              # Make a window current"
+  echo "  tlm_layout <window> <layout>            # Apply a preset tmux layout to a window"
+  echo ""
+  echo "Reads SESSION and ROOT from the session configuration."
+  echo "See https://github.com/ryanburda/tmux-session-manager for more documentation"
+}
+
+# Sourcing is the supported entry point; running it directly only explains how
+# to use it.
+if [ "${BASH_SOURCE[0]}" = "$0" ]; then
+  tlm_usage
+  exit 0
+fi

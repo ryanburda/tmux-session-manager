@@ -19,10 +19,13 @@ A simple tmux session manager
    git clone https://github.com/ryanburda/tmux-session-manager.git ~/git/ryanburda/tmux-session-manager
    ```
 
-2. Symlink the `tsm` script to a directory in your PATH:
+2. Symlink the `tsm` script to a directory in your PATH. Symlink `tlm`
+   alongside it if you want the layout helpers described in
+   [Building Layouts with `tlm`](#building-layouts-with-tlm):
    ```bash
    mkdir -p ~/.local/bin
    ln -s ~/git/ryanburda/tmux-session-manager/tsm ~/.local/bin/tsm
+   ln -s ~/git/ryanburda/tmux-session-manager/tlm ~/.local/bin/tlm
    ```
 
 3. Ensure `~/.local/bin` is in your PATH. Add this to your `.bashrc` or `.zshrc` if needed:
@@ -410,6 +413,118 @@ Each session file defines:
   - `kill()` (optional): Runs asynchronously when the session is killed. Use this for cleanup tasks like stopping services.
 
 ![Launch Configured Sessions](docs/configured_launcher.gif)
+
+### Building Layouts with `tlm`
+
+Session configurations are plain shell scripts calling `tmux` directly, which is fine for a single
+window but repetitive once a config grows panes. `tlm` (tmux layout manager) is an optional library
+that ships with this repo and factors out the parts every layout repeats. Source it at the top of a
+session configuration:
+
+```bash
+source "$(command -v tlm)"
+```
+
+It reads the `SESSION` and `ROOT` variables the configuration already defines, and uses `ROOT` as the
+working directory for every window and pane it creates.
+
+| Function | Description |
+| --- | --- |
+| `tlm_session <window>` | Create the session sized to the attaching client, name its first window, print that window's pane id |
+| `tlm_window <window> [-c dir]` | Create a window, print its pane id |
+| `tlm_split -h\|-v <size> <pane> [-c dir]` | Split a pane, print the new pane id |
+| `tlm_run <pane> <command...>` | Type a command into a pane and press Enter |
+| `tlm_focus <pane>` | Make a pane active within its window |
+| `tlm_pane [target]` | Print the active pane id of a target |
+| `tlm_select_window <window>` | Make a window current |
+| `tlm_layout <window> <layout>` | Apply a preset tmux layout to a window |
+
+Two things it handles that are easy to get wrong by hand:
+
+**Sizing.** tmux creates detached sessions at 80x24. A percentage split made before the client
+attaches is therefore computed against 80 columns, and a `35%` split visibly drifts toward 50/50 once
+the real terminal size arrives. `tlm_session` sizes the session to the attaching client up front so
+percentages mean what they say.
+
+**Pane addressing.** Every pane-creating function prints the new pane's id, so layouts are built by
+capturing ids and splitting off them. Positional targets like `"$SESSION:code.1"` shift underneath
+you as soon as a later split renumbers the window; ids never do.
+
+<details>
+<summary><strong style="font-size: 1.25em;">Example: the same configuration with and without <code>tlm</code></strong></summary>
+
+> An editor on the left, an AI agent on the right, focus back on the editor.
+>
+> ```bash
+> SESSION="myproject"
+> ROOT="$HOME/projects/myproject"
+>
+> start() {
+>   CLIENT_W=$(tmux display-message -p '#{client_width}' 2>/dev/null)
+>   CLIENT_H=$(tmux display-message -p '#{client_height}' 2>/dev/null)
+>   [ -n "$CLIENT_W" ] || read -r CLIENT_H CLIENT_W < <({ stty size < /dev/tty; } 2>/dev/null)
+>   tmux new-session -d -s "$SESSION" -c "$ROOT" ${CLIENT_W:+-x "$CLIENT_W"} ${CLIENT_H:+-y "$CLIENT_H"}
+>
+>   tmux rename-window -t "$SESSION" "code"
+>   NVIM_PANE=$(tmux display-message -p -t "$SESSION:code" '#{pane_id}')
+>   AI_PANE=$(tmux split-window -P -F '#{pane_id}' -h -l 35% -t "$NVIM_PANE" -c "$ROOT")
+>   tmux send-keys -t "$NVIM_PANE" 'nvim' Enter
+>   tmux send-keys -t "$AI_PANE" 'ai' Enter
+>   tmux select-pane -t "$NVIM_PANE"
+> }
+> ```
+>
+> becomes:
+>
+> ```bash
+> source "$(command -v tlm)"
+>
+> SESSION="myproject"
+> ROOT="$HOME/projects/myproject"
+>
+> start() {
+>   code=$(tlm_session code)
+>   ai=$(tlm_split -h 35% "$code")
+>   tlm_run "$code" nvim
+>   tlm_run "$ai" ai
+>   tlm_focus "$code"
+> }
+> ```
+
+</details>
+
+<details>
+<summary><strong style="font-size: 1.25em;">Example: multiple windows</strong></summary>
+
+> ```bash
+> source "$(command -v tlm)"
+>
+> SESSION="myproject"
+> ROOT="$HOME/projects/myproject"
+>
+> start() {
+>   # First window: just an editor.
+>   code=$(tlm_session code)
+>   tlm_run "$code" nvim
+>
+>   # Second window: an editor with an agent to the right and a terminal below.
+>   nav=$(tlm_window nav)
+>   nav_ai=$(tlm_split -h 30% "$nav")
+>   nav_terminal=$(tlm_split -v 20% "$nav")
+>   tlm_run "$nav" nvim lua/init.lua
+>   tlm_run "$nav_ai" ai
+>   tlm_run "$nav_terminal" ls
+>   tlm_focus "$nav"
+>
+>   # The last window created is the one you would attach to, so pick explicitly.
+>   tlm_select_window code
+> }
+> ```
+
+</details>
+
+Running `tlm` directly prints the same reference. `tlm` is entirely optional -- a session
+configuration that calls `tmux` directly keeps working unchanged.
 
 ### Logging
 
