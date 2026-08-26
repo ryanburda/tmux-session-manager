@@ -541,8 +541,41 @@ you as soon as a later split renumbers the window; ids never do.
 
 </details>
 
-Running `tlm` directly prints the same reference. `tlm` is entirely optional -- a session
-configuration that calls `tmux` directly keeps working unchanged.
+#### Complementary, Not Binding
+
+Most tmux layout managers, like tmuxinator and tmuxp, ask you to describe a layout in a
+configuration format they define. That works right up until you want something the format has no
+word for, and at that point you are waiting on the maintainer to add it or abandoning the tool
+outright. The abstraction is binding: whatever it cannot express, you cannot do.
+
+`tlm` is deliberately not that. It is a handful of functions that sit *beside* tmux's commands rather
+than in front of them, and it keeps no state of its own. Every function hands back a real pane id, so
+anything `tlm` does not cover you do with plain `tmux` -- in the middle of the same `start()`, on the
+same panes:
+
+```bash
+start() {
+  code=$(tlm_session code)
+  ai=$(tlm_split -h 35% "$code")
+
+  # tlm has no opinion about options, titles or hooks. It does not need one.
+  tmux set-option -t "$SESSION" status-style 'bg=colour238'
+  tmux select-pane -t "$ai" -T 'agent'
+}
+```
+
+There is no escape hatch to reach for, because you never left. The ceiling of a `tlm` configuration
+is the ceiling of tmux itself.
+
+The tradeoff is that a session configuration is a shell script, which is not the most inviting thing
+to write. That is the price of the property worth having: if something cannot be done with native
+tmux commands, no configuration format was going to solve it away either -- it would only add a
+second place for it to be impossible. Better to keep the full command set within reach and let the
+library be a convenience you can put down at any time.
+
+So use `tlm` for the common cases, ignore it for the rest, and mix the two without ceremony. Running
+`tlm` directly prints the function reference. Using it at all is optional -- a session configuration
+that calls `tmux` directly keeps working unchanged.
 
 ### Logging
 
@@ -562,33 +595,32 @@ tail of the currently highlighted file.
 > Create a session configuration for a project at `~/.config/tsm/myproject.sh`:
 > 
 > ```bash
+> source "$(command -v tlm)"
+> 
 > SESSION="myproject"
 > ROOT="$HOME/projects/myproject"
 > 
 > start() {
->   # Create the session rooted at the project directory.
->   tmux new-session -d -s "$SESSION" -c "$ROOT"
-> 
->   # Rename the first window to 'code'.
->   # This window will have two vertical splits:
+>   # Create the session rooted at the project directory, and name its first
+>   # window 'code'. This window will have two vertical splits:
 >   #     - nvim on top 80%
 >   #     - a terminal at the bottom 20%
->   tmux rename-window -t "$SESSION" "code"
->   tmux send-keys -t "$SESSION:code" 'nvim' Enter
->   tmux split-window -v -l 20% -t "$SESSION:code" -c "$ROOT"
+>   code=$(tlm_session code)
+>   tlm_split -v 20% "$code" > /dev/null   # a plain shell; discard the pane id
+>   tlm_run "$code" nvim
 > 
 >   # Create a second window named 'docker'.
 >   # This window will have an even-vertical layout with:
 >   #     - a terminal that starts docker compose on top
 >   #     - lazydocker on bottom
->   tmux new-window -t "$SESSION" -n "docker" -c "$ROOT"
->   tmux send-keys -t "$SESSION:docker" 'docker compose up --force-recreate --detach' Enter
->   tmux split-window -t "$SESSION:docker" -v -c "$ROOT"
->   tmux send-keys -t "$SESSION:docker" 'lazydocker' Enter
->   tmux select-layout -t "$SESSION:docker" even-vertical
+>   compose=$(tlm_window docker)
+>   lazydocker=$(tlm_split -v 50% "$compose")
+>   tlm_run "$compose" docker compose up --force-recreate --detach
+>   tlm_run "$lazydocker" lazydocker
+>   tlm_layout docker even-vertical
 > 
 >   # Select first window
->   tmux select-window -t "$SESSION:code"
+>   tlm_select_window code
 > }
 > 
 > # Optional: cleanup function runs in background when session is killed.
@@ -601,7 +633,9 @@ tail of the currently highlighted file.
 > }
 > ```
 > 
-> See `man tmux` for a full list of available tmux specific commands.
+> `tlm` is a convenience, not a requirement -- see
+> [Building Layouts with `tlm`](#building-layouts-with-tlm). Drop back to plain `tmux` commands for
+> anything it does not cover; see `man tmux` for the full list.
 
 </details>
 
@@ -614,14 +648,14 @@ tail of the currently highlighted file.
 > immediately while the command continues running, and its output is captured in the log file for later review.
 > 
 > ```bash
+> source "$(command -v tlm)"
+> 
 > SESSION="webapp"
 > ROOT="$HOME/projects/webapp"
 > 
 > start() {
->   tmux new-session -d -s "$SESSION" -c "$ROOT"
-> 
->   tmux rename-window -t "$SESSION" "code"
->   tmux send-keys -t "$SESSION:code" 'nvim' Enter
+>   code=$(tlm_session code)
+>   tlm_run "$code" nvim
 > 
 >   # Start a service in the background so it doesn't block session startup.
 >   # Build output and errors are captured in the tsm log file.
