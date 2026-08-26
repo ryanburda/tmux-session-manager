@@ -14,13 +14,31 @@ A simple tmux session manager
 
 ## Installation
 
+```bash
+curl -fsSL https://raw.githubusercontent.com/ryanburda/tmux-session-manager/main/install.sh | sh
+```
+
+This clones the repository to `~/.local/share/tmux-session-manager` and symlinks both `tsm` and
+`tlm` into `~/.local/bin`. Re-run it at any time to update to the latest revision. Override
+`TSM_HOME`, `BIN_DIR` or `TSM_REPO` to change where things land:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/ryanburda/tmux-session-manager/main/install.sh \
+  | BIN_DIR=~/bin sh
+```
+
+Shell completions are not installed by the script -- see step 4 below.
+
+### Manual Installation
+
 1. Clone the repository:
    ```bash
    git clone https://github.com/ryanburda/tmux-session-manager.git ~/git/ryanburda/tmux-session-manager
    ```
 
-2. Symlink the `tsm` script to a directory in your PATH. Symlink `tlm`
-   alongside it if you want the layout helpers described in
+2. Symlink both scripts to a directory in your PATH. `tlm` has to be on PATH
+   rather than merely readable, because session configurations locate it with
+   `source "$(command -v tlm)"` -- see
    [Building Layouts with `tlm`](#building-layouts-with-tlm):
    ```bash
    mkdir -p ~/.local/bin
