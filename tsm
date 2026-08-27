@@ -13,23 +13,23 @@ usage() {
   echo "Tmux Session Manager"
   echo ""
   echo "Usage"
-  echo "  tsm                                # Switch to session"
-  echo "  tsm active [session]               # Switch to session"
-  echo "  tsm kill [session]                 # Kill session (run cleanup script if present)"
+  echo "  tsm                                  # Switch to session"
+  echo "  tsm active [session]                 # Switch to session"
+  echo "  tsm kill [session]                   # Kill session (run cleanup script if present)"
   echo "  "
-  echo "  tsm dir [path]                     # Create session at path"
-  echo "  tsm git [--hide-brief] [--no-fetch]  # Browse git repositories with fzf, creates session at path"
-  echo "  tsm worktree [name]                # Create session at git worktree path"
-  echo "  tsm zoxide [query]                 # Create session for zoxide match path"
+  echo "  tsm dir [path] [--start-default]                      # Create session at path"
+  echo "  tsm git [--hide-brief] [--no-fetch] [--start-default] # Browse git repositories with fzf, creates session at path"
+  echo "  tsm worktree [name] [--start-default]                 # Create session at git worktree path"
+  echo "  tsm zoxide [query] [--start-default]                  # Create session for zoxide match path"
   echo "  "
-  echo "  tsm configured [config]            # Create configured session"
-  echo "  tsm logs [session]                 # Browse configured session logs"
-  echo "  tsm start-default                  # Run the shared default layout (for use inside a configuration's start())"
+  echo "  tsm configured [config]              # Create configured session"
+  echo "  tsm logs [session]                   # Browse configured session logs"
+  echo "  tsm start-default                    # Run the shared default layout (for use inside a configuration's start())"
   echo "  "
-  echo "  tsm agents                         # Browse panes running an AI agent"
-  echo "  tsm agent-state [state]            # Record agent state on the current pane (for agent hooks)"
+  echo "  tsm agents                           # Browse panes running an AI agent"
+  echo "  tsm agent-state [state]              # Record agent state on the current pane (for agent hooks)"
   echo "  "
-  echo "  tsm help                           # Show help message"
+  echo "  tsm help                             # Show help message"
   echo ""
   echo "See https://github.com/ryanburda/tmux-session-manager for more documentation"
 }
@@ -443,7 +443,14 @@ start_default_layout() {
 }
 
 dir_session() {
-  local target_dir="$1"
+  local target_dir="" start_default=""
+  for arg in "$@"; do
+    case "$arg" in
+      --start-default) start_default=1 ;;
+      *) target_dir="$arg" ;;
+    esac
+  done
+
   local selected
 
   if [ -n "$target_dir" ]; then
@@ -477,12 +484,35 @@ dir_session() {
 
   # Create the session
   session_name=$(session_name_prompt "$selected")
-  tmux new-session -d -s "$session_name" -c "$selected"
+
+  if [ -n "$start_default" ]; then
+    # Sized up front, like configured_session does, so a percentage split in
+    # the default layout is computed against the real client size rather than
+    # tmux's 80x24 default for a detached session.
+    local width height
+    read -r width height < <(client_size)
+    tmux new-session -d -s "$session_name" -c "$selected" ${width:+-x "$width"} ${height:+-y "$height"}
+
+    # Run in a subshell: start_default_layout exits non-zero when there is no
+    # default layout to run, and that should not tear down a session that
+    # tmux already created.
+    ( SESSION="$session_name" ROOT="$selected" start_default_layout )
+  else
+    tmux new-session -d -s "$session_name" -c "$selected"
+  fi
+
   switch_or_attach "$session_name"
 }
 
 zoxide_session() {
-  local query="$1"
+  local query="" start_default=""
+  for arg in "$@"; do
+    case "$arg" in
+      --start-default) start_default=1 ;;
+      *) query="$arg" ;;
+    esac
+  done
+
   local selected
 
   if ! command -v zoxide &> /dev/null; then
@@ -507,15 +537,16 @@ zoxide_session() {
     fi
   fi
 
-  dir_session "$selected"
+  dir_session "$selected" ${start_default:+--start-default}
 }
 
 git_session() {
-  local hide_brief="" no_fetch=""
+  local hide_brief="" no_fetch="" start_default=""
   for arg in "$@"; do
     case "$arg" in
       --hide-brief) hide_brief=1 ;;
       --no-fetch) no_fetch="--no-fetch" ;;
+      --start-default) start_default=1 ;;
     esac
   done
   local git_dirs_cmd="${TSM_GIT_DIRS_CMD:-$TSM_GIT_DIRS_CMD_DEFAULT}"
@@ -555,11 +586,18 @@ git_session() {
     exit 0
   fi
 
-  dir_session "$selected"
+  dir_session "$selected" ${start_default:+--start-default}
 }
 
 worktree_session() {
-  local name="$1"
+  local name="" start_default=""
+  for arg in "$@"; do
+    case "$arg" in
+      --start-default) start_default=1 ;;
+      *) name="$arg" ;;
+    esac
+  done
+
   local worktree_data
   worktree_data=$(git worktree list --porcelain | awk '
     /^worktree / { path = substr($0, 10); branch = "" }
@@ -613,7 +651,7 @@ worktree_session() {
     selected="${selected%%	*}"
   fi
 
-  dir_session "$selected"
+  dir_session "$selected" ${start_default:+--start-default}
 }
 
 browse_logs() {
@@ -820,16 +858,16 @@ case "$command" in
     kill_session "$1"
     ;;
   dir)
-    dir_session "$1"
+    dir_session "$@"
     ;;
   git)
     git_session "$@"
     ;;
   worktree)
-    worktree_session "$1"
+    worktree_session "$@"
     ;;
   zoxide)
-    zoxide_session "$1"
+    zoxide_session "$@"
     ;;
   configured)
     configured_session "$1"

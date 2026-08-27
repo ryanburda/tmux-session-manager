@@ -27,11 +27,11 @@ _tsm_completions() {
             return 0
             ;;
         dir)
-            COMPREPLY=($(compgen -d -- "$cur"))
+            COMPREPLY=($(compgen -d -W "--start-default" -- "$cur"))
             return 0
             ;;
         git)
-            COMPREPLY=($(compgen -W "--hide-brief --no-fetch" -- "$cur"))
+            COMPREPLY=($(compgen -W "--hide-brief --no-fetch --start-default" -- "$cur"))
             return 0
             ;;
         worktree)
@@ -41,11 +41,11 @@ _tsm_completions() {
                 /^$/ { if (path != "") { n = split(path, a, "/"); print a[n]; path = "" } }
                 END { if (path != "") { n = split(path, a, "/"); print a[n] } }
             ')
-            COMPREPLY=($(compgen -W "$worktrees" -- "$cur"))
+            COMPREPLY=($(compgen -W "$worktrees --start-default" -- "$cur"))
             return 0
             ;;
         zoxide)
-            # No completion for zoxide queries
+            COMPREPLY=($(compgen -W "--start-default" -- "$cur"))
             return 0
             ;;
         configured)
