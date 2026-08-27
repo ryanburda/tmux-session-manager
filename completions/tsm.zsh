@@ -43,21 +43,56 @@ _tsm_configured_sessions() {
     fi
 }
 
+_tsm_commands() {
+    local commands=(
+        'active:Switch to session'
+        'kill:Kill a session'
+        'dir:Browse/start session at directory'
+        'git:Browse git repositories with fzf'
+        'worktree:Browse worktrees for current git repo session'
+        'zoxide:Browse/start session via zoxide'
+        'configured:Browse/start configured sessions'
+        'logs:Browse session logs'
+        'start-default:Run the shared default layout'
+        'agents:Browse panes running an AI agent'
+        'agent-state:Record agent state on the current pane'
+        'help:Show help message'
+    )
+    _describe 'command' commands
+}
+
 _tsm() {
     local context state state_descr line
     typeset -A opt_args
 
-    _arguments -s \
-        '(-a --agents --agent-state -c --configured -k --kill -l --logs -d --dir -z --zoxide -w --worktree -h --help)'{-a,--agents}'[Browse panes running an AI agent]' \
-        '(-a --agents --agent-state -c --configured -k --kill -l --logs -d --dir -z --zoxide -w --worktree -h --help)'--agent-state'[Record agent state on the current pane]:state:(working blocked done idle clear)' \
-        '(-a --agents --agent-state -c --configured -k --kill -l --logs -d --dir -z --zoxide -w --worktree -h --help)'{-c,--configured}'[Browse/start configured sessions]:configured session:_tsm_configured_sessions' \
-        '(-a --agents --agent-state -c --configured -k --kill -l --logs -d --dir -z --zoxide -w --worktree -h --help)'{-k,--kill}'[Kill a session]:active session:_tsm_active_sessions' \
-        '(-a --agents --agent-state -c --configured -k --kill -l --logs -d --dir -z --zoxide -w --worktree -h --help)'{-l,--logs}'[Browse session logs]:session with logs:_tsm_log_sessions' \
-        '(-a --agents --agent-state -c --configured -k --kill -l --logs -d --dir -z --zoxide -w --worktree -h --help)'{-d,--dir}'[Browse/start session at directory]:directory:_files -/' \
-        '(-a --agents --agent-state -c --configured -k --kill -l --logs -d --dir -z --zoxide -w --worktree -h --help)'{-z,--zoxide}'[Browse/start session via zoxide]:zoxide query:' \
-        '(-a --agents --agent-state -c --configured -k --kill -l --logs -d --dir -z --zoxide -w --worktree -h --help)'{-w,--worktree}'[Browse worktrees for current git repo session]:worktree:_tsm_worktrees' \
-        '(-a --agents --agent-state -c --configured -k --kill -l --logs -d --dir -z --zoxide -w --worktree -h --help)'{-h,--help}'[Show help message]' \
-        '1:active session:_tsm_active_sessions'
+    _arguments -C \
+        '1:command:_tsm_commands' \
+        '*::arg:->args' \
+        && return 0
+
+    case "$line[1]" in
+        active|kill)
+            _tsm_active_sessions
+            ;;
+        dir)
+            _files -/
+            ;;
+        git)
+            _values -s ' ' 'git options' '--hide-brief' '--no-fetch'
+            ;;
+        worktree)
+            _tsm_worktrees
+            ;;
+        configured)
+            _tsm_configured_sessions
+            ;;
+        logs)
+            _tsm_log_sessions
+            ;;
+        agent-state)
+            _values 'state' working blocked done idle clear
+            ;;
+    esac
 }
 
 _tsm "$@"

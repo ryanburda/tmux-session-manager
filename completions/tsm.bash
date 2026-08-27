@@ -4,55 +4,37 @@
 # Or copy to /etc/bash_completion.d/tsm
 
 _tsm_completions() {
-    local cur prev opts
+    local cur prev cmd subcmds
     COMPREPLY=()
     cur="${COMP_WORDS[COMP_CWORD]}"
     prev="${COMP_WORDS[COMP_CWORD-1]}"
+    cmd="${COMP_WORDS[1]}"
 
-    # Available options
-    opts="-a --agents -c --configured -k --kill -l --logs -d --dir -z --zoxide -w --worktree -h --help"
+    # Available subcommands
+    subcmds="active kill dir git worktree zoxide configured logs start-default agents agent-state help"
 
-    # Complete based on previous word
-    case "$prev" in
-        --agent-state)
-            COMPREPLY=($(compgen -W "working blocked done idle clear" -- "$cur"))
-            return 0
-            ;;
-        -c|--configured)
-            # Complete with configured session names
-            local config_dir="${XDG_CONFIG_HOME:-$HOME/.config}/tsm"
-            if [ -d "$config_dir" ]; then
-                local sessions=$(for f in "$config_dir"/*.sh; do [ -f "$f" ] && basename "$f" .sh; done 2>/dev/null)
-                COMPREPLY=($(compgen -W "$sessions" -- "$cur"))
-            fi
-            return 0
-            ;;
-        -k|--kill)
-            # Complete with active sessions
+    # Completing the subcommand itself
+    if [ "$COMP_CWORD" -eq 1 ]; then
+        COMPREPLY=($(compgen -W "$subcmds" -- "$cur"))
+        return 0
+    fi
+
+    # Completing an argument to a subcommand
+    case "$cmd" in
+        active|kill)
             local active=$(tmux ls 2>/dev/null | awk -F: '{print $1}')
             COMPREPLY=($(compgen -W "$active" -- "$cur"))
             return 0
             ;;
-        -l|--logs)
-            # Complete with session names that have log directories
-            local log_dir="${XDG_STATE_HOME:-$HOME/.local/state}/tsm/logs"
-            if [ -d "$log_dir" ]; then
-                local sessions=$(for dir in "$log_dir"/*/; do [ -d "$dir" ] && basename "$dir"; done 2>/dev/null)
-                COMPREPLY=($(compgen -W "$sessions" -- "$cur"))
-            fi
-            return 0
-            ;;
-        -d|--dir)
-            # Complete with directories
+        dir)
             COMPREPLY=($(compgen -d -- "$cur"))
             return 0
             ;;
-        -z|--zoxide)
-            # No completion for zoxide queries
+        git)
+            COMPREPLY=($(compgen -W "--hide-brief --no-fetch" -- "$cur"))
             return 0
             ;;
-        -w|--worktree)
-            # Complete with worktree names
+        worktree)
             local worktrees=$(git worktree list --porcelain 2>/dev/null | awk '
                 /^worktree / { path = substr($0, 10) }
                 /^bare$/ { path = "" }
@@ -62,25 +44,31 @@ _tsm_completions() {
             COMPREPLY=($(compgen -W "$worktrees" -- "$cur"))
             return 0
             ;;
-        tsm)
-            # First argument: complete with options or active sessions
-            if [[ "$cur" == -* ]]; then
-                COMPREPLY=($(compgen -W "$opts" -- "$cur"))
-            else
-                local active=$(tmux ls 2>/dev/null | awk -F: '{print $1}')
-                COMPREPLY=($(compgen -W "$active $opts" -- "$cur"))
+        zoxide)
+            # No completion for zoxide queries
+            return 0
+            ;;
+        configured)
+            local config_dir="${XDG_CONFIG_HOME:-$HOME/.config}/tsm"
+            if [ -d "$config_dir" ]; then
+                local sessions=$(for f in "$config_dir"/*.sh; do [ -f "$f" ] && basename "$f" .sh; done 2>/dev/null)
+                COMPREPLY=($(compgen -W "$sessions" -- "$cur"))
             fi
             return 0
             ;;
+        logs)
+            local log_dir="${XDG_STATE_HOME:-$HOME/.local/state}/tsm/logs"
+            if [ -d "$log_dir" ]; then
+                local sessions=$(for dir in "$log_dir"/*/; do [ -d "$dir" ] && basename "$dir"; done 2>/dev/null)
+                COMPREPLY=($(compgen -W "$sessions" -- "$cur"))
+            fi
+            return 0
+            ;;
+        agent-state)
+            COMPREPLY=($(compgen -W "working blocked done idle clear" -- "$cur"))
+            return 0
+            ;;
     esac
-
-    # Default: complete with options or active sessions
-    if [[ "$cur" == -* ]]; then
-        COMPREPLY=($(compgen -W "$opts" -- "$cur"))
-    else
-        local active=$(tmux ls 2>/dev/null | awk -F: '{print $1}')
-        COMPREPLY=($(compgen -W "$active" -- "$cur"))
-    fi
 }
 
 complete -F _tsm_completions tsm

@@ -41,17 +41,6 @@ function __tsm_log_sessions
     end
 end
 
-# Disable file completion by default
-complete -c tsm -f
-
-# Options
-complete -c tsm -s a -l agents -d 'Browse panes running an AI agent'
-complete -c tsm -l agent-state -d 'Record agent state on the current pane' -xa 'working blocked done idle clear'
-complete -c tsm -s c -l configured -d 'Browse/start configured sessions' -xa '(__tsm_configured_sessions)'
-complete -c tsm -s k -l kill -d 'Kill a session' -xa '(__tsm_active_sessions)'
-complete -c tsm -s l -l logs -d 'Browse session logs' -xa '(__tsm_log_sessions)'
-complete -c tsm -s d -l dir -d 'Browse/start session at directory' -ra '(__fish_complete_directories)'
-complete -c tsm -s z -l zoxide -d 'Browse/start session via zoxide'
 # Helper function: get worktree names
 function __tsm_worktrees
     git worktree list --porcelain 2>/dev/null | awk '
@@ -62,8 +51,28 @@ function __tsm_worktrees
     '
 end
 
-complete -c tsm -s w -l worktree -d 'Browse worktrees for current git repo session' -xa '(__tsm_worktrees)'
-complete -c tsm -s h -l help -d 'Show help message'
+# Disable file completion by default
+complete -c tsm -f
 
-# Default (no flag): complete with active sessions
-complete -c tsm -n '__fish_is_first_arg' -xa '(__tsm_active_sessions)'
+# Subcommands
+complete -c tsm -n '__fish_use_subcommand' -a active -d 'Switch to session'
+complete -c tsm -n '__fish_use_subcommand' -a kill -d 'Kill a session'
+complete -c tsm -n '__fish_use_subcommand' -a dir -d 'Browse/start session at directory'
+complete -c tsm -n '__fish_use_subcommand' -a git -d 'Browse git repositories with fzf'
+complete -c tsm -n '__fish_use_subcommand' -a worktree -d 'Browse worktrees for current git repo session'
+complete -c tsm -n '__fish_use_subcommand' -a zoxide -d 'Browse/start session via zoxide'
+complete -c tsm -n '__fish_use_subcommand' -a configured -d 'Browse/start configured sessions'
+complete -c tsm -n '__fish_use_subcommand' -a logs -d 'Browse session logs'
+complete -c tsm -n '__fish_use_subcommand' -a start-default -d 'Run the shared default layout'
+complete -c tsm -n '__fish_use_subcommand' -a agents -d 'Browse panes running an AI agent'
+complete -c tsm -n '__fish_use_subcommand' -a agent-state -d 'Record agent state on the current pane'
+complete -c tsm -n '__fish_use_subcommand' -a help -d 'Show help message'
+
+# Subcommand arguments
+complete -c tsm -n '__fish_seen_subcommand_from active kill' -xa '(__tsm_active_sessions)'
+complete -c tsm -n '__fish_seen_subcommand_from dir' -ra '(__fish_complete_directories)'
+complete -c tsm -n '__fish_seen_subcommand_from git' -xa '--hide-brief --no-fetch'
+complete -c tsm -n '__fish_seen_subcommand_from worktree' -xa '(__tsm_worktrees)'
+complete -c tsm -n '__fish_seen_subcommand_from configured' -xa '(__tsm_configured_sessions)'
+complete -c tsm -n '__fish_seen_subcommand_from logs' -xa '(__tsm_log_sessions)'
+complete -c tsm -n '__fish_seen_subcommand_from agent-state' -xa 'working blocked done idle clear'

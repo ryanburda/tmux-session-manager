@@ -13,22 +13,23 @@ usage() {
   echo "Tmux Session Manager"
   echo ""
   echo "Usage"
-  echo "  tsm [session]                             # Switch to session"
-  echo "  tsm -k, --kill [session]                  # Kill session (run cleanup script if present)"
+  echo "  tsm                                # Switch to session"
+  echo "  tsm active [session]               # Switch to session"
+  echo "  tsm kill [session]                 # Kill session (run cleanup script if present)"
   echo "  "
-  echo "  tsm -d, --dir [path]                      # Create session at path"
-  echo "  tsm -g, --git [--hide-brief] [--no-fetch] # Browse git repositories with fzf, creates session at path"
-  echo "  tsm -w, --worktree [name]                 # Create session at git worktree path"
-  echo "  tsm -z, --zoxide [query]                  # Create session for zoxide match path"
+  echo "  tsm dir [path]                     # Create session at path"
+  echo "  tsm git [--hide-brief] [--no-fetch]  # Browse git repositories with fzf, creates session at path"
+  echo "  tsm worktree [name]                # Create session at git worktree path"
+  echo "  tsm zoxide [query]                 # Create session for zoxide match path"
   echo "  "
-  echo "  tsm -c, --configured [config]             # Create configured session"
-  echo "  tsm -l, --logs [session]                  # Browse configured session logs"
-  echo "  tsm --start-default                       # Run the shared default layout (for use inside a configuration's start())"
+  echo "  tsm configured [config]            # Create configured session"
+  echo "  tsm logs [session]                 # Browse configured session logs"
+  echo "  tsm start-default                  # Run the shared default layout (for use inside a configuration's start())"
   echo "  "
-  echo "  tsm -a, --agents                          # Browse panes running an AI agent"
-  echo "  tsm --agent-state [state]                 # Record agent state on the current pane (for agent hooks)"
+  echo "  tsm agents                         # Browse panes running an AI agent"
+  echo "  tsm agent-state [state]            # Record agent state on the current pane (for agent hooks)"
   echo "  "
-  echo "  tsm -h, --help                            # Show help message"
+  echo "  tsm help                           # Show help message"
   echo ""
   echo "See https://github.com/ryanburda/tmux-session-manager for more documentation"
 }
@@ -173,7 +174,7 @@ agent_panes() {
   # Lists tmux panes that are running an AI agent, one per line:
   #   state<TAB>pane_id<TAB>session:window:pane<TAB>command
   #
-  # A pane qualifies if it has a recorded state (set by `tsm --agent-state`
+  # A pane qualifies if it has a recorded state (set by `tsm agent-state`
   # from the agent's notification hooks) or if a known agent command is found
   # anywhere in the pane's process tree. Panes matched only by process get the
   # state "unknown".
@@ -410,14 +411,14 @@ configured_session() {
     [ $? -eq 0 ] || exit 1
     export ROOT="${ROOT:-$HOME}"
     tmux new-session -d -s "$SESSION" -c "$ROOT" ${3:+-x "$3"} ${4:+-y "$4"} || exit 1
-    if declare -F start >/dev/null; then start; else tsm --start-default; fi
+    if declare -F start >/dev/null; then start; else tsm start-default; fi
   ' tsm "$session_file" "$session" "$width" "$height" >> "$log_file" 2>&1
 
   # The session is missing only if it was never created — a configuration that
   # aborted under `set -e` before tsm got to it, or a tmux failure. Either way
   # the reason is the last thing in the log.
   if ! tmux has-session -t "=$session" 2>/dev/null; then
-    notify "Error: '$config' did not start (see: tsm -l $session)"
+    notify "Error: '$config' did not start (see: tsm logs $session)"
     exit 1
   fi
 
@@ -428,7 +429,7 @@ configured_session() {
 start_default_layout() {
   # Runs $CONFIG_DIR/.start_default.sh, a layout shared by configurations that
   # would otherwise all write the same start() body. It is a plain script, not
-  # a function, sourced at the point a config calls `tsm --start-default` --
+  # a function, sourced at the point a config calls `tsm start-default` --
   # SESSION and ROOT are already exported by configured_session() by then, the
   # same way tlm gets them.
   local default_file="$CONFIG_DIR/.start_default.sh"
@@ -773,7 +774,7 @@ notification_state() {
 
 record_agent_state() {
   # Records an AI agent's state on the tmux pane it is running in, so that
-  # `tsm -a` can show it. Meant to be called from an agent's notification
+  # `tsm agents` can show it. Meant to be called from an agent's notification
   # hooks — see the README for a Claude Code configuration.
   #
   # Args:
@@ -808,46 +809,49 @@ if [ $# -eq 0 ]; then
   exit 0
 fi
 
-case "$1" in
-  -a|--agents)
-    agent_picker
+command="$1"
+shift
+
+case "$command" in
+  active)
+    active_session "$1"
     ;;
-  --agent-state)
-    record_agent_state "$2"
+  kill)
+    kill_session "$1"
     ;;
-  --start-default)
+  dir)
+    dir_session "$1"
+    ;;
+  git)
+    git_session "$@"
+    ;;
+  worktree)
+    worktree_session "$1"
+    ;;
+  zoxide)
+    zoxide_session "$1"
+    ;;
+  configured)
+    configured_session "$1"
+    ;;
+  logs)
+    browse_logs "$1"
+    ;;
+  start-default)
     start_default_layout
     ;;
-  -c|--configured)
-    configured_session "$2"
+  agents)
+    agent_picker
     ;;
-  -k|--kill)
-    kill_session "$2"
+  agent-state)
+    record_agent_state "$1"
     ;;
-  -l|--logs)
-    browse_logs "$2"
-    ;;
-  -g|--git)
-    shift; git_session "$@"
-    ;;
-  -d|--dir)
-    dir_session "$2"
-    ;;
-  -z|--zoxide)
-    zoxide_session "$2"
-    ;;
-  -w|--worktree)
-    worktree_session "$2"
-    ;;
-  -h|--help)
+  help)
     usage
-    ;;
-  -*)
-    notify "Error: Unknown option '$1'"
-    usage
-    exit 1
     ;;
   *)
-    active_session "$1"
+    notify "Error: Unknown command '$command'"
+    usage
+    exit 1
     ;;
 esac

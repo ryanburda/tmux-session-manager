@@ -10,7 +10,7 @@ A simple tmux session manager
 ## Dependencies
 
 - `fzf`
-- `ps` (only for `tsm -a`)
+- `ps` (only for `tsm agents`)
 
 ## Installation
 
@@ -53,10 +53,10 @@ Shell completions are not installed by the script -- see step 4 below.
 4. (Optional) Install shell completions:
 
    Completions provide:
-   - Active session names for `tsm` and `tsm -k`
-   - Directory completion for `tsm -d`
-   - Config names for `tsm -c`
-   - Session names with logs for `tsm -l`
+   - Active session names for `tsm active` and `tsm kill`
+   - Directory completion for `tsm dir`
+   - Config names for `tsm configured`
+   - Session names with logs for `tsm logs`
 
    <details>
    <summary><strong>Bash</strong></summary>
@@ -96,25 +96,26 @@ Shell completions are not installed by the script -- see step 4 below.
 ## Usage
 
 ```bash
-tsm [session]                             # Switch to session
-tsm -k, --kill [session]                  # Kill session (run cleanup script if present)
+tsm                                # Switch to session
+tsm active [session]               # Switch to session
+tsm kill [session]                 # Kill session (run cleanup script if present)
 
 # Directory based sessions
-tsm -d, --dir [path]                      # Create session at path
-tsm -g, --git [--hide-brief] [--no-fetch] # Browse git repositories with fzf, creates session at path
-tsm -w, --worktree [name]                 # Create session at git worktree path
-tsm -z, --zoxide [query]                  # Create session for zoxide match path
+tsm dir [path]                     # Create session at path
+tsm git [--hide-brief] [--no-fetch]  # Browse git repositories with fzf, creates session at path
+tsm worktree [name]                # Create session at git worktree path
+tsm zoxide [query]                 # Create session for zoxide match path
 
 # Configuration based sessions
-tsm -c, --configured [config]             # Create configured session
-tsm -l, --logs [session]                  # Browse configured session logs
-tsm --start-default                       # Run the shared default layout (for use inside a configuration's start())
+tsm configured [config]            # Create configured session
+tsm logs [session]                 # Browse configured session logs
+tsm start-default                  # Run the shared default layout (for use inside a configuration's start())
 
 # AI agent panes
-tsm -a, --agents                          # Browse panes running an AI agent
-tsm --agent-state [state]                 # Record agent state on the current pane (for agent hooks)
+tsm agents                         # Browse panes running an AI agent
+tsm agent-state [state]            # Record agent state on the current pane (for agent hooks)
 
-tsm -h, --help                            # Show help message
+tsm help                           # Show help message
 ```
 
 When session/path arguments are omitted, `tsm` uses fzf for interactive selection.
@@ -127,21 +128,21 @@ the suggested session name before the session is created.
 
 ```bash
 bind-key s popup -E "tsm"
-bind-key k popup -E "tsm -k"
-bind-key X run-shell "tsm -k #{session_name}"
+bind-key k popup -E "tsm kill"
+bind-key X run-shell "tsm kill #{session_name}"
 
 # Directory based sessions
-bind-key d popup -E "tsm -d"
-bind-key g popup -E "tsm -g"
-bind-key w popup -E "tsm -w"
-bind-key z popup -E "tsm -z"
+bind-key d popup -E "tsm dir"
+bind-key g popup -E "tsm git"
+bind-key w popup -E "tsm worktree"
+bind-key z popup -E "tsm zoxide"
 
 # AI agent sessions
-bind-key a popup -E "tsm -a"
+bind-key a popup -E "tsm agents"
 
 # Configuration based sessions
-bind-key c popup -E "tsm -c"
-bind-key l popup -E "tsm -l"
+bind-key c popup -E "tsm configured"
+bind-key l popup -E "tsm logs"
 ```
 
 This maps:
@@ -182,14 +183,14 @@ This maps:
 > 
 > ```bash
 > bind-key s popup -h 24 -w 60 -E "~/git/ryanburda/tmux-session-manager/tsm"
-> bind-key d popup -h 24 -w 80 -E "~/git/ryanburda/tmux-session-manager/tsm -d"
-> bind-key X run-shell "~/git/ryanburda/tmux-session-manager/tsm -k #{session_name}"
+> bind-key d popup -h 24 -w 80 -E "~/git/ryanburda/tmux-session-manager/tsm dir"
+> bind-key X run-shell "~/git/ryanburda/tmux-session-manager/tsm kill #{session_name}"
 > ```
 > 
 > Adjust the path to match where you cloned the repository.
 > 
 > **Note:** If you specify a custom `TSM_DIRS_CMD`, add it to the same file where you configure your PATH
-> (e.g., `~/.zshenv` for zsh). Otherwise, `tsm -d` will use the default directory list in a tmux popup
+> (e.g., `~/.zshenv` for zsh). Otherwise, `tsm dir` will use the default directory list in a tmux popup
 > but a different custom list from an interactive shell, leading to inconsistent behavior.
 
 </details>
@@ -211,11 +212,11 @@ Directory sessions allow you to open a new tmux session rooted at a specific dir
 All directory sessions work the same way: pick a directory, name the session, and go.
 There are several options that offer different ways to pick the directory.
 
-### Direct Path (`-d`)
+### Direct Path (`dir`)
 
 > ```bash
-> tsm -d                   # Browse directories with fzf and start session from selection
-> tsm -d ~/code/projectA   # Start a session directly at ~/code/projectA
+> tsm dir                   # Browse directories with fzf and start session from selection
+> tsm dir ~/code/projectA   # Start a session directly at ~/code/projectA
 > ```
 > 
 > When no path is provided, fzf by default displays all non-hidden directories within 4 levels deep of your
@@ -240,18 +241,18 @@ There are several options that offer different ways to pick the directory.
 >
 > ![Launch Directory Sessions](docs/directory_launcher.gif)
 
-### Git Repositories (`-g`)
+### Git Repositories (`git`)
 
 > ```bash
-> tsm -g   # Browse git repositories with fzf and start session from selection
+> tsm git   # Browse git repositories with fzf and start session from selection
 > ```
 > 
-> Works like `-d` but is tailored to git repositories by displaying a brief git status summary showing:
+> Works like `dir` but is tailored to git repositories by displaying a brief git status summary showing:
 > - the current branch
 > - ahead/behind counts
 > - unstaged changes
 >
-> By default, `tsm -g` finds all directories containing `.git` within 4 levels of `$HOME`. This can be
+> By default, `tsm git` finds all directories containing `.git` within 4 levels of `$HOME`. This can be
 > changed by setting the `TSM_GIT_DIRS_CMD` environment variable in your `.bashrc/.zshenv`.
 > 
 > Optional flags:
@@ -291,11 +292,11 @@ There are several options that offer different ways to pick the directory.
 
 <a id="git-worktrees"></a>
 
-### Git Worktrees (`-w`)
+### Git Worktrees (`worktree`)
 
 > ```bash
-> tsm -w         # Browse worktrees for current git repo with fzf
-> tsm -w other   # Start session for worktree named 'other'
+> tsm worktree         # Browse worktrees for current git repo with fzf
+> tsm worktree other   # Start session for worktree named 'other'
 > ```
 > 
 > Browse git worktrees for the current repository and create a session rooted at the selected worktree directory.
@@ -304,30 +305,30 @@ There are several options that offer different ways to pick the directory.
 > 
 > ![Launch Worktree Sessions](docs/worktree_launcher.gif)
 
-### Zoxide (`-z`, Optional)
+### Zoxide (`zoxide`, Optional)
 
 > ```bash
-> tsm -z              # Browse zoxide entries interactively and start session from selection
-> tsm -z proj         # Start a session at the best zoxide match for "proj"
+> tsm zoxide              # Browse zoxide entries interactively and start session from selection
+> tsm zoxide proj         # Start a session at the best zoxide match for "proj"
 > ```
 > Requires **[zoxide](https://github.com/ajeetdsouza/zoxide)**.
 > 
 > Zoxide tracks directories you visit frequently, ranking them by "frecency" (frequency + recency). This makes
 > it easy to jump to projects with just a few characters of the directory name.
 > 
-> When no query is provided, `tsm -z` uses `zoxide query -i` for interactive selection with fzf. When a query is
+> When no query is provided, `tsm zoxide` uses `zoxide query -i` for interactive selection with fzf. When a query is
 > provided, it uses `zoxide query` to find the best match directly.
 > 
 > ![Zoxide Session Launcher](docs/zoxide_launcher.gif)
 
-## AI Agents (`-a`)
+## AI Agents (`agents`)
 
 ```bash
-tsm -a   # Browse panes running an AI agent with fzf and jump to the selection
+tsm agents   # Browse panes running an AI agent with fzf and jump to the selection
 ```
 
 Long running agents scatter across sessions and windows, and the one you need is usually the one
-that finished or is waiting on you. `tsm -a` gives you a flat, cross-session list of every pane
+that finished or is waiting on you. `tsm agents` gives you a flat, cross-session list of every pane
 running an agent, ordered by session, window, and pane. Selecting an entry switches session,
 window, and pane in one step.
 
@@ -365,7 +366,7 @@ Process detection tells you an agent is *running*; it can't tell you whether it 
 a task, waiting on a permission prompt, or done. Agents that support notification hooks can report
 that themselves.
 
-`tsm --agent-state <state>` records a state on the pane it is called from, as the pane-scoped tmux
+`tsm agent-state <state>` records a state on the pane it is called from, as the pane-scoped tmux
 option `@tsm_agent_state`. Valid states, in the order they sort in the picker:
 
 | State | Meaning |
@@ -394,19 +395,19 @@ and always exits `0` so a misconfiguration never surfaces as an error inside the
 > {
 >   "hooks": {
 >     "SessionStart": [
->       { "hooks": [{ "type": "command", "command": "tsm --agent-state idle" }] }
+>       { "hooks": [{ "type": "command", "command": "tsm agent-state idle" }] }
 >     ],
 >     "UserPromptSubmit": [
->       { "hooks": [{ "type": "command", "command": "tsm --agent-state working" }] }
+>       { "hooks": [{ "type": "command", "command": "tsm agent-state working" }] }
 >     ],
 >     "Notification": [
->       { "hooks": [{ "type": "command", "command": "tsm --agent-state notification" }] }
+>       { "hooks": [{ "type": "command", "command": "tsm agent-state notification" }] }
 >     ],
 >     "Stop": [
->       { "hooks": [{ "type": "command", "command": "tsm --agent-state done" }] }
+>       { "hooks": [{ "type": "command", "command": "tsm agent-state done" }] }
 >     ],
 >     "SessionEnd": [
->       { "hooks": [{ "type": "command", "command": "tsm --agent-state clear" }] }
+>       { "hooks": [{ "type": "command", "command": "tsm agent-state clear" }] }
 >     ]
 >   }
 > }
@@ -414,7 +415,7 @@ and always exits `0` so a misconfiguration never surfaces as an error inside the
 >
 > **NOTE:** Hooks run in a non-interactive shell, so `tsm` must be on the PATH that shell starts with
 > — the same requirement as the tmux keybindings above. Use the absolute path to the script
-> (`$HOME/.local/bin/tsm --agent-state idle`) if that is inconvenient.
+> (`$HOME/.local/bin/tsm agent-state idle`) if that is inconvenient.
 
 </details>
 
@@ -603,7 +604,7 @@ tlm focus-pane "$code"
 ```
 
 A configuration that defines no `start()` at all gets it automatically -- tsm falls back to
-`tsm --start-default` whenever a configuration doesn't define `start()`:
+`tsm start-default` whenever a configuration doesn't define `start()`:
 
 ```bash
 # ~/.config/tsm/myproject.sh
@@ -618,12 +619,12 @@ entirely:
 export ROOT="$HOME/code/myproject"
 
 start() {
-  tsm --start-default
+  tsm start-default
   make -C "$ROOT" up &
 }
 ```
 
-`tsm --start-default` sources `.start_default.sh` at the point it's called, with `SESSION` and `ROOT`
+`tsm start-default` sources `.start_default.sh` at the point it's called, with `SESSION` and `ROOT`
 already in the environment -- same as any other command `start()` runs. `.start_default.sh` itself is
 excluded from the configured-session list and picker, since it is not a session to start. A
 configuration that wants no layout at all -- not even the default -- defines its own empty `start()`
@@ -660,7 +661,7 @@ launching a tool you have since uninstalled aborts nothing -- the pane simply si
 
 **It does not stop tsm from attaching.** tsm does not inspect `start()`'s exit status, so you are
 still dropped into the partially built session. What you gain is that the layout stopped growing and
-the error is the last thing in `tsm -l` rather than buried mid-log.
+the error is the last thing in `tsm logs` rather than buried mid-log.
 
 One trap, and it applies to the exact idiom every layout uses: `local` is itself a command that
 returns 0, so it swallows the status of the substitution it assigns.
@@ -716,7 +717,7 @@ Output from the `start()` and `kill()` hooks -- and from the session creation ar
 redirected to a dedicated log file. Each configured session gets its own log directory.
 Logs can be found in `${XDG_STATE_HOME:-~/.local/state}/tsm/logs/<session-name>/tsm.log`. 
 
-Use `tsm -l` to browse all log files across sessions with fzf. The fzf preview pane shows the
+Use `tsm logs` to browse all log files across sessions with fzf. The fzf preview pane shows the
 tail of the currently highlighted file.
 
 > **NOTE:** Each configured session's specific `tsm.log` file is wiped on each call to `start()` or `kill()`,
@@ -807,7 +808,7 @@ tail of the currently highlighted file.
 > docker compose up --detach > "$HOME/.local/state/tsm/logs/$SESSION/docker.log" 2>&1 &
 > pg_ctl start -l "$HOME/.local/state/tsm/logs/$SESSION/postgres.log" &
 > ```
-> These files will be browsable with `tsm -l`.
+> These files will be browsable with `tsm logs`.
 
 </details>
 

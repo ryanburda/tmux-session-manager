@@ -32,7 +32,7 @@ command -v tmux > /dev/null 2>&1 || die "tmux is required but was not found on P
 command -v fzf > /dev/null 2>&1 ||
     echo "install.sh: warning: fzf was not found on PATH; the session pickers require it." >&2
 command -v ps > /dev/null 2>&1 ||
-    echo "install.sh: warning: ps was not found on PATH; 'tsm -a' requires it." >&2
+    echo "install.sh: warning: ps was not found on PATH; 'tsm agents' requires it." >&2
 
 # Fetch (or update) the source checkout that the symlinks point at.
 if [ -d "$TSM_HOME/.git" ]; then
@@ -84,6 +84,6 @@ case ":$PATH:" in
 esac
 
 echo
-echo "Done. Run 'tsm --help' to see its usage."
+echo "Done. Run 'tsm help' to see its usage."
 echo "Shell completions are not installed by this script; see the Installation"
 echo "section of $TSM_HOME/README.md for the one-liner for your shell."
