@@ -23,6 +23,7 @@ usage() {
   echo "  "
   echo "  tsm -c, --configured [config]             # Create configured session"
   echo "  tsm -l, --logs [session]                  # Browse configured session logs"
+  echo "  tsm --start-default                       # Run the shared default layout (for use inside a configuration's start())"
   echo "  "
   echo "  tsm -a, --agents                          # Browse panes running an AI agent"
   echo "  tsm --agent-state [state]                 # Record agent state on the current pane (for agent hooks)"
@@ -329,7 +330,7 @@ configured_session() {
     # gets a name like "myrepo/base", matching what a worktree session is
     # called. -L because configurations are commonly symlinks into a project.
     local configured_sessions
-    configured_sessions=$(find -L "$CONFIG_DIR" -type f -name '*.sh' 2>/dev/null \
+    configured_sessions=$(find -L "$CONFIG_DIR" -type f -name '*.sh' ! -name '.start_default.sh' 2>/dev/null \
       | while read -r f; do f="${f#"$CONFIG_DIR/"}"; echo "${f%.sh}"; done \
       | sort)
 
@@ -409,7 +410,7 @@ configured_session() {
     [ $? -eq 0 ] || exit 1
     export ROOT="${ROOT:-$HOME}"
     tmux new-session -d -s "$SESSION" -c "$ROOT" ${3:+-x "$3"} ${4:+-y "$4"} || exit 1
-    if declare -F start >/dev/null; then start; fi
+    if declare -F start >/dev/null; then start; else tsm --start-default; fi
   ' tsm "$session_file" "$session" "$width" "$height" >> "$log_file" 2>&1
 
   # The session is missing only if it was never created — a configuration that
@@ -422,6 +423,22 @@ configured_session() {
 
   tmux set-environment -t "=$session" TSM_CONFIGURED_SESSION "$config"
   switch_or_attach "$session"
+}
+
+start_default_layout() {
+  # Runs $CONFIG_DIR/.start_default.sh, a layout shared by configurations that
+  # would otherwise all write the same start() body. It is a plain script, not
+  # a function, sourced at the point a config calls `tsm --start-default` --
+  # SESSION and ROOT are already exported by configured_session() by then, the
+  # same way tlm gets them.
+  local default_file="$CONFIG_DIR/.start_default.sh"
+
+  if [ ! -f "$default_file" ]; then
+    notify "Error: no default layout at $default_file"
+    exit 1
+  fi
+
+  source "$default_file"
 }
 
 dir_session() {
@@ -797,6 +814,9 @@ case "$1" in
     ;;
   --agent-state)
     record_agent_state "$2"
+    ;;
+  --start-default)
+    start_default_layout
     ;;
   -c|--configured)
     configured_session "$2"

@@ -108,6 +108,7 @@ tsm -z, --zoxide [query]                  # Create session for zoxide match path
 # Configuration based sessions
 tsm -c, --configured [config]             # Create configured session
 tsm -l, --logs [session]                  # Browse configured session logs
+tsm --start-default                       # Run the shared default layout (for use inside a configuration's start())
 
 # AI agent panes
 tsm -a, --agents                          # Browse panes running an AI agent
@@ -463,6 +464,9 @@ The smallest useful configuration is a single line:
 export ROOT="$HOME/notes"
 ```
 
+With no `start()`, the session is plain -- one window, one pane at `ROOT` -- unless
+[a default layout](#sharing-a-default-layout) is configured, in which case that runs instead.
+
 ![Launch Configured Sessions](docs/configured_launcher.gif)
 
 ### Building Layouts with `tlm`
@@ -582,6 +586,48 @@ saves constructing a window target of your own.
 > ```
 
 </details>
+
+#### Sharing a Default Layout
+
+Most configurations end up wanting the same layout. Rather than repeat it in every file, put it once
+in `${XDG_CONFIG_HOME:-~/.config}/tsm/.start_default.sh`:
+
+```bash
+# ~/.config/tsm/.start_default.sh
+code=$(tlm get-current-pane)
+tmux rename-window -t "$code" code
+ai=$(tlm split-pane -h 35% "$code")
+tlm run "$code" nvim
+tlm run "$ai" ai
+tlm focus-pane "$code"
+```
+
+A configuration that defines no `start()` at all gets it automatically -- tsm falls back to
+`tsm --start-default` whenever a configuration doesn't define `start()`:
+
+```bash
+# ~/.config/tsm/myproject.sh
+export ROOT="$HOME/code/myproject"
+```
+
+Write `start()` yourself only when you want to do more around the default, or something different
+entirely:
+
+```bash
+# ~/.config/tsm/myproject.sh
+export ROOT="$HOME/code/myproject"
+
+start() {
+  tsm --start-default
+  make -C "$ROOT" up &
+}
+```
+
+`tsm --start-default` sources `.start_default.sh` at the point it's called, with `SESSION` and `ROOT`
+already in the environment -- same as any other command `start()` runs. `.start_default.sh` itself is
+excluded from the configured-session list and picker, since it is not a session to start. A
+configuration that wants no layout at all -- not even the default -- defines its own empty `start()`
+to opt out of the fallback.
 
 #### Failing Fast with `set -e`
 
