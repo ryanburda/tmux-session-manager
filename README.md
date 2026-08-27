@@ -288,6 +288,8 @@ There are several options that offer different ways to pick the directory.
 >
 > ![Launch Git Sessions](docs/git_launcher.gif)
 
+<a id="git-worktrees"></a>
+
 ### Git Worktrees (`-w`)
 
 > ```bash
@@ -435,13 +437,24 @@ want *beyond* a plain session:
     time it runs.
   - `kill()`: Runs asynchronously when the session is killed. Use this for cleanup tasks like stopping services.
 
-`SESSION` is set for you, to the file's name, and exported before the file is sourced -- so top-level
-code and `start()` alike can use it. There is nothing to declare and nothing to keep in sync: rename
+`SESSION` is set for you, and exported before the file is sourced -- so top-level code and `start()`
+alike can use it. There is nothing to declare and nothing to keep in sync: rename
 the file and you have renamed the session.
 
 > **NOTE:** Configuration file names cannot contain `.` or `:`. tmux reads both as the window and
 > pane separators of a target, so a session named `my.project` would be created and then be
 > unreachable. tsm refuses such a name rather than quietly renaming the session out from under you.
+
+Nesting works, and the whole path under the configuration directory is the name -- so a session can
+be called `myrepo/base`, matching the `repo/worktree` names [worktree sessions](#git-worktrees)
+get, and sort next to them in the switcher:
+
+```
+~/.config/tsm/
+  notes.sh                 ->  session "notes"
+  myrepo/base.sh           ->  session "myrepo/base"
+  myrepo/experiment.sh     ->  session "myrepo/experiment"
+```
 
 The smallest useful configuration is a single line:
 

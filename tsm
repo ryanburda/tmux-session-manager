@@ -324,8 +324,14 @@ configured_session() {
 
   # If no config provided, use fzf to select from configured sessions
   if [ -z "$config" ]; then
+    # A configuration's path under $CONFIG_DIR, minus the .sh, is the session
+    # name — so nesting a configuration one directory deep is how a session
+    # gets a name like "myrepo/base", matching what a worktree session is
+    # called. -L because configurations are commonly symlinks into a project.
     local configured_sessions
-    configured_sessions=$(for f in "$CONFIG_DIR"/*.sh; do [ -f "$f" ] && basename "$f" .sh; done)
+    configured_sessions=$(find -L "$CONFIG_DIR" -type f -name '*.sh' 2>/dev/null \
+      | while read -r f; do f="${f#"$CONFIG_DIR/"}"; echo "${f%.sh}"; done \
+      | sort)
 
     if [ -z "$configured_sessions" ]; then
       notify "No configured sessions"
