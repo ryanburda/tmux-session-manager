@@ -5,11 +5,11 @@
 # A command for building tmux layouts, used from a tsm session configuration
 # the same way tsm itself is used -- off PATH, no sourcing:
 #
-#   export SESSION="myproject"
 #   export ROOT="$HOME/code/myproject"
 #
 #   start() {
-#     code=$(tlm new-session code)
+#     code=$(tlm get-current-pane)
+#     tmux rename-window -t "$code" code
 #     ai=$(tlm split-pane -h 35% "$code")
 #     tlm run "$code" nvim
 #     tlm run "$ai" ai
@@ -18,13 +18,16 @@
 #
 # tlm keeps no state of its own -- everything it touches lives in the tmux
 # server -- so running it as a separate process costs nothing but the fork.
-# The variables have to be exported to survive that fork, which is why the
-# configuration exports them. tsm also exports them around start() and kill(),
-# so a configuration that forgets still works.
 #
-# $SESSION and $ROOT are the same variables tsm already requires of a session
-# config. $ROOT is used as the working directory for every new window and pane,
-# so the -c flag that otherwise appears on every tmux call is unnecessary.
+# tsm exports $SESSION and $ROOT around start() and kill(), which is how tlm
+# gets them across that fork: $SESSION is the name of the configuration file,
+# and $ROOT the session's root directory. $ROOT is used as the working
+# directory for every new window and pane, so the -c flag that otherwise
+# appears on every tmux call is unnecessary.
+#
+# The session itself already exists by the time start() runs -- tsm creates it,
+# sized to the attaching client -- so tlm builds layouts within a session and
+# never creates one.
 #
 # Every subcommand that creates a pane prints that pane's id, so layouts are
 # built by capturing ids and splitting off them rather than by addressing
@@ -47,63 +50,16 @@ _tlm_err() {
 }
 
 _tlm_target_session() {
-  # Prints the session tlm operates on, erroring if the config never set it.
+  # Prints the session tlm operates on. tsm exports SESSION around start() and
+  # kill(), so this only errors when tlm is run outside a session configuration
+  # without one set.
   [ -n "$SESSION" ] || { _tlm_err "SESSION is not set"; return 1; }
   echo "$SESSION"
-}
-
-_tlm_client_size() {
-  # Prints "WIDTH HEIGHT" for the client that will end up attaching, or
-  # nothing if neither source can tell us.
-  #
-  # tmux creates detached sessions at 80x24, so a percentage split made before
-  # the client attaches is computed against 80 columns and drifts toward 50/50
-  # once the real size arrives. Sizing the session up front avoids that.
-  local width height
-
-  width=$(tmux display-message -p '#{client_width}' 2>/dev/null)
-  height=$(tmux display-message -p '#{client_height}' 2>/dev/null)
-
-  # Outside tmux there is no client to ask, so fall back to the terminal tsm
-  # was invoked from.
-  if [ -z "$width" ] || [ -z "$height" ]; then
-    read -r height width < <({ stty size < /dev/tty; } 2>/dev/null)
-  fi
-
-  case "$width$height" in
-    *[!0-9]* | '') return 1 ;;
-  esac
-
-  echo "$width $height"
 }
 
 ########################
 # layout construction #
 ########################
-_tlm_new_session() {
-  # Creates the detached session rooted at $ROOT, sized to the attaching
-  # client, and renames its first window to $1. Prints the first pane's id.
-  local window="$1"
-  local session width height pane
-
-  session=$(_tlm_target_session) || return 1
-  [ -n "$window" ] || { _tlm_err "new-session: window name required"; return 1; }
-
-  read -r width height < <(_tlm_client_size)
-
-  # -P -F reports the pane new-session itself created, rather than whichever
-  # pane happens to be active once the command returns. The two differ as soon
-  # as an after-new-session hook splits or focuses something else.
-  pane=$(tmux new-session -d -P -F '#{pane_id}' -s "$session" -c "${ROOT:-$PWD}" \
-    ${width:+-x "$width"} ${height:+-y "$height"}) || return 1
-
-  # Renaming through the pane names the window holding it; -t "$session" would
-  # mean "the session's current window", which the same hook could have moved.
-  tmux rename-window -t "$pane" "$window" || return 1
-
-  echo "$pane"
-}
-
 _tlm_new_window() {
   # Creates a new window named $1 in the session and prints its pane id.
   #
@@ -218,7 +174,6 @@ _tlm_usage() {
   echo "Usage: tlm <command> [args]"
   echo ""
   echo "Commands"
-  echo "  new-session <window>                     # Create the session sized to the client, print first pane id"
   echo "  new-window <window> [-c dir]             # Create a window, print its pane id"
   echo "  split-pane -h|-v <size> <pane> [-c dir]  # Split a pane, print the new pane id"
   echo "  "
@@ -230,7 +185,7 @@ _tlm_usage() {
   echo "  "
   echo "  help                                     # Print this message"
   echo ""
-  echo "Reads the exported SESSION and ROOT of the session configuration."
+  echo "Reads SESSION and ROOT, exported by tsm around the session configuration."
   echo "See https://github.com/ryanburda/tmux-session-manager for more documentation"
 }
 
@@ -245,7 +200,6 @@ tlm() {
   [ $# -eq 0 ] || shift
 
   case "$command" in
-    new-session)      _tlm_new_session "$@" ;;
     new-window)       _tlm_new_window "$@" ;;
     split-pane)       _tlm_split_pane "$@" ;;
     focus-pane)       _tlm_focus_pane "$@" ;;

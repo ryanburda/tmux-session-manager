@@ -423,12 +423,32 @@ Script up the perfect window/pane layout and automate tasks like starting up ser
 Ideal for projects you work on regularly to keep things consistent and reproducible.
 
 Session configurations are shell scripts stored in `${XDG_CONFIG_HOME:-~/.config}/tsm/<config-name>.sh`.
+**The file's name is the session's name** -- `myproject.sh` starts a session called `myproject`.
 
-Each session file defines:
-  - `SESSION` (required): The tmux session name. Export it, so that `tlm` and anything else the
-    configuration runs inherits it.
-  - `start()` (required): Creates and customizes the tmux session.
-  - `kill()` (optional): Runs asynchronously when the session is killed. Use this for cleanup tasks like stopping services.
+tsm owns the session's lifecycle: it creates the session before your configuration runs, and kills it
+when you kill the session. Everything the file defines is therefore optional, and describes what you
+want *beyond* a plain session:
+  - `ROOT`: The session's root directory, used as the working directory for its windows and panes.
+    Defaults to `$HOME`. Export it, so that `tlm` and anything else the configuration runs inherits
+    it.
+  - `start()`: Customizes the session -- windows, panes, commands. The session already exists by the
+    time it runs.
+  - `kill()`: Runs asynchronously when the session is killed. Use this for cleanup tasks like stopping services.
+
+`SESSION` is set for you, to the file's name, and exported before the file is sourced -- so top-level
+code and `start()` alike can use it. There is nothing to declare and nothing to keep in sync: rename
+the file and you have renamed the session.
+
+> **NOTE:** Configuration file names cannot contain `.` or `:`. tmux reads both as the window and
+> pane separators of a target, so a session named `my.project` would be created and then be
+> unreachable. tsm refuses such a name rather than quietly renaming the session out from under you.
+
+The smallest useful configuration is a single line:
+
+```bash
+# ~/.config/tsm/notes.sh  ->  a session named "notes", rooted at ~/notes
+export ROOT="$HOME/notes"
+```
 
 ![Launch Configured Sessions](docs/configured_launcher.gif)
 
@@ -441,23 +461,21 @@ that ships with this repo and factors out the parts every layout repeats. There 
 subcommand:
 
 ```bash
-export SESSION="myproject"
 export ROOT="$HOME/code/myproject"
 
 start() {
-  code=$(tlm new-session code)
+  code=$(tlm get-current-pane)
+  ai=$(tlm split-pane -h 35% "$code")
 }
 ```
 
-It reads the `SESSION` and `ROOT` variables the configuration already defines, and uses `ROOT` as the
-working directory for every window and pane it creates. Export them: `tlm` runs as its own process,
-so it inherits those variables rather than sharing the configuration's shell. (tsm exports them
-around `start()` and `kill()` as well, so a configuration that forgets still works -- but an exported
-configuration is one you can also source and drive by hand.)
+It reads `SESSION` and `ROOT` from the environment, and uses `ROOT` as the working directory for
+every window and pane it creates. tsm exports both around `start()` and `kill()`, which is how `tlm`
+gets them -- it runs as its own process rather than sharing the configuration's shell. Export `ROOT`
+yourself when you set it, for that same reason.
 
 | Command | Description |
 | --- | --- |
-| `tlm new-session <window>` | Create the session sized to the attaching client, name its first window, print that window's pane id |
 | `tlm new-window <window> [-c dir]` | Create a window, print its pane id |
 | `tlm split-pane -h\|-v <size> <pane> [-c dir]` | Split a pane, print the new pane id |
 | `tlm run <pane> <command...>` | Type a command into a pane and press Enter |
@@ -465,16 +483,29 @@ configuration is one you can also source and drive by hand.)
 | `tlm get-current-pane [target-pane]` | Print the active pane id of a target -- a session or window target resolves to its active pane |
 | `tlm focus-window <window>` | Make a window current |
 
-Two things it handles that are easy to get wrong by hand:
+**Pane addressing** is the thing it handles that is easy to get wrong by hand. Every pane-creating
+subcommand prints the new pane's id, so layouts are built by capturing ids and splitting off them.
+Positional targets like `"$SESSION:code.1"` shift underneath you as soon as a later split renumbers
+the window; ids never do.
 
-**Sizing.** tmux creates detached sessions at 80x24. A percentage split made before the client
-attaches is therefore computed against 80 columns, and a `35%` split visibly drifts toward 50/50 once
-the real terminal size arrives. `tlm new-session` sizes the session to the attaching client up front so
-percentages mean what they say.
+The session tsm hands you has one window holding one pane, so `tlm get-current-pane` with no argument
+is the way in -- it prints that pane's id. Naming its window is one plain `tmux` command, and only
+worth doing if you care what the window is called:
 
-**Pane addressing.** Every pane-creating subcommand prints the new pane's id, so layouts are built by
-capturing ids and splitting off them. Positional targets like `"$SESSION:code.1"` shift underneath
-you as soon as a later split renumbers the window; ids never do.
+```bash
+start() {
+  code=$(tlm get-current-pane)
+  tmux rename-window -t "$code" code
+}
+```
+
+A pane id is a valid `-t` target for `rename-window`: it names the window that pane is in, which
+saves constructing a window target of your own.
+
+> **NOTE:** tmux creates detached sessions at 80x24, so a percentage split made before the client
+> attaches would be computed against 80 columns and a `35%` split would visibly drift toward 50/50
+> once the real terminal size arrived. tsm sizes the session to the attaching client when it creates
+> it, so percentages mean what they say -- in plain `tmux` commands as much as in `tlm` ones.
 
 <details>
 <summary><strong style="font-size: 1.25em;">Example: the same configuration with and without <code>tlm</code></strong></summary>
@@ -482,17 +513,11 @@ you as soon as a later split renumbers the window; ids never do.
 > An editor on the left, an AI agent on the right, focus back on the editor.
 >
 > ```bash
-> export SESSION="myproject"
 > export ROOT="$HOME/projects/myproject"
 >
 > start() {
->   CLIENT_W=$(tmux display-message -p '#{client_width}' 2>/dev/null)
->   CLIENT_H=$(tmux display-message -p '#{client_height}' 2>/dev/null)
->   [ -n "$CLIENT_W" ] || read -r CLIENT_H CLIENT_W < <({ stty size < /dev/tty; } 2>/dev/null)
->   tmux new-session -d -s "$SESSION" -c "$ROOT" ${CLIENT_W:+-x "$CLIENT_W"} ${CLIENT_H:+-y "$CLIENT_H"}
->
->   tmux rename-window -t "$SESSION" "code"
->   NVIM_PANE=$(tmux display-message -p -t "$SESSION:code" '#{pane_id}')
+>   NVIM_PANE=$(tmux display-message -p -t "$SESSION" '#{pane_id}')
+>   tmux rename-window -t "$NVIM_PANE" "code"
 >   AI_PANE=$(tmux split-window -P -F '#{pane_id}' -h -l 35% -t "$NVIM_PANE" -c "$ROOT")
 >   tmux send-keys -t "$NVIM_PANE" 'nvim' Enter
 >   tmux send-keys -t "$AI_PANE" 'ai' Enter
@@ -503,11 +528,11 @@ you as soon as a later split renumbers the window; ids never do.
 > becomes:
 >
 > ```bash
-> export SESSION="myproject"
 > export ROOT="$HOME/projects/myproject"
 >
 > start() {
->   code=$(tlm new-session code)
+>   code=$(tlm get-current-pane)
+>   tmux rename-window -t "$code" code
 >   ai=$(tlm split-pane -h 35% "$code")
 >   tlm run "$code" nvim
 >   tlm run "$ai" ai
@@ -521,12 +546,12 @@ you as soon as a later split renumbers the window; ids never do.
 <summary><strong style="font-size: 1.25em;">Example: multiple windows</strong></summary>
 
 > ```bash
-> export SESSION="myproject"
 > export ROOT="$HOME/projects/myproject"
 >
 > start() {
->   # First window: just an editor.
->   code=$(tlm new-session code)
+>   # First window: the one the session starts with. Just an editor.
+>   code=$(tlm get-current-pane)
+>   tmux rename-window -t "$code" code
 >   tlm run "$code" nvim
 >
 >   # Second window: an editor with an agent to the right and a terminal below.
@@ -555,7 +580,6 @@ the first failure instead.
 ```bash
 set -e
 
-export SESSION="myproject"
 export ROOT="$HOME/code/myproject"
 ```
 
@@ -563,6 +587,10 @@ That catches the structural errors -- a typo'd subcommand, a stale pane id (`can
 a duplicate session name, a bad window target. Adding `-u` is worth it too: a misspelled variable
 (`tlm run "$cdoe" nvim`) otherwise expands to an empty target and fails a step later with a vaguer
 message.
+
+At the top level it does more than abort the layout: a configuration that fails before tsm has
+created the session means there is no session to attach to, and tsm says so rather than dropping you
+somewhere confusing.
 
 Two things it does not do, both worth knowing before relying on it:
 
@@ -579,9 +607,9 @@ One trap, and it applies to the exact idiom every layout uses: `local` is itself
 returns 0, so it swallows the status of the substitution it assigns.
 
 ```bash
-code=$(tlm new-session code)              # aborts on failure
-local code; code=$(tlm new-session code)  # aborts on failure
-local code=$(tlm new-session code)        # CONTINUES, with code empty
+ai=$(tlm split-pane -h 35% "$code")            # aborts on failure
+local ai; ai=$(tlm split-pane -h 35% "$code")  # aborts on failure
+local ai=$(tlm split-pane -h 35% "$code")      # CONTINUES, with ai empty
 ```
 
 Top-level assignments in `start()` are unaffected. It only bites in a helper function, where the
@@ -601,7 +629,7 @@ same panes:
 
 ```bash
 start() {
-  code=$(tlm new-session code)
+  code=$(tlm get-current-pane)
   ai=$(tlm split-pane -h 35% "$code")
 
   # tlm has no opinion about options, titles or hooks. It does not need one.
@@ -625,8 +653,8 @@ that calls `tmux` directly keeps working unchanged.
 
 ### Logging
 
-Output from `start()` and `kill()` functions is redirected to a dedicated log file.
-Each configured session gets its own log directory.
+Output from the `start()` and `kill()` hooks -- and from the session creation around them -- is
+redirected to a dedicated log file. Each configured session gets its own log directory.
 Logs can be found in `${XDG_STATE_HOME:-~/.local/state}/tsm/logs/<session-name>/tsm.log`. 
 
 Use `tsm -l` to browse all log files across sessions with fzf. The fzf preview pane shows the
@@ -641,15 +669,15 @@ tail of the currently highlighted file.
 > Create a session configuration for a project at `~/.config/tsm/myproject.sh`:
 > 
 > ```bash
-> export SESSION="myproject"
 > export ROOT="$HOME/projects/myproject"
 > 
 > start() {
->   # Create the session rooted at the project directory, and name its first
->   # window 'code'. This window will have two vertical splits:
+>   # Take the pane the session starts with and name its window 'code'.
+>   # This window will have two vertical splits:
 >   #     - nvim on top 80%
 >   #     - a terminal at the bottom 20%
->   code=$(tlm new-session code)
+>   code=$(tlm get-current-pane)
+>   tmux rename-window -t "$code" code
 >   tlm split-pane -v 20% "$code" > /dev/null   # a plain shell; discard the pane id
 >   tlm run "$code" nvim
 > 
@@ -692,11 +720,10 @@ tail of the currently highlighted file.
 > immediately while the command continues running, and its output is captured in the log file for later review.
 > 
 > ```bash
-> export SESSION="webapp"
 > export ROOT="$HOME/projects/webapp"
 > 
 > start() {
->   code=$(tlm new-session code)
+>   code=$(tlm get-current-pane)
 >   tlm run "$code" nvim
 > 
 >   # Start a service in the background so it doesn't block session startup.

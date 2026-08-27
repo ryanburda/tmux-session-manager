@@ -67,6 +67,31 @@ sanitize_directory_session_name() {
   basename "$1" | tr -c 'a-zA-Z0-9_\-\n' '_'
 }
 
+client_size() {
+  # Prints "WIDTH HEIGHT" for the client that will end up attaching, or
+  # nothing if neither source can tell us.
+  #
+  # tmux creates detached sessions at 80x24, so a percentage split made before
+  # the client attaches is computed against 80 columns and drifts toward 50/50
+  # once the real size arrives. Sizing the session up front avoids that.
+  local width height
+
+  width=$(tmux display-message -p '#{client_width}' 2>/dev/null)
+  height=$(tmux display-message -p '#{client_height}' 2>/dev/null)
+
+  # Outside tmux there is no client to ask, so fall back to the terminal tsm
+  # was invoked from.
+  if [ -z "$width" ] || [ -z "$height" ]; then
+    read -r height width < <({ stty size < /dev/tty; } 2>/dev/null)
+  fi
+
+  case "$width$height" in
+    *[!0-9]* | '') return 1 ;;
+  esac
+
+  echo "$width $height"
+}
+
 git_brief(){
   # Returns a brief git status for the repo located in $1
   # Format: branch ↑ahead↓behind +insertions-deletions
@@ -264,14 +289,26 @@ kill_session() {
   local log_file="$log_dir/tsm.log"
   mkdir -p "$log_dir"
 
+  # A configured session is normally named after its configuration file, so the
+  # file could be found from the session name alone. The recorded name is what
+  # keeps that true after a `tmux rename-session`.
   local configured_session
   configured_session=$(tmux show-environment -t "=$session" TSM_CONFIGURED_SESSION 2>/dev/null | sed 's/^TSM_CONFIGURED_SESSION=//')
   local session_file="$CONFIG_DIR/${configured_session:-$session}.sh"
 
-  # Run kill function in background if it exists
+  # Run the configuration's kill hook in the background if it defines one, so
+  # the session goes away immediately rather than waiting on cleanup. tsm kills
+  # the session itself either way — kill() is for everything around it.
   if [ -f "$session_file" ]; then
     echo "[$(date '+%Y-%m-%d %H:%M:%S')] Killing session '$session'" > "$log_file"
-    nohup bash -c "source '$session_file' && export SESSION ROOT && declare -F kill &>/dev/null && kill" >> "$log_file" 2>&1 &
+    nohup bash -c '
+      export SESSION="$2"
+      unset ROOT
+      source "$1"
+      [ $? -eq 0 ] || exit 1
+      export ROOT="${ROOT:-$HOME}"
+      if declare -F kill >/dev/null; then kill; fi
+    ' tsm "$session_file" "$session" >> "$log_file" 2>&1 &
   fi
 
   tmux kill-session -t "=$session"
@@ -309,20 +346,19 @@ configured_session() {
     exit 1
   fi
 
-  # Verify start function exists
-  if ! bash -c "source '$session_file' && declare -F start" &>/dev/null; then
-    notify "Error: No start function defined in $config.sh"
-    exit 1
-  fi
+  # The configuration file names the session — there is nothing for the
+  # configuration itself to declare, and nothing to disagree about. The name
+  # therefore has to be one tmux can address: '.' and ':' separate the window
+  # and pane parts of a target, so a session called my.project is created fine
+  # and then unreachable by every "=$session" target below.
+  case "$config" in
+    *[.:]*)
+      notify "Error: '$config' cannot name a session — rename the file without '.' or ':'"
+      exit 1
+      ;;
+  esac
 
-  # Read SESSION from config file
-  local session
-  session=$(bash -c "source '$session_file' && echo \"\$SESSION\"")
-
-  if [ -z "$session" ]; then
-    notify "Error: SESSION variable not defined in $config.sh"
-    exit 1
-  fi
+  local session="$config"
 
   if tmux has-session -t "=$session" 2>/dev/null; then
     switch_or_attach "$session"
@@ -333,10 +369,51 @@ configured_session() {
   local log_file="$log_dir/tsm.log"
   mkdir -p "$log_dir"
   echo "[$(date '+%Y-%m-%d %H:%M:%S')] Starting session '$session'" > "$log_file"
-  # SESSION and ROOT are exported so `tlm`, which runs as a command rather than
-  # a sourced library, inherits them. Configs are expected to export them too;
-  # this makes one that forgets work anyway.
-  bash -c "set -m; source '$session_file' && export SESSION ROOT && start" >> "$log_file" 2>&1
+
+  local width height
+  read -r width height < <(client_size)
+
+  # tsm owns the session's lifecycle: it creates the session here and kills it
+  # in kill_session. start() is an optional hook that customizes the session
+  # that already exists, so a configuration only has to describe what it wants
+  # beyond a plain session rooted at $ROOT.
+  #
+  # SESSION is exported before the file is sourced so that top-level code can
+  # use it, and ROOT afterwards so the configuration gets to set it first.
+  # Exported rather than plain shell variables because `tlm` runs as a command
+  # rather than a sourced library, and inherits them across that fork.
+  #
+  # ROOT is cleared first: it is a common enough name that the shell tsm was
+  # invoked from may well have one of its own, and a configuration that sets no
+  # ROOT should get $HOME rather than whatever happened to be in the
+  # environment.
+  #
+  # set -m gives background jobs started by the configuration their own
+  # process group.
+  #
+  # The source is a statement of its own, with its status checked after, rather
+  # than `source ... || exit`. errexit does not apply inside a && / || list, so
+  # sourcing that way would silently disable a configuration's own `set -e` for
+  # the whole file.
+  bash -c '
+    set -m
+    export SESSION="$2"
+    unset ROOT
+    source "$1"
+    [ $? -eq 0 ] || exit 1
+    export ROOT="${ROOT:-$HOME}"
+    tmux new-session -d -s "$SESSION" -c "$ROOT" ${3:+-x "$3"} ${4:+-y "$4"} || exit 1
+    if declare -F start >/dev/null; then start; fi
+  ' tsm "$session_file" "$session" "$width" "$height" >> "$log_file" 2>&1
+
+  # The session is missing only if it was never created — a configuration that
+  # aborted under `set -e` before tsm got to it, or a tmux failure. Either way
+  # the reason is the last thing in the log.
+  if ! tmux has-session -t "=$session" 2>/dev/null; then
+    notify "Error: '$config' did not start (see: tsm -l $session)"
+    exit 1
+  fi
+
   tmux set-environment -t "=$session" TSM_CONFIGURED_SESSION "$config"
   switch_or_attach "$session"
 }
