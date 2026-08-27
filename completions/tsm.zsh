@@ -77,18 +77,18 @@ _tsm() {
         dir)
             _alternative \
                 'directories:directory:_files -/' \
-                'options:option:(--start-default)'
+                'options:option:(--start-default --use-default-name)'
             ;;
         git)
-            _values -s ' ' 'git options' '--hide-brief' '--no-fetch' '--start-default'
+            _values -s ' ' 'git options' '--hide-brief' '--no-fetch' '--start-default' '--use-default-name'
             ;;
         worktree)
             _alternative \
                 'worktrees:worktree:_tsm_worktrees' \
-                'options:option:(--start-default)'
+                'options:option:(--start-default --use-default-name)'
             ;;
         zoxide)
-            _values 'zoxide options' '--start-default'
+            _values 'zoxide options' '--start-default' '--use-default-name'
             ;;
         configured)
             _tsm_configured_sessions

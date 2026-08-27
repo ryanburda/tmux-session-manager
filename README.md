@@ -101,10 +101,10 @@ tsm active [session]               # Switch to session
 tsm kill [session]                 # Kill session (run cleanup script if present)
 
 # Directory based sessions
-tsm dir [path] [--start-default]                       # Create session at path
-tsm git [--hide-brief] [--no-fetch] [--start-default]  # Browse git repositories with fzf, creates session at path
-tsm worktree [name] [--start-default]                  # Create session at git worktree path
-tsm zoxide [query] [--start-default]                   # Create session for zoxide match path
+tsm dir [path] [--start-default] [--use-default-name]                       # Create session at path
+tsm git [--hide-brief] [--no-fetch] [--start-default] [--use-default-name]  # Browse git repositories with fzf, creates session at path
+tsm worktree [name] [--start-default] [--use-default-name]                  # Create session at git worktree path
+tsm zoxide [query] [--start-default] [--use-default-name]                   # Create session for zoxide match path
 
 # Configuration based sessions
 tsm configured [config]            # Create configured session
@@ -218,12 +218,19 @@ layout](#sharing-a-default-layout) — the same layout a configured session with
 confirmed at the session name prompt, and `ROOT` from the directory the picker (or the argument
 you passed) resolved to.
 
+Every directory session also accepts `--use-default-name`, which skips the session name prompt
+entirely: the suggested name is used as-is if no session by that name exists yet, or you are
+switched straight to it if one already does. Combine it with `--start-default` for a single
+command that gets you into a session, creating and laying it out the first time and just
+attaching on every call after that.
+
 ### Direct Path (`dir`)
 
 > ```bash
-> tsm dir                   # Browse directories with fzf and start session from selection
-> tsm dir ~/code/projectA   # Start a session directly at ~/code/projectA
-> tsm dir --start-default   # Browse directories with fzf, then run the default layout
+> tsm dir                       # Browse directories with fzf and start session from selection
+> tsm dir ~/code/projectA       # Start a session directly at ~/code/projectA
+> tsm dir --start-default       # Browse directories with fzf, then run the default layout
+> tsm dir ~/code/projectA --use-default-name   # Skip the name prompt; switch to it if it's already running
 > ```
 > 
 > When no path is provided, fzf by default displays all non-hidden directories within 4 levels deep of your
@@ -268,6 +275,8 @@ you passed) resolved to.
 >   you don't need the latest remote tracking info.
 > - `--start-default` — Run the [shared default layout](#sharing-a-default-layout) once the session
 >   is created.
+> - `--use-default-name` — Skip the session name prompt: use the suggested name if it's free, or
+>   switch to the existing session if it's already running.
 >
 > The fetches run in parallel, 8 repositories at a time. `TSM_GIT_FETCH_JOBS` raises or lowers that
 > cap:
@@ -304,9 +313,10 @@ you passed) resolved to.
 ### Git Worktrees (`worktree`)
 
 > ```bash
-> tsm worktree                    # Browse worktrees for current git repo with fzf
-> tsm worktree other              # Start session for worktree named 'other'
-> tsm worktree other --start-default   # Same, then run the default layout
+> tsm worktree                          # Browse worktrees for current git repo with fzf
+> tsm worktree other                    # Start session for worktree named 'other'
+> tsm worktree other --start-default    # Same, then run the default layout
+> tsm worktree other --use-default-name # Skip the name prompt; switch to it if it's already running
 > ```
 > 
 > Browse git worktrees for the current repository and create a session rooted at the selected worktree directory.
@@ -318,9 +328,10 @@ you passed) resolved to.
 ### Zoxide (`zoxide`, Optional)
 
 > ```bash
-> tsm zoxide              # Browse zoxide entries interactively and start session from selection
-> tsm zoxide proj         # Start a session at the best zoxide match for "proj"
+> tsm zoxide                        # Browse zoxide entries interactively and start session from selection
+> tsm zoxide proj                   # Start a session at the best zoxide match for "proj"
 > tsm zoxide proj --start-default   # Same, then run the default layout
+> tsm zoxide proj --use-default-name   # Skip the name prompt; switch to it if it's already running
 > ```
 > Requires **[zoxide](https://github.com/ajeetdsouza/zoxide)**.
 > 

@@ -17,10 +17,10 @@ usage() {
   echo "  tsm active [session]                 # Switch to session"
   echo "  tsm kill [session]                   # Kill session (run cleanup script if present)"
   echo "  "
-  echo "  tsm dir [path] [--start-default]                      # Create session at path"
-  echo "  tsm git [--hide-brief] [--no-fetch] [--start-default] # Browse git repositories with fzf, creates session at path"
-  echo "  tsm worktree [name] [--start-default]                 # Create session at git worktree path"
-  echo "  tsm zoxide [query] [--start-default]                  # Create session for zoxide match path"
+  echo "  tsm dir [path] [--start-default] [--use-default-name]                      # Create session at path"
+  echo "  tsm git [--hide-brief] [--no-fetch] [--start-default] [--use-default-name] # Browse git repositories with fzf, creates session at path"
+  echo "  tsm worktree [name] [--start-default] [--use-default-name]                 # Create session at git worktree path"
+  echo "  tsm zoxide [query] [--start-default] [--use-default-name]                  # Create session for zoxide match path"
   echo "  "
   echo "  tsm configured [config]              # Create configured session"
   echo "  tsm logs [session]                   # Browse configured session logs"
@@ -118,15 +118,13 @@ git_brief(){
   printf '%b\n' "$out"
 }
 
-session_name_prompt() {
-  # Prompts the user for a session name.
-  # Provides a sensible default that can be used if no input is given.
-  # Echoes the final session name.
+default_session_name() {
+  # Derives the suggested session name for a directory: repo/worktree for a
+  # worktree path, otherwise the sanitized basename. Echoes the name.
   #
   # Args:
   #   $1: path — directory to derive the session name from
   local path="$1"
-  local default_name
 
   local git_dir
   git_dir=$(git -C "$path" rev-parse --git-dir 2>/dev/null)
@@ -148,12 +146,23 @@ session_name_prompt() {
     local worktree_name
     worktree_name=$(basename "$path")
 
-    default_name="$(sanitize_directory_session_name "$repo_name")/${worktree_name}"
+    echo "$(sanitize_directory_session_name "$repo_name")/${worktree_name}"
   else
-    default_name=$(sanitize_directory_session_name "$path")
+    sanitize_directory_session_name "$path"
   fi
+}
 
-  local session_name="$default_name"
+session_name_prompt() {
+  # Prompts the user for a session name.
+  # Provides a sensible default that can be used if no input is given.
+  # Echoes the final session name.
+  #
+  # Args:
+  #   $1: path — directory to derive the session name from
+  local path="$1"
+  local session_name
+  session_name=$(default_session_name "$path")
+
   printf "%s\n" "$(tput setaf 8)$path$(tput sgr0)" >&2
   while true; do
     local prompt="Enter session name"
@@ -443,10 +452,11 @@ start_default_layout() {
 }
 
 dir_session() {
-  local target_dir="" start_default=""
+  local target_dir="" start_default="" use_default_name=""
   for arg in "$@"; do
     case "$arg" in
       --start-default) start_default=1 ;;
+      --use-default-name) use_default_name=1 ;;
       *) target_dir="$arg" ;;
     esac
   done
@@ -483,7 +493,16 @@ dir_session() {
   selected=$(cd "$selected" && pwd -P)
 
   # Create the session
-  session_name=$(session_name_prompt "$selected")
+  local session_name
+  if [ -n "$use_default_name" ]; then
+    session_name=$(default_session_name "$selected")
+    if tmux has-session -t "=$session_name" 2>/dev/null; then
+      switch_or_attach "$session_name"
+      exit 0
+    fi
+  else
+    session_name=$(session_name_prompt "$selected")
+  fi
 
   if [ -n "$start_default" ]; then
     # Sized up front, like configured_session does, so a percentage split in
@@ -505,10 +524,11 @@ dir_session() {
 }
 
 zoxide_session() {
-  local query="" start_default=""
+  local query="" start_default="" use_default_name=""
   for arg in "$@"; do
     case "$arg" in
       --start-default) start_default=1 ;;
+      --use-default-name) use_default_name=1 ;;
       *) query="$arg" ;;
     esac
   done
@@ -537,16 +557,17 @@ zoxide_session() {
     fi
   fi
 
-  dir_session "$selected" ${start_default:+--start-default}
+  dir_session "$selected" ${start_default:+--start-default} ${use_default_name:+--use-default-name}
 }
 
 git_session() {
-  local hide_brief="" no_fetch="" start_default=""
+  local hide_brief="" no_fetch="" start_default="" use_default_name=""
   for arg in "$@"; do
     case "$arg" in
       --hide-brief) hide_brief=1 ;;
       --no-fetch) no_fetch="--no-fetch" ;;
       --start-default) start_default=1 ;;
+      --use-default-name) use_default_name=1 ;;
     esac
   done
   local git_dirs_cmd="${TSM_GIT_DIRS_CMD:-$TSM_GIT_DIRS_CMD_DEFAULT}"
@@ -586,14 +607,15 @@ git_session() {
     exit 0
   fi
 
-  dir_session "$selected" ${start_default:+--start-default}
+  dir_session "$selected" ${start_default:+--start-default} ${use_default_name:+--use-default-name}
 }
 
 worktree_session() {
-  local name="" start_default=""
+  local name="" start_default="" use_default_name=""
   for arg in "$@"; do
     case "$arg" in
       --start-default) start_default=1 ;;
+      --use-default-name) use_default_name=1 ;;
       *) name="$arg" ;;
     esac
   done
@@ -651,7 +673,7 @@ worktree_session() {
     selected="${selected%%	*}"
   fi
 
-  dir_session "$selected" ${start_default:+--start-default}
+  dir_session "$selected" ${start_default:+--start-default} ${use_default_name:+--use-default-name}
 }
 
 browse_logs() {
