@@ -2,12 +2,17 @@
 #
 # tlm - tmux layout manager
 #
-# A command for building tmux layouts, used from a tsm session configuration
-# the same way tsm itself is used -- off PATH, no sourcing:
+# A library of convenience functions for building tmux layouts.
 #
+# !!Not a replacement for tmux's own commands!!
+# tlm removes boilerplate for common cases with a convenient api.
+# Use these commands along side tmux's to build your layouts.
+#
+#   ``` sh
 #   export ROOT="$HOME/code/myproject"
 #
 #   start() {
+#     # code pane on left, ai on right
 #     code=$(tlm get-current-pane)
 #     tmux rename-window -t "$code" code
 #     ai=$(tlm split-pane -h 35% "$code")
@@ -15,29 +20,11 @@
 #     tlm run "$ai" ai
 #     tlm focus-pane "$code"
 #   }
+#   ```
 #
-# tlm keeps no state of its own -- everything it touches lives in the tmux
-# server -- so running it as a separate process costs nothing but the fork.
-#
-# tsm exports $SESSION and $ROOT around start() and kill(), which is how tlm
-# gets them across that fork: $SESSION is the name of the configuration file,
-# and $ROOT the session's root directory. $ROOT is used as the working
-# directory for every new window and pane, so the -c flag that otherwise
-# appears on every tmux call is unnecessary.
-#
-# The session itself already exists by the time start() runs -- tsm creates it,
-# sized to the attaching client -- so tlm builds layouts within a session and
-# never creates one.
-#
-# Every subcommand that creates a pane prints that pane's id, so layouts are
-# built by capturing ids and splitting off them rather than by addressing
-# panes positionally. Positional targets ("$SESSION:code.1") shift underneath
-# you as soon as a later split renumbers the window; ids never do.
-#
-# The file also still works when sourced, which defines a single `tlm` shell
-# function with the same subcommands. The underscore-prefixed functions it
-# dispatches to are implementation details and are not meant to be called
-# directly.
+# Every subcommand that creates a pane or window prints the resulting
+# pane's id. Layouts are built using their ids instead of relying on
+# their shifting positional address.
 
 ####################
 # internal helpers #
