@@ -17,10 +17,15 @@ usage() {
   echo "  tsm active [session]                 # Switch to session"
   echo "  tsm kill [session]                   # Kill session (run cleanup script if present)"
   echo "  "
-  echo "  tsm dir [path] [--start-default] [--use-default-name]                      # Create session at path"
-  echo "  tsm git [--hide-brief] [--no-fetch] [--start-default] [--use-default-name] # Browse git repositories with fzf, creates session at path"
-  echo "  tsm worktree [name] [--start-default] [--use-default-name]                 # Create session at git worktree path"
-  echo "  tsm zoxide [query] [--start-default] [--use-default-name]                  # Create session for zoxide match path"
+  echo "  tsm dir [path] [-n] [-p]             # Create session at path"
+  echo "  tsm git [-b] [-f] [-n] [-p]          # Browse git repositories with fzf, creates session at path"
+  echo "  tsm worktree [name] [-n] [-p]        # Create session at git worktree path"
+  echo "  tsm zoxide [query] [-n] [-p]         # Create session for zoxide match path"
+  echo "  "
+  echo "    -n, --no-default-setup             # Skip the shared default layout"
+  echo "    -p, --prompt-name                  # Prompt for the session name instead of using the default"
+  echo "    -b, --brief                        # (git) Show git status information in the picker"
+  echo "    -f, --fetch                        # (git) Fetch before showing the brief; implies -b"
   echo "  "
   echo "  tsm configured [config]              # Create configured session"
   echo "  tsm logs [session]                   # Browse configured session logs"
@@ -92,6 +97,25 @@ client_size() {
   esac
 
   echo "$width $height"
+}
+
+expand_short_flags() {
+  # Splits clustered short flags (e.g. -bfnp) into single-letter flags so the
+  # subcommand parsers only ever see one flag per argument. Everything else --
+  # long flags, paths, names -- passes through untouched. The result lands in
+  # the EXPANDED_ARGS array because paths may contain whitespace.
+  EXPANDED_ARGS=()
+  local arg i
+  for arg in "$@"; do
+    case "$arg" in
+      -[!-]*)
+        for (( i = 1; i < ${#arg}; i++ )); do
+          EXPANDED_ARGS+=("-${arg:i:1}")
+        done
+        ;;
+      *) EXPANDED_ARGS+=("$arg") ;;
+    esac
+  done
 }
 
 git_brief(){
@@ -452,11 +476,16 @@ start_default_layout() {
 }
 
 dir_session() {
-  local target_dir="" start_default="" use_default_name=""
-  for arg in "$@"; do
+  local target_dir="" no_default_setup="" prompt_name=""
+  expand_short_flags "$@"
+  for arg in "${EXPANDED_ARGS[@]}"; do
     case "$arg" in
-      --start-default) start_default=1 ;;
-      --use-default-name) use_default_name=1 ;;
+      -n | --no-default-setup) no_default_setup=1 ;;
+      -p | --prompt-name) prompt_name=1 ;;
+      -*)
+        notify "Error: Unknown option '$arg' for 'tsm dir'"
+        exit 1
+        ;;
       *) target_dir="$arg" ;;
     esac
   done
@@ -494,17 +523,17 @@ dir_session() {
 
   # Create the session
   local session_name
-  if [ -n "$use_default_name" ]; then
+  if [ -n "$prompt_name" ]; then
+    session_name=$(session_name_prompt "$selected")
+  else
     session_name=$(default_session_name "$selected")
     if tmux has-session -t "=$session_name" 2>/dev/null; then
       switch_or_attach "$session_name"
       exit 0
     fi
-  else
-    session_name=$(session_name_prompt "$selected")
   fi
 
-  if [ -n "$start_default" ]; then
+  if [ -z "$no_default_setup" ]; then
     # Sized up front, like configured_session does, so a percentage split in
     # the default layout is computed against the real client size rather than
     # tmux's 80x24 default for a detached session.
@@ -524,11 +553,16 @@ dir_session() {
 }
 
 zoxide_session() {
-  local query="" start_default="" use_default_name=""
-  for arg in "$@"; do
+  local query="" no_default_setup="" prompt_name=""
+  expand_short_flags "$@"
+  for arg in "${EXPANDED_ARGS[@]}"; do
     case "$arg" in
-      --start-default) start_default=1 ;;
-      --use-default-name) use_default_name=1 ;;
+      -n | --no-default-setup) no_default_setup=1 ;;
+      -p | --prompt-name) prompt_name=1 ;;
+      -*)
+        notify "Error: Unknown option '$arg' for 'tsm zoxide'"
+        exit 1
+        ;;
       *) query="$arg" ;;
     esac
   done
@@ -557,19 +591,27 @@ zoxide_session() {
     fi
   fi
 
-  dir_session "$selected" ${start_default:+--start-default} ${use_default_name:+--use-default-name}
+  dir_session "$selected" ${no_default_setup:+--no-default-setup} ${prompt_name:+--prompt-name}
 }
 
 git_session() {
-  local hide_brief="" no_fetch="" start_default="" use_default_name=""
-  for arg in "$@"; do
+  local brief="" fetch="" no_default_setup="" prompt_name=""
+  expand_short_flags "$@"
+  for arg in "${EXPANDED_ARGS[@]}"; do
     case "$arg" in
-      --hide-brief) hide_brief=1 ;;
-      --no-fetch) no_fetch="--no-fetch" ;;
-      --start-default) start_default=1 ;;
-      --use-default-name) use_default_name=1 ;;
+      -b | --brief) brief=1 ;;
+      -f | --fetch) fetch=1 ;;
+      -n | --no-default-setup) no_default_setup=1 ;;
+      -p | --prompt-name) prompt_name=1 ;;
+      *)
+        notify "Error: Unknown option '$arg' for 'tsm git'"
+        exit 1
+        ;;
     esac
   done
+  # Fetching only exists to freshen the ahead/behind counts in the brief, so
+  # asking for it is enough to ask for the brief itself.
+  [ -n "$fetch" ] && brief=1
   local git_dirs_cmd="${TSM_GIT_DIRS_CMD:-$TSM_GIT_DIRS_CMD_DEFAULT}"
 
   local dirs selected
@@ -580,10 +622,10 @@ git_session() {
     exit 1
   fi
 
-  if [ -n "$hide_brief" ]; then
+  if [ -z "$brief" ]; then
     selected=$(echo "$dirs" | fzf --cycle --prompt "Repo > ")
   else
-    if [ -z "$no_fetch" ]; then
+    if [ -n "$fetch" ]; then
       # Fetch in parallel, but bounded. Backgrounding one `git fetch` per repo
       # and then waiting forks the whole list at once — and each fetch forks an
       # ssh or git-remote-https child of its own — so a machine with a few
@@ -607,15 +649,20 @@ git_session() {
     exit 0
   fi
 
-  dir_session "$selected" ${start_default:+--start-default} ${use_default_name:+--use-default-name}
+  dir_session "$selected" ${no_default_setup:+--no-default-setup} ${prompt_name:+--prompt-name}
 }
 
 worktree_session() {
-  local name="" start_default="" use_default_name=""
-  for arg in "$@"; do
+  local name="" no_default_setup="" prompt_name=""
+  expand_short_flags "$@"
+  for arg in "${EXPANDED_ARGS[@]}"; do
     case "$arg" in
-      --start-default) start_default=1 ;;
-      --use-default-name) use_default_name=1 ;;
+      -n | --no-default-setup) no_default_setup=1 ;;
+      -p | --prompt-name) prompt_name=1 ;;
+      -*)
+        notify "Error: Unknown option '$arg' for 'tsm worktree'"
+        exit 1
+        ;;
       *) name="$arg" ;;
     esac
   done
@@ -673,7 +720,7 @@ worktree_session() {
     selected="${selected%%	*}"
   fi
 
-  dir_session "$selected" ${start_default:+--start-default} ${use_default_name:+--use-default-name}
+  dir_session "$selected" ${no_default_setup:+--no-default-setup} ${prompt_name:+--prompt-name}
 }
 
 browse_logs() {

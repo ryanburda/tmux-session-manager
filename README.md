@@ -101,10 +101,15 @@ tsm active [session]               # Switch to session
 tsm kill [session]                 # Kill session (run cleanup script if present)
 
 # Directory based sessions
-tsm dir [path] [--start-default] [--use-default-name]                       # Create session at path
-tsm git [--hide-brief] [--no-fetch] [--start-default] [--use-default-name]  # Browse git repositories with fzf, creates session at path
-tsm worktree [name] [--start-default] [--use-default-name]                  # Create session at git worktree path
-tsm zoxide [query] [--start-default] [--use-default-name]                   # Create session for zoxide match path
+tsm dir [path] [-n] [-p]           # Create session at path
+tsm git [-b] [-f] [-n] [-p]        # Browse git repositories with fzf, creates session at path
+tsm worktree [name] [-n] [-p]      # Create session at git worktree path
+tsm zoxide [query] [-n] [-p]       # Create session for zoxide match path
+
+  -n, --no-default-setup           # Skip the shared default layout
+  -p, --prompt-name                # Prompt for the session name instead of using the default
+  -b, --brief                      # (git) Show git status information in the picker
+  -f, --fetch                      # (git) Fetch before showing the brief; implies -b
 
 # Configuration based sessions
 tsm configured [config]            # Create configured session
@@ -212,25 +217,28 @@ Directory sessions allow you to open a new tmux session rooted at a specific dir
 All directory sessions work the same way: pick a directory, name the session, and go.
 There are several options that offer different ways to pick the directory.
 
-Every directory session accepts `--start-default`, which runs the [shared default
-layout](#sharing-a-default-layout) — the same layout a configured session without its own
-`start()` falls back to — right after the session is created. `SESSION` comes from the name you
-confirmed at the session name prompt, and `ROOT` from the directory the picker (or the argument
+By default, every directory session runs the [shared default layout](#sharing-a-default-layout)
+— the same layout a configured session without its own `start()` falls back to — right after the
+session is created, and names the session for you without prompting. So a bare `tsm dir` creates
+and lays out the session the first time, and just switches you to it on every call after that.
+`SESSION` comes from the session name, and `ROOT` from the directory the picker (or the argument
 you passed) resolved to.
 
-Every directory session also accepts `--use-default-name`, which skips the session name prompt
-entirely: the suggested name is used as-is if no session by that name exists yet, or you are
-switched straight to it if one already does. Combine it with `--start-default` for a single
-command that gets you into a session, creating and laying it out the first time and just
-attaching on every call after that.
+Two flags opt out of that:
+
+- `-n`, `--no-default-setup` — Skip the shared default layout and create a plain session.
+- `-p`, `--prompt-name` — Prompt for the session name instead of using the suggested one.
+
+Short flags can be clustered, so `tsm git -bfnp` restores the pre-flag-change behavior of every
+option being off.
 
 ### Direct Path (`dir`)
 
 > ```bash
-> tsm dir                       # Browse directories with fzf and start session from selection
+> tsm dir                       # Browse directories with fzf, then run the default layout
 > tsm dir ~/code/projectA       # Start a session directly at ~/code/projectA
-> tsm dir --start-default       # Browse directories with fzf, then run the default layout
-> tsm dir ~/code/projectA --use-default-name   # Skip the name prompt; switch to it if it's already running
+> tsm dir -n                    # Browse directories with fzf, skipping the default layout
+> tsm dir ~/code/projectA -p    # Prompt for the session name instead of using the default
 > ```
 > 
 > When no path is provided, fzf by default displays all non-hidden directories within 4 levels deep of your
@@ -270,24 +278,24 @@ attaching on every call after that.
 > changed by setting the `TSM_GIT_DIRS_CMD` environment variable in your `.bashrc/.zshenv`.
 > 
 > Optional flags:
-> - `--hide-brief` — Skip displaying git status information in the picker.
-> - `--no-fetch` — Skip running `git fetch` before displaying status. Useful for faster startup when
->   you don't need the latest remote tracking info.
-> - `--start-default` — Run the [shared default layout](#sharing-a-default-layout) once the session
->   is created.
-> - `--use-default-name` — Skip the session name prompt: use the suggested name if it's free, or
->   switch to the existing session if it's already running.
+> - `-b`, `--brief` — Show git status information in the picker. Off by default so the picker
+>   appears immediately.
+> - `-f`, `--fetch` — Run `git fetch` before displaying status, so the ahead/behind counts reflect
+>   the latest remote tracking info. Implies `-b`.
+> - `-n`, `--no-default-setup` — Skip the [shared default layout](#sharing-a-default-layout) once
+>   the session is created.
+> - `-p`, `--prompt-name` — Prompt for the session name instead of using the suggested one.
 >
-> The fetches run in parallel, 8 repositories at a time. `TSM_GIT_FETCH_JOBS` raises or lowers that
-> cap:
+> With `-f`, the fetches run in parallel, 8 repositories at a time. `TSM_GIT_FETCH_JOBS` raises or
+> lowers that cap:
 >
 > ```bash
 > export TSM_GIT_FETCH_JOBS=4
 > ```
 >
 > The cap matters because every fetch also opens a connection to a remote. Lower it if a wide
-> `TSM_GIT_DIRS_CMD` makes the picker slow to appear or your connection is metered, and use
-> `--no-fetch` to skip fetching altogether.
+> `TSM_GIT_DIRS_CMD` makes the picker slow to appear or your connection is metered, or drop `-f`
+> to skip fetching altogether.
 > 
 > <details>
 > <summary><strong style="font-size: 1.25em;">Modifying <code>TSM_GIT_DIRS_CMD</code></strong></summary>
@@ -313,10 +321,10 @@ attaching on every call after that.
 ### Git Worktrees (`worktree`)
 
 > ```bash
-> tsm worktree                          # Browse worktrees for current git repo with fzf
-> tsm worktree other                    # Start session for worktree named 'other'
-> tsm worktree other --start-default    # Same, then run the default layout
-> tsm worktree other --use-default-name # Skip the name prompt; switch to it if it's already running
+> tsm worktree             # Browse worktrees for current git repo with fzf
+> tsm worktree other       # Start session for worktree named 'other'
+> tsm worktree other -n    # Same, but skip the default layout
+> tsm worktree other -p    # Prompt for the session name instead of using the default
 > ```
 > 
 > Browse git worktrees for the current repository and create a session rooted at the selected worktree directory.
@@ -328,10 +336,10 @@ attaching on every call after that.
 ### Zoxide (`zoxide`, Optional)
 
 > ```bash
-> tsm zoxide                        # Browse zoxide entries interactively and start session from selection
-> tsm zoxide proj                   # Start a session at the best zoxide match for "proj"
-> tsm zoxide proj --start-default   # Same, then run the default layout
-> tsm zoxide proj --use-default-name   # Skip the name prompt; switch to it if it's already running
+> tsm zoxide            # Browse zoxide entries interactively and start session from selection
+> tsm zoxide proj       # Start a session at the best zoxide match for "proj"
+> tsm zoxide proj -n    # Same, but skip the default layout
+> tsm zoxide proj -p    # Prompt for the session name instead of using the default
 > ```
 > Requires **[zoxide](https://github.com/ajeetdsouza/zoxide)**.
 > 
