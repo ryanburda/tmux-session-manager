@@ -228,7 +228,7 @@ Once one is picked, all four resolve the layout the same way:
                              |
                       picked directory
                              |
-        does a ~/.config/tsm/*.sh export a matching $ROOT?
+         does a ~/.config/tsm/*.sh set a matching $ROOT?
               /                                    \
             yes                                     no
              |                                       |
@@ -523,14 +523,14 @@ tsm owns the session's lifecycle: it creates the session before your configurati
 when you kill the session. Everything the file defines is therefore optional, and describes what you
 want *beyond* a plain session:
   - `ROOT`: The session's root directory, used as the working directory for its windows and panes.
-    Defaults to `$HOME`. Export it, so that anything the configuration runs inherits it.
-  - `start()`: Customizes the session -- windows, panes, commands. The session already exists by the
-    time it runs.
+    Defaults to `$HOME`.
+  - `start()`: Function that defines how the session should be customized. The session already exists
+    by the time it runs. This is where you add windows, split panes, run services.
   - `kill()`: Runs asynchronously when the session is killed. Use this for cleanup tasks like stopping services.
 
-`SESSION` is set for you, and exported before the file is sourced -- so top-level code and `start()`
-alike can use it. There is nothing to declare and nothing to keep in sync: rename
-the file and you have renamed the session.
+`SESSION` is set for you, and exported before the file is sourced so top-level code and `start()`
+alike can use it. There is nothing to declare and nothing to keep in sync: rename the file and you
+have renamed the session.
 
 > **NOTE:** Configuration file names cannot contain `.` or `:`. tmux reads both as the window and
 > pane separators of a target, so a session named `my.project` would be created and then be
@@ -541,9 +541,9 @@ configuration whose `ROOT` is the path you picked, and start it when they find o
 `tsm git`, `tsm worktree` and `tsm zoxide` all land on the configured session for a project that
 has one. Their `-c`, `--no-custom-config` flag skips that lookup.
 
-Nesting works, and the whole path under the configuration directory is the name -- so a session can
-be called `myrepo/base`, matching the `repo/worktree` names [worktree sessions](#git-worktrees)
-get, and sort next to them in the switcher:
+Nesting works, and the whole path under the configuration directory is the session name -- so a session can
+be called `myrepo/base`, matching the `repo/worktree` names [worktree sessions](#git-worktrees) get, and
+sort next to them in the switcher:
 
 ```
 ~/.config/tsm/
@@ -556,7 +556,7 @@ The smallest useful configuration is a single line:
 
 ```bash
 # ~/.config/tsm/notes.sh  ->  a session named "notes", rooted at ~/notes
-export ROOT="$HOME/notes"
+ROOT="$HOME/notes"
 ```
 
 With no `start()`, the session is plain -- one window, one pane at `ROOT` -- unless
@@ -572,7 +572,7 @@ the time `start()` runs -- one window holding one pane, rooted at `ROOT` -- so a
 splitting off that pane and sending commands into the panes that result:
 
 ```bash
-export ROOT="$HOME/code/myproject"
+ROOT="$HOME/code/myproject"
 
 start() {
   code=$(tmux display-message -p -t "$SESSION" '#{pane_id}')
@@ -602,13 +602,7 @@ saves constructing a window target of your own.
 `-c "$ROOT"` is worth passing to every `split-window` and `new-window`. Without it a new pane
 inherits the working directory of the pane it came from, which is only `ROOT` until something in the
 layout has `cd`'d somewhere else. `SESSION` and `ROOT` are both exported around `start()` and
-`kill()`, so they are in the environment of everything the configuration runs -- export `ROOT`
-yourself when you set it, for that same reason.
-
-> **NOTE:** tmux creates detached sessions at 80x24, so a percentage split made before the client
-> attaches would be computed against 80 columns and a `35%` split would visibly drift toward 50/50
-> once the real terminal size arrived. tsm sizes the session to the attaching client when it creates
-> it, so percentages mean what they say.
+`kill()`, so they are in the environment of everything the configuration runs.
 
 <details>
 <summary><strong style="font-size: 1.25em;">Example: an editor and an agent</strong></summary>
@@ -616,7 +610,7 @@ yourself when you set it, for that same reason.
 > An editor on the left, an AI agent on the right, focus back on the editor.
 >
 > ```bash
-> export ROOT="$HOME/projects/myproject"
+> ROOT="$HOME/projects/myproject"
 >
 > start() {
 >   code=$(tmux display-message -p -t "$SESSION" '#{pane_id}')
@@ -634,7 +628,7 @@ yourself when you set it, for that same reason.
 <summary><strong style="font-size: 1.25em;">Example: multiple windows</strong></summary>
 
 > ```bash
-> export ROOT="$HOME/projects/myproject"
+> ROOT="$HOME/projects/myproject"
 >
 > start() {
 >   # First window: the one the session starts with. Just an editor.
@@ -678,7 +672,7 @@ A configuration that defines no `start()` at all gets it automatically -- tsm fa
 
 ```bash
 # ~/.config/tsm/myproject.sh
-export ROOT="$HOME/code/myproject"
+ROOT="$HOME/code/myproject"
 ```
 
 Write `start()` yourself only when you want to do more around the default, or something different
@@ -686,7 +680,7 @@ entirely:
 
 ```bash
 # ~/.config/tsm/myproject.sh
-export ROOT="$HOME/code/myproject"
+ROOT="$HOME/code/myproject"
 
 start() {
   tsm apply-default-config
@@ -710,7 +704,7 @@ the first failure instead.
 ```bash
 set -e
 
-export ROOT="$HOME/code/myproject"
+ROOT="$HOME/code/myproject"
 ```
 
 That catches the structural errors -- a typo'd command, a stale pane id (`can't find pane: %99`),
@@ -793,7 +787,7 @@ tail of the currently highlighted file.
 > Create a session configuration for a project at `~/.config/tsm/myproject.sh`:
 > 
 > ```bash
-> export ROOT="$HOME/projects/myproject"
+> ROOT="$HOME/projects/myproject"
 > 
 > start() {
 >   # Take the pane the session starts with and name its window 'code'.
@@ -843,7 +837,7 @@ tail of the currently highlighted file.
 > immediately while the command continues running, and its output is captured in the log file for later review.
 > 
 > ```bash
-> export ROOT="$HOME/projects/webapp"
+> ROOT="$HOME/projects/webapp"
 > 
 > start() {
 >   code=$(tmux display-message -p -t "$SESSION" '#{pane_id}')
