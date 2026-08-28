@@ -125,8 +125,6 @@ tsm help                           # Show help message
 ```
 
 When session/path arguments are omitted, `tsm` uses fzf for interactive selection.
-When creating a new directory based session you are prompted to confirm or override
-the suggested session name before the session is created.
 
 ## tmux Keybindings
 
@@ -205,10 +203,10 @@ This maps:
 
 # Command Overview
 
-## Session Switcher
+## Active Session Switcher
 
 ```bash
-tsm                # Browse active sessions with fzf and switch to selection
+tsm active         # Browse active sessions with fzf and switch to selection
 tsm session-name   # Switch to 'session-name'
 ```
 
@@ -217,16 +215,16 @@ tsm session-name   # Switch to 'session-name'
 ## Directory Sessions
 
 Directory sessions allow you to open a new tmux session rooted at a specific directory.
-All directory sessions work the same way: pick a directory, name the session, and go.
 There are several options that offer different ways to pick the directory.
 
 ### How the Layout Is Chosen
 
-The goal of `tsm` is that a session always comes up laid out the way you like to work -- the windows
-and panes you are comfortable with -- instead of an empty shell you then arrange by hand. Which
-layout you get is decided entirely by the scripts in your configuration directory,
-`${XDG_CONFIG_HOME:-~/.config}/tsm/`. `dir`, `git`, `worktree` and `zoxide` differ only in how they
-help you pick a directory; once one is picked, all four resolve the layout the same way:
+The goal of `tsm` is that a session always comes up laid out the way you like to work.
+Which layout you get is decided entirely by the scripts in your configuration directory,
+`${XDG_CONFIG_HOME:-~/.config}/tsm/`.
+
+`dir`, `git`, `worktree` and `zoxide` differ only in how they help you pick a directory.
+Once one is picked, all four resolve the layout the same way:
 
 ```
       tsm dir  ·  tsm git  ·  tsm worktree  ·  tsm zoxide
@@ -260,38 +258,26 @@ and everything else still comes up in your usual layout. A bare `tsm dir` theref
 out the session the first time and simply switches you to it on every call after that, since step 1
 and step 2 both recognize a session that already exists.
 
-> **NOTE:** The configuration directory follows `XDG_CONFIG_HOME` -- exporting
-> `XDG_CONFIG_HOME=~/dotfiles` looks for these scripts in `~/dotfiles/tsm/` instead. There is no
-> `tsm`-specific override, so that one variable moves the configuration directory for every XDG-aware
-> program, not just `tsm`.
-
-Two flags step out of the chain, and both leave you with a less configured session than you would
-otherwise get:
+Two flags step out of the chain, allowing you to pick a directory with no session configuration applied after:
 
 - `-c`, `--no-custom-config` — Skip step 1. Ignore any custom configuration rooted at the picked
   path and create an ordinary directory session there, laid out by the default configuration.
 - `-d`, `--no-default-config` — Skip step 2. Create a plain session with nothing applied to it.
 
-Since the two flags skip different steps, `-cd` together is what gives you a completely unconfigured
-tmux session at the picked directory.
+Passing `-cd` is a convenient way to get a vanilla new tmux session rooted at the picked directory.
 
-A third flag changes the session rather than its layout:
+A third flag prompts for a session name instead of resolving to a name that is determined for you:
 
 - `-p`, `--prompt-name` — Prompt for the session name instead of using the suggested one.
+  In all cases `tsm` will switch to an existing session with the same name if one already exists.
 
-`-d` and `-p` both describe the directory session step 2 would create, so a path served by a custom
-configuration ignores them -- pair them with `-c` when you want an ad hoc session at a configured
-path anyway. Note that a custom configuration defining no `start()` of its own still falls back to
-the default configuration, `-d` or not: that fallback belongs to the configuration, not to the
-picker.
-
-Short flags can be clustered, so `tsm git -bfcdp` restores the pre-flag-change behavior of every
-option being off.
+Short flags can be clustered, so `tsm dir -cdp` is a convenient way to get a vanilla new tmux
+session rooted at the picked directory with the name you specify.
 
 ### Direct Path (`dir`)
 
 > ```bash
-> tsm dir                       # Browse directories with fzf, then run the default config
+> tsm dir                       # Browse directories with fzf, then run the custom/default config
 > tsm dir ~/code/projectA       # Start a session directly at ~/code/projectA
 > tsm dir -d                    # Browse directories with fzf, skipping the default config
 > tsm dir ~/code/projectA -p    # Prompt for the session name instead of using the default
@@ -318,21 +304,28 @@ option being off.
 > > ```
 > </details>
 >
+> Optional flags:
+> - `-c`, `--no-custom-config` — Ignore a [custom configuration](#configured-sessions) rooted at
+>   the selected repository.
+> - `-d`, `--no-default-config` — Skip the [shared default configuration](#sharing-a-default-configuration)
+>   once the session is created.
+> - `-p`, `--prompt-name` — Prompt for the session name instead of using the suggested one.
+>
+>
 > ![Launch Directory Sessions](docs/directory_launcher.gif)
 
 ### Git Repositories (`git`)
 
 > ```bash
-> tsm git   # Browse git repositories with fzf and start session from selection
+> tsm git      # Browse git repositories with fzf, then run the custom/default config
+> tsm git -bf  # Browse git repositories with fzf, showing a brief summary fetched from origin
 > ```
 > 
-> Works like `dir` but is tailored to git repositories by displaying a brief git status summary showing:
+> Works like `dir` but is tailored to git repositories. Options exist for displaying a
+> brief git status summary showing:
 > - the current branch
 > - ahead/behind counts
 > - unstaged changes
->
-> By default, `tsm git` finds all directories containing `.git` within 4 levels of `$HOME`. This can be
-> changed by setting the `TSM_GIT_DIRS_CMD` environment variable in your `.bashrc/.zshenv`.
 > 
 > Optional flags:
 > - `-b`, `--brief` — Show git status information in the picker. Off by default so the picker
@@ -345,6 +338,9 @@ option being off.
 >   once the session is created.
 > - `-p`, `--prompt-name` — Prompt for the session name instead of using the suggested one.
 >
+> By default, `tsm git` finds all directories containing `.git` within 4 levels of `$HOME`. This can be
+> changed by setting the `TSM_GIT_DIRS_CMD` environment variable in your `.bashrc/.zshenv`.
+
 > With `-f`, the fetches run in parallel, 8 repositories at a time. `TSM_GIT_FETCH_JOBS` raises or
 > lowers that cap:
 >
