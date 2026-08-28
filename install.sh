@@ -1,11 +1,7 @@
 #!/bin/sh
-# Install tmux-session-manager: symlink `tsm` and `tlm` into a directory on
-# PATH.
+# Install tmux-session-manager: symlink `tsm` into a directory on PATH.
 #
 #   curl -fsSL https://raw.githubusercontent.com/ryanburda/tmux-session-manager/main/install.sh | sh
-#
-# Both commands need to be on PATH, not just readable: `tsm` is invoked
-# directly, and session configurations invoke `tlm` the same way.
 #
 # Environment overrides:
 #   TSM_HOME  where the repo is cloned  (default: ~/.local/share/tmux-session-manager)
@@ -17,8 +13,6 @@ set -eu
 REPO_URL=${TSM_REPO:-https://github.com/ryanburda/tmux-session-manager.git}
 TSM_HOME=${TSM_HOME:-"${XDG_DATA_HOME:-$HOME/.local/share}/tmux-session-manager"}
 BIN_DIR=${BIN_DIR:-"$HOME/.local/bin"}
-
-COMMANDS="tsm tlm"
 
 die() {
     echo "install.sh: $*" >&2
@@ -49,28 +43,18 @@ fi
 
 mkdir -p "$BIN_DIR"
 
-# Check every command before linking any of them. Session configurations call
-# tlm through PATH, so a run that linked tsm and then bailed on tlm would leave
-# those configs broken.
-for cmd in $COMMANDS; do
-    src="$TSM_HOME/$cmd"
-    dest="$BIN_DIR/$cmd"
+src="$TSM_HOME/tsm"
+dest="$BIN_DIR/tsm"
 
-    [ -f "$src" ] || die "expected $src to exist"
+[ -f "$src" ] || die "expected $src to exist"
 
-    if [ -e "$dest" ] && [ ! -L "$dest" ]; then
-        die "$dest exists and is not a symlink; remove it and retry"
-    fi
-done
+if [ -e "$dest" ] && [ ! -L "$dest" ]; then
+    die "$dest exists and is not a symlink; remove it and retry"
+fi
 
-for cmd in $COMMANDS; do
-    src="$TSM_HOME/$cmd"
-    dest="$BIN_DIR/$cmd"
-
-    chmod +x "$src"
-    ln -sfn "$src" "$dest"
-    echo "Linked $dest -> $src"
-done
+chmod +x "$src"
+ln -sfn "$src" "$dest"
+echo "Linked $dest -> $src"
 
 case ":$PATH:" in
     *":$BIN_DIR:"*) ;;

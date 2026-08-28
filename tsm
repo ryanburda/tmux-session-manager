@@ -463,8 +463,8 @@ configured_session() {
   #
   # SESSION is exported before the file is sourced so that top-level code can
   # use it, and ROOT afterwards so the configuration gets to set it first.
-  # Exported rather than plain shell variables because `tlm` runs as a command
-  # rather than a sourced library, and inherits them across that fork.
+  # Exported rather than plain shell variables so that commands the
+  # configuration runs inherit them across the fork.
   #
   # ROOT is cleared first: it is a common enough name that the shell tsm was
   # invoked from may well have one of its own, and a configuration that sets no
@@ -506,7 +506,7 @@ apply_default_config() {
   # that would otherwise all write the same start() body. It is a plain script,
   # not a function, sourced at the point a config calls
   # `tsm apply-default-config` -- SESSION and ROOT are already exported by
-  # configured_session() by then, the same way tlm gets them.
+  # configured_session() by then.
   local default_file="$CONFIG_DIR/.default_config.sh"
 
   if [ ! -f "$default_file" ]; then
