@@ -220,30 +220,70 @@ Directory sessions allow you to open a new tmux session rooted at a specific dir
 All directory sessions work the same way: pick a directory, name the session, and go.
 There are several options that offer different ways to pick the directory.
 
-By default, every directory session runs the [shared default configuration](#sharing-a-default-configuration)
-— the same layout a configured session without its own `start()` falls back to — right after the
-session is created, and names the session for you without prompting. So a bare `tsm dir` creates
-and lays out the session the first time, and just switches you to it on every call after that.
-`SESSION` comes from the session name, and `ROOT` from the directory the picker (or the argument
-you passed) resolved to.
+### How the Layout Is Chosen
 
-Also by default, a picked path that is the `$ROOT` of one of your
-[configured sessions](#configured-sessions) starts that configuration instead of a plain directory
-session — the pickers become another way of reaching `tsm configured`, so a project that has a
-configuration gets it no matter how you arrived at the directory. The configuration wins whether or
-not its session is already running: if it is, you are switched to it, exactly as a directory session
-with an existing name would be.
+The goal of `tsm` is that a session always comes up laid out the way you like to work -- the windows
+and panes you are comfortable with -- instead of an empty shell you then arrange by hand. Which
+layout you get is decided entirely by the scripts in your configuration directory,
+`${XDG_CONFIG_HOME:-~/.config}/tsm/`. `dir`, `git`, `worktree` and `zoxide` differ only in how they
+help you pick a directory; once one is picked, all four resolve the layout the same way:
 
-Three flags opt out of that:
+```
+      tsm dir  ·  tsm git  ·  tsm worktree  ·  tsm zoxide
+                             |
+                      picked directory
+                             |
+        does a ~/.config/tsm/*.sh export a matching $ROOT?
+              /                                    \
+            yes                                     no
+             |                                       |
+   start that configuration              create a session at the
+   (same session as tsm configured)      directory, then apply
+                                         .default_config.sh
+```
 
-- `-c`, `--no-custom-config` — Ignore any custom configuration rooted at the picked path and create
-  an ordinary directory session there.
-- `-d`, `--no-default-config` — Skip the shared default configuration and create a plain session.
+1. **A custom configuration, if one claims the directory.** Every `<name>.sh` in the configuration
+   directory is checked for a `ROOT` equal to the path you picked. The first match starts as a
+   [configured session](#configured-sessions) -- the same session `tsm configured <name>` gives you,
+   with its own name, `start()` and `kill()`. If that session is already running you are switched to
+   it instead.
+2. **The shared default configuration, otherwise.** A session is created at the picked directory and
+   named after it, and [`.default_config.sh`](#sharing-a-default-configuration) is applied to it --
+   the same default a configuration without its own `start()` falls back to. `SESSION` is the
+   session name and `ROOT` is the picked directory, exactly as a custom configuration would see
+   them.
+3. **Nothing, if there is no `.default_config.sh` either.** You get a plain one-window session at the
+   picked directory.
+
+So a project with a script of its own gets that script no matter how you arrived at its directory,
+and everything else still comes up in your usual layout. A bare `tsm dir` therefore creates and lays
+out the session the first time and simply switches you to it on every call after that, since step 1
+and step 2 both recognize a session that already exists.
+
+> **NOTE:** The configuration directory follows `XDG_CONFIG_HOME` -- exporting
+> `XDG_CONFIG_HOME=~/dotfiles` looks for these scripts in `~/dotfiles/tsm/` instead. There is no
+> `tsm`-specific override, so that one variable moves the configuration directory for every XDG-aware
+> program, not just `tsm`.
+
+Two flags step out of the chain, and both leave you with a less configured session than you would
+otherwise get:
+
+- `-c`, `--no-custom-config` — Skip step 1. Ignore any custom configuration rooted at the picked
+  path and create an ordinary directory session there, laid out by the default configuration.
+- `-d`, `--no-default-config` — Skip step 2. Create a plain session with nothing applied to it.
+
+Since the two flags skip different steps, `-cd` together is what gives you a completely unconfigured
+tmux session at the picked directory.
+
+A third flag changes the session rather than its layout:
+
 - `-p`, `--prompt-name` — Prompt for the session name instead of using the suggested one.
 
-`-d` and `-p` describe the directory session `tsm` would create, so a path served by a custom
-configuration ignores both — pair them with `-c` when you want an ad hoc session at a configured
-path.
+`-d` and `-p` both describe the directory session step 2 would create, so a path served by a custom
+configuration ignores them -- pair them with `-c` when you want an ad hoc session at a configured
+path anyway. Note that a custom configuration defining no `start()` of its own still falls back to
+the default configuration, `-d` or not: that fallback belongs to the configuration, not to the
+picker.
 
 Short flags can be clustered, so `tsm git -bfcdp` restores the pre-flag-change behavior of every
 option being off.
@@ -255,7 +295,7 @@ option being off.
 > tsm dir ~/code/projectA       # Start a session directly at ~/code/projectA
 > tsm dir -d                    # Browse directories with fzf, skipping the default config
 > tsm dir ~/code/projectA -p    # Prompt for the session name instead of using the default
-> tsm dir ~/code/projectA -c    # Plain session, even if a custom config is rooted there
+> tsm dir ~/code/projectA -c    # Default config, even if a custom config is rooted there
 > ```
 > 
 > When no path is provided, fzf by default displays all non-hidden directories within 4 levels deep of your
@@ -496,7 +536,7 @@ the file and you have renamed the session.
 > pane separators of a target, so a session named `my.project` would be created and then be
 > unreachable. tsm refuses such a name rather than quietly renaming the session out from under you.
 
-`tsm configured` is not the only way in. The [directory pickers](#directory-sessions) look for a
+`tsm configured` is not the only way in. The [directory pickers](#how-the-layout-is-chosen) look for a
 configuration whose `ROOT` is the path you picked, and start it when they find one, so `tsm dir`,
 `tsm git`, `tsm worktree` and `tsm zoxide` all land on the configured session for a project that
 has one. Their `-c`, `--no-custom-config` flag skips that lookup.
