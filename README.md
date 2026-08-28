@@ -140,6 +140,7 @@ bind-key X run-shell "tsm kill #{session_name}"
 # Directory based sessions
 bind-key d popup -E "tsm dir"
 bind-key g popup -E "tsm git"
+bind-key G popup -E "tsm git -bf"
 bind-key w popup -E "tsm worktree"
 bind-key z popup -E "tsm zoxide"
 
@@ -157,6 +158,7 @@ This maps:
 - `prefix + X` - Kill the current session and run kill script
 - `prefix + d` - Directory session launcher
 - `prefix + g` - Git repository session launcher
+- `prefix + G` - Git repository session launcher (with git brief)
 - `prefix + w` - Worktree session launcher
 - `prefix + z` - Zoxide directory session launcher
 - `prefix + a` - AI agent picker
