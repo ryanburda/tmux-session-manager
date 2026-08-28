@@ -232,9 +232,13 @@ Once one is picked, all four resolve the layout the same way:
               /                                    \
             yes                                     no
              |                                       |
-   start that configuration              create a session at the
-   (same session as tsm configured)      directory, then apply
-                                         .default_config.sh
+   start that configuration           does .default_config.sh exist?
+   (same session as tsm configured)     /                           \
+                                       yes                         no
+                                        |                           |
+                             create a session at the     create a bare session
+                             directory, then apply       at the directory
+                             .default_config.sh
 ```
 
 1. **A custom configuration, if one claims the directory.** Every `<name>.sh` in the configuration
