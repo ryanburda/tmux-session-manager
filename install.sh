@@ -6,11 +6,10 @@
 # Environment overrides:
 #   TSM_HOME  where the repo is cloned  (default: ~/.local/share/tmux-session-manager)
 #   BIN_DIR   where symlinks are placed (default: ~/.local/bin)
-#   TSM_REPO  clone URL                 (default: the GitHub HTTPS URL)
 
 set -eu
 
-REPO_URL=${TSM_REPO:-https://github.com/ryanburda/tmux-session-manager.git}
+REPO_URL=https://github.com/ryanburda/tmux-session-manager.git
 TSM_HOME=${TSM_HOME:-"${XDG_DATA_HOME:-$HOME/.local/share}/tmux-session-manager"}
 BIN_DIR=${BIN_DIR:-"$HOME/.local/bin"}
 

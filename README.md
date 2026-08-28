@@ -19,13 +19,21 @@ A simple tmux session manager
 curl -fsSL https://raw.githubusercontent.com/ryanburda/tmux-session-manager/main/install.sh | sh
 ```
 
-This clones the repository to `~/.local/share/tmux-session-manager` and symlinks `tsm` into
-`~/.local/bin`. Re-run it at any time to update to the latest revision. Override
-`TSM_HOME`, `BIN_DIR` or `TSM_REPO` to change where things land:
+The command above:
+- Clones the repository to `~/.local/share/tmux-session-manager`
+- symlinks `tsm` into `~/.local/bin`
+
+Re-run it at any time to update to the latest revision.
+
+Two environment variables change where things land:
+- `TSM_HOME` is where the repository is cloned
+- `BIN_DIR` is where the `tsm` symlink is placed
+
+Set either or both on the `sh` that runs the script:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/ryanburda/tmux-session-manager/main/install.sh \
-  | BIN_DIR=~/bin sh
+  | TSM_HOME=~/src/tsm BIN_DIR=~/bin sh
 ```
 
 **NOTE:** Shell completions are not installed by the script. See Shell Completions below.
@@ -664,7 +672,7 @@ layout has `cd`'d somewhere else. `SESSION` and `ROOT` are both exported around 
 
 </details>
 
-#### Defining a Default Configuration
+### Defining a Default Configuration
 
 Most configurations end up wanting the same layout. Rather than repeat it in every file, put it once
 in `${XDG_CONFIG_HOME:-~/.config}/tsm/.default_config.sh`:
