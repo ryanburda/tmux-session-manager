@@ -664,7 +664,7 @@ layout has `cd`'d somewhere else. `SESSION` and `ROOT` are both exported around 
 
 </details>
 
-#### Sharing a Default Configuration
+#### Defining a Default Configuration
 
 Most configurations end up wanting the same layout. Rather than repeat it in every file, put it once
 in `${XDG_CONFIG_HOME:-~/.config}/tsm/.default_config.sh`:
@@ -705,81 +705,6 @@ start() {
 itself is excluded from the configured-session list and picker, since it is not a session to start. A
 configuration that wants no layout at all -- not even the default -- defines its own empty `start()`
 to opt out of the fallback.
-
-#### Failing Fast with `set -e`
-
-`tmux` returns non-zero and writes to stderr when a command fails, but a session
-configuration is a plain shell script: by default `start()` runs to the end regardless, building the
-rest of the layout on top of the mistake. Adding `set -e` at the top of the configuration stops it at
-the first failure instead.
-
-```bash
-set -e
-
-ROOT="$HOME/code/myproject"
-```
-
-That catches the structural errors -- a typo'd command, a stale pane id (`can't find pane: %99`),
-a duplicate session name, a bad window target. Adding `-u` is worth it too: a misspelled variable
-(`tmux send-keys -t "$cdoe" 'nvim' Enter`) otherwise expands to an empty target and fails a step
-later with a vaguer message.
-
-At the top level it does more than abort the layout: a configuration that fails before tsm has
-created the session means there is no session to attach to, and tsm says so rather than dropping you
-somewhere confusing.
-
-Two things it does not do, both worth knowing before relying on it:
-
-**It does not check what runs inside the panes.** `send-keys` succeeds as long as
-the pane exists. Whether the program you typed exists is never part of its exit status, so a config
-launching a tool you have since uninstalled aborts nothing -- the pane simply sits there showing
-`command not found`.
-
-**It does not stop tsm from attaching.** tsm does not inspect `start()`'s exit status, so you are
-still dropped into the partially built session. What you gain is that the layout stopped growing and
-the error is the last thing in `tsm logs` rather than buried mid-log.
-
-One trap, and it applies to the exact idiom every layout uses: `local` is itself a command that
-returns 0, so it swallows the status of the substitution it assigns.
-
-```bash
-ai=$(tmux split-window -P -F '#{pane_id}' -h -t "$code")            # aborts on failure
-local ai; ai=$(tmux split-window -P -F '#{pane_id}' -h -t "$code")  # aborts on failure
-local ai=$(tmux split-window -P -F '#{pane_id}' -h -t "$code")      # CONTINUES, with ai empty
-```
-
-Top-level assignments in `start()` are unaffected. It only bites in a helper function, where the
-empty pane id then surfaces as a confusing `can't find pane` further down. Declare, then assign.
-
-#### Complementary, Not Binding
-
-Most tmux layout managers, like tmuxinator and tmuxp, ask you to describe a layout in a
-configuration format they define. That works right up until you want something the format has no
-word for, and at that point you are waiting on the maintainer to add it or abandoning the tool
-outright. The abstraction is binding: whatever it cannot express, you cannot do.
-
-A session configuration is deliberately not that. tsm creates the session and gets out of the way;
-the layout is built with tmux's own commands, so there is nothing tsm needs a word for:
-
-```bash
-start() {
-  code=$(tmux display-message -p -t "$SESSION" '#{pane_id}')
-  ai=$(tmux split-window -P -F '#{pane_id}' -h -l 35% -t "$code" -c "$ROOT")
-
-  # Options, titles, hooks -- tsm has no opinion about any of it. It does not need one.
-  tmux set-option -t "$SESSION" status-style 'bg=colour238'
-  tmux select-pane -t "$ai" -T 'agent'
-}
-```
-
-There is no escape hatch to reach for, because you never left. The ceiling of a session
-configuration is the ceiling of tmux itself.
-
-The tradeoff is that a session configuration is a shell script, which is not the most inviting thing
-to write. That is the price of the property worth having: if something cannot be done with native
-tmux commands, no configuration format was going to solve it away either -- it would only add a
-second place for it to be impossible. Better to keep the full command set within reach. `man tmux`
-is the reference, and all of it is available.
 
 ### Logging
 
