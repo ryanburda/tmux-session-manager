@@ -27,9 +27,11 @@ curl -fsSL https://raw.githubusercontent.com/ryanburda/tmux-session-manager/main
   | BIN_DIR=~/bin sh
 ```
 
-Shell completions are not installed by the script -- see step 4 below.
+Shell completions are not installed by the script -- see the last step under Manual
+Installation below.
 
-### Manual Installation
+<details>
+<summary><strong style="font-size: 1.25em;">Manual Installation</strong></summary>
 
 1. Clone the repository:
    ```bash
@@ -89,6 +91,8 @@ Shell completions are not installed by the script -- see step 4 below.
    ```
 
    </details>
+
+</details>
 
 ## Usage
 
