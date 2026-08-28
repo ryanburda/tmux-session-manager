@@ -133,7 +133,7 @@ the suggested session name before the session is created.
 `tsm` is best used with tmux keybinds which can be added to your `~/.tmux.conf`:
 
 ```bash
-bind-key s popup -E "tsm"
+bind-key s popup -E "tsm active"
 bind-key k popup -E "tsm kill"
 bind-key X run-shell "tsm kill #{session_name}"
 
