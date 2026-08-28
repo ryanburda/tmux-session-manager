@@ -27,11 +27,11 @@ _tsm_completions() {
             return 0
             ;;
         dir)
-            COMPREPLY=($(compgen -d -W "-n --no-default-setup -p --prompt-name" -- "$cur"))
+            COMPREPLY=($(compgen -d -W "-c --not-configured -d --no-start-default -p --prompt-name" -- "$cur"))
             return 0
             ;;
         git)
-            COMPREPLY=($(compgen -W "-b --brief -f --fetch -n --no-default-setup -p --prompt-name" -- "$cur"))
+            COMPREPLY=($(compgen -W "-b --brief -f --fetch -c --not-configured -d --no-start-default -p --prompt-name" -- "$cur"))
             return 0
             ;;
         worktree)
@@ -41,11 +41,11 @@ _tsm_completions() {
                 /^$/ { if (path != "") { n = split(path, a, "/"); print a[n]; path = "" } }
                 END { if (path != "") { n = split(path, a, "/"); print a[n] } }
             ')
-            COMPREPLY=($(compgen -W "$worktrees -n --no-default-setup -p --prompt-name" -- "$cur"))
+            COMPREPLY=($(compgen -W "$worktrees -c --not-configured -d --no-start-default -p --prompt-name" -- "$cur"))
             return 0
             ;;
         zoxide)
-            COMPREPLY=($(compgen -W "-n --no-default-setup -p --prompt-name" -- "$cur"))
+            COMPREPLY=($(compgen -W "-c --not-configured -d --no-start-default -p --prompt-name" -- "$cur"))
             return 0
             ;;
         configured)

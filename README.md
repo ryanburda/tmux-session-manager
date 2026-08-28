@@ -101,12 +101,13 @@ tsm active [session]               # Switch to session
 tsm kill [session]                 # Kill session (run cleanup script if present)
 
 # Directory based sessions
-tsm dir [path] [-n] [-p]           # Create session at path
-tsm git [-b] [-f] [-n] [-p]        # Browse git repositories with fzf, creates session at path
-tsm worktree [name] [-n] [-p]      # Create session at git worktree path
-tsm zoxide [query] [-n] [-p]       # Create session for zoxide match path
+tsm dir [path] [-c] [-d] [-p]      # Create session at path
+tsm git [-b] [-f] [-c] [-d] [-p]   # Browse git repositories with fzf, creates session at path
+tsm worktree [name] [-c] [-d] [-p] # Create session at git worktree path
+tsm zoxide [query] [-c] [-d] [-p]  # Create session for zoxide match path
 
-  -n, --no-default-setup           # Skip the shared default layout
+  -c, --not-configured             # Ignore a configuration rooted at the selected path
+  -d, --no-start-default           # Skip the shared default layout
   -p, --prompt-name                # Prompt for the session name instead of using the default
   -b, --brief                      # (git) Show git status information in the picker
   -f, --fetch                      # (git) Fetch before showing the brief; implies -b
@@ -224,12 +225,24 @@ and lays out the session the first time, and just switches you to it on every ca
 `SESSION` comes from the session name, and `ROOT` from the directory the picker (or the argument
 you passed) resolved to.
 
-Two flags opt out of that:
+Also by default, a picked path that is the `$ROOT` of one of your
+[configured sessions](#configured-sessions) starts that configuration instead of a plain directory
+session — the pickers become another way of reaching `tsm configured`, so a project that has a
+configuration gets it no matter how you arrived at the directory. The configuration wins whether or
+not its session is already running: if it is, you are switched to it, exactly as a directory session
+with an existing name would be.
 
-- `-n`, `--no-default-setup` — Skip the shared default layout and create a plain session.
+Three flags opt out of that:
+
+- `-c`, `--not-configured` — Ignore any configuration rooted at the picked path and create an
+  ordinary directory session there.
+- `-d`, `--no-start-default` — Skip the shared default layout and create a plain session.
 - `-p`, `--prompt-name` — Prompt for the session name instead of using the suggested one.
 
-Short flags can be clustered, so `tsm git -bfnp` restores the pre-flag-change behavior of every
+`-d` and `-p` describe the directory session `tsm` would create, so a path served by a configuration
+ignores both — pair them with `-c` when you want an ad hoc session at a configured path.
+
+Short flags can be clustered, so `tsm git -bfcdp` restores the pre-flag-change behavior of every
 option being off.
 
 ### Direct Path (`dir`)
@@ -237,8 +250,9 @@ option being off.
 > ```bash
 > tsm dir                       # Browse directories with fzf, then run the default layout
 > tsm dir ~/code/projectA       # Start a session directly at ~/code/projectA
-> tsm dir -n                    # Browse directories with fzf, skipping the default layout
+> tsm dir -d                    # Browse directories with fzf, skipping the default layout
 > tsm dir ~/code/projectA -p    # Prompt for the session name instead of using the default
+> tsm dir ~/code/projectA -c    # Plain session, even if a configuration is rooted there
 > ```
 > 
 > When no path is provided, fzf by default displays all non-hidden directories within 4 levels deep of your
@@ -282,7 +296,9 @@ option being off.
 >   appears immediately.
 > - `-f`, `--fetch` — Run `git fetch` before displaying status, so the ahead/behind counts reflect
 >   the latest remote tracking info. Implies `-b`.
-> - `-n`, `--no-default-setup` — Skip the [shared default layout](#sharing-a-default-layout) once
+> - `-c`, `--not-configured` — Ignore a [configuration](#configured-sessions) rooted at the
+>   selected repository.
+> - `-d`, `--no-start-default` — Skip the [shared default layout](#sharing-a-default-layout) once
 >   the session is created.
 > - `-p`, `--prompt-name` — Prompt for the session name instead of using the suggested one.
 >
@@ -323,7 +339,7 @@ option being off.
 > ```bash
 > tsm worktree             # Browse worktrees for current git repo with fzf
 > tsm worktree other       # Start session for worktree named 'other'
-> tsm worktree other -n    # Same, but skip the default layout
+> tsm worktree other -d    # Same, but skip the default layout
 > tsm worktree other -p    # Prompt for the session name instead of using the default
 > ```
 > 
@@ -338,7 +354,7 @@ option being off.
 > ```bash
 > tsm zoxide            # Browse zoxide entries interactively and start session from selection
 > tsm zoxide proj       # Start a session at the best zoxide match for "proj"
-> tsm zoxide proj -n    # Same, but skip the default layout
+> tsm zoxide proj -d    # Same, but skip the default layout
 > tsm zoxide proj -p    # Prompt for the session name instead of using the default
 > ```
 > Requires **[zoxide](https://github.com/ajeetdsouza/zoxide)**.
@@ -451,7 +467,7 @@ and always exits `0` so a misconfiguration never surfaces as an error inside the
 
 <a id="configured-sessions"></a>
 
-## Configured Sessions (`-c`)
+## Configured Sessions (`configured`)
 
 Script up the perfect window/pane layout and automate tasks like starting up services when a session starts.
 Ideal for projects you work on regularly to keep things consistent and reproducible.
@@ -476,6 +492,11 @@ the file and you have renamed the session.
 > **NOTE:** Configuration file names cannot contain `.` or `:`. tmux reads both as the window and
 > pane separators of a target, so a session named `my.project` would be created and then be
 > unreachable. tsm refuses such a name rather than quietly renaming the session out from under you.
+
+`tsm configured` is not the only way in. The [directory pickers](#directory-sessions) look for a
+configuration whose `ROOT` is the path you picked, and start it when they find one, so `tsm dir`,
+`tsm git`, `tsm worktree` and `tsm zoxide` all land on the configured session for a project that
+has one. Their `-c`, `--not-configured` flag skips that lookup.
 
 Nesting works, and the whole path under the configuration directory is the name -- so a session can
 be called `myrepo/base`, matching the `repo/worktree` names [worktree sessions](#git-worktrees)

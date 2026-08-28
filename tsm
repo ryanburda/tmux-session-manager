@@ -17,12 +17,13 @@ usage() {
   echo "  tsm active [session]                 # Switch to session"
   echo "  tsm kill [session]                   # Kill session (run cleanup script if present)"
   echo "  "
-  echo "  tsm dir [path] [-n] [-p]             # Create session at path"
-  echo "  tsm git [-b] [-f] [-n] [-p]          # Browse git repositories with fzf, creates session at path"
-  echo "  tsm worktree [name] [-n] [-p]        # Create session at git worktree path"
-  echo "  tsm zoxide [query] [-n] [-p]         # Create session for zoxide match path"
+  echo "  tsm dir [path] [-c] [-d] [-p]        # Create session at path"
+  echo "  tsm git [-b] [-f] [-c] [-d] [-p]     # Browse git repositories with fzf, creates session at path"
+  echo "  tsm worktree [name] [-c] [-d] [-p]   # Create session at git worktree path"
+  echo "  tsm zoxide [query] [-c] [-d] [-p]    # Create session for zoxide match path"
   echo "  "
-  echo "    -n, --no-default-setup             # Skip the shared default layout"
+  echo "    -c, --not-configured               # Ignore a custom configuration rooted at the selected path"
+  echo "    -d, --no-start-default             # Skip the shared default layout"
   echo "    -p, --prompt-name                  # Prompt for the session name instead of using the default"
   echo "    -b, --brief                        # (git) Show git status information in the picker"
   echo "    -f, --fetch                        # (git) Fetch before showing the brief; implies -b"
@@ -174,6 +175,47 @@ default_session_name() {
   else
     sanitize_directory_session_name "$path"
   fi
+}
+
+configured_session_for_root() {
+  # Echoes the name of the configuration whose $ROOT is the given directory, or
+  # nothing if no configuration claims it. The first match wins.
+  #
+  # A configuration is a shell file, so its $ROOT is only knowable by running
+  # it: each one is sourced in a bash of its own -- the same way
+  # configured_session runs it, and with the same SESSION/ROOT contract -- and
+  # the ROOT it leaves behind is compared against the path. Output and failures
+  # are discarded: a configuration that is broken, or that has something to say
+  # while being sourced, is simply one that does not match.
+  #
+  # The path is resolved with `cd`/`pwd -P` on the far side so that a $ROOT
+  # written with a symlink, a trailing slash, or a `..` still matches the
+  # already-resolved path the picker produced.
+  #
+  # Args:
+  #   $1: path — the resolved directory a directory session would be rooted at
+  local path="$1"
+
+  [ -d "$CONFIG_DIR" ] || return
+
+  local file config root
+  while IFS= read -r file; do
+    config="${file#"$CONFIG_DIR/"}"
+    config="${config%.sh}"
+
+    root=$(bash -c '
+      export SESSION="$2"
+      unset ROOT
+      source "$1" >/dev/null 2>&1
+      [ -n "$ROOT" ] || exit 1
+      cd "$ROOT" && pwd -P
+    ' tsm "$file" "$config" 2>/dev/null)
+
+    if [ -n "$root" ] && [ "$root" = "$path" ]; then
+      echo "$config"
+      return
+    fi
+  done < <(find -L "$CONFIG_DIR" -type f -name '*.sh' ! -name '.start_default.sh' 2>/dev/null | sort)
 }
 
 session_name_prompt() {
@@ -476,11 +518,12 @@ start_default_layout() {
 }
 
 dir_session() {
-  local target_dir="" no_default_setup="" prompt_name=""
+  local target_dir="" not_configured="" no_start_default="" prompt_name=""
   expand_short_flags "$@"
   for arg in "${EXPANDED_ARGS[@]}"; do
     case "$arg" in
-      -n | --no-default-setup) no_default_setup=1 ;;
+      -c | --not-configured) not_configured=1 ;;
+      -d | --no-start-default) no_start_default=1 ;;
       -p | --prompt-name) prompt_name=1 ;;
       -*)
         notify "Error: Unknown option '$arg' for 'tsm dir'"
@@ -521,6 +564,23 @@ dir_session() {
   # Resolve to absolute path
   selected=$(cd "$selected" && pwd -P)
 
+  # A path that is some configuration's $ROOT already has a session described
+  # for it, so hand off and start that instead of a plain directory session --
+  # picking a directory is then just another way of reaching `tsm configured`.
+  # configured_session switches to the session when it is already running, the
+  # same thing the default-name path below does for directory sessions, so this
+  # composes with -p: a configured path is served by its configuration whether
+  # or not the session exists yet, and -c is how you ask for an ad hoc session
+  # at that path anyway.
+  if [ -z "$not_configured" ]; then
+    local config
+    config=$(configured_session_for_root "$selected")
+    if [ -n "$config" ]; then
+      configured_session "$config"
+      return
+    fi
+  fi
+
   # Create the session
   local session_name
   if [ -n "$prompt_name" ]; then
@@ -533,7 +593,7 @@ dir_session() {
     fi
   fi
 
-  if [ -z "$no_default_setup" ]; then
+  if [ -z "$no_start_default" ]; then
     # Sized up front, like configured_session does, so a percentage split in
     # the default layout is computed against the real client size rather than
     # tmux's 80x24 default for a detached session.
@@ -553,11 +613,12 @@ dir_session() {
 }
 
 zoxide_session() {
-  local query="" no_default_setup="" prompt_name=""
+  local query="" not_configured="" no_start_default="" prompt_name=""
   expand_short_flags "$@"
   for arg in "${EXPANDED_ARGS[@]}"; do
     case "$arg" in
-      -n | --no-default-setup) no_default_setup=1 ;;
+      -c | --not-configured) not_configured=1 ;;
+      -d | --no-start-default) no_start_default=1 ;;
       -p | --prompt-name) prompt_name=1 ;;
       -*)
         notify "Error: Unknown option '$arg' for 'tsm zoxide'"
@@ -591,17 +652,18 @@ zoxide_session() {
     fi
   fi
 
-  dir_session "$selected" ${no_default_setup:+--no-default-setup} ${prompt_name:+--prompt-name}
+  dir_session "$selected" ${not_configured:+--not-configured} ${no_start_default:+--no-start-default} ${prompt_name:+--prompt-name}
 }
 
 git_session() {
-  local brief="" fetch="" no_default_setup="" prompt_name=""
+  local brief="" fetch="" not_configured="" no_start_default="" prompt_name=""
   expand_short_flags "$@"
   for arg in "${EXPANDED_ARGS[@]}"; do
     case "$arg" in
       -b | --brief) brief=1 ;;
+      -c | --not-configured) not_configured=1 ;;
+      -d | --no-start-default) no_start_default=1 ;;
       -f | --fetch) fetch=1 ;;
-      -n | --no-default-setup) no_default_setup=1 ;;
       -p | --prompt-name) prompt_name=1 ;;
       *)
         notify "Error: Unknown option '$arg' for 'tsm git'"
@@ -649,15 +711,16 @@ git_session() {
     exit 0
   fi
 
-  dir_session "$selected" ${no_default_setup:+--no-default-setup} ${prompt_name:+--prompt-name}
+  dir_session "$selected" ${not_configured:+--not-configured} ${no_start_default:+--no-start-default} ${prompt_name:+--prompt-name}
 }
 
 worktree_session() {
-  local name="" no_default_setup="" prompt_name=""
+  local name="" not_configured="" no_start_default="" prompt_name=""
   expand_short_flags "$@"
   for arg in "${EXPANDED_ARGS[@]}"; do
     case "$arg" in
-      -n | --no-default-setup) no_default_setup=1 ;;
+      -c | --not-configured) not_configured=1 ;;
+      -d | --no-start-default) no_start_default=1 ;;
       -p | --prompt-name) prompt_name=1 ;;
       -*)
         notify "Error: Unknown option '$arg' for 'tsm worktree'"
@@ -720,7 +783,7 @@ worktree_session() {
     selected="${selected%%	*}"
   fi
 
-  dir_session "$selected" ${no_default_setup:+--no-default-setup} ${prompt_name:+--prompt-name}
+  dir_session "$selected" ${not_configured:+--not-configured} ${no_start_default:+--no-start-default} ${prompt_name:+--prompt-name}
 }
 
 browse_logs() {
