@@ -219,8 +219,8 @@ There are several options that offer different ways to pick the directory.
 
 ### How the Layout Is Chosen
 
-The goal of `tsm` is that a session always comes up laid out the way you like to work.
-Which layout you get is decided entirely by the scripts in your configuration directory,
+The goal of `tsm` is create tmux sessions that are always laid the way you want them to be.
+Which layout you get is decided by the scripts in your configuration directory,
 `${XDG_CONFIG_HOME:-~/.config}/tsm/`.
 
 `dir`, `git`, `worktree` and `zoxide` differ only in how they help you pick a directory.
@@ -276,6 +276,8 @@ session rooted at the picked directory with the name you specify.
 
 ### Direct Path (`dir`)
 
+> Create a new tmux session rooted at a selected path.
+>
 > ```bash
 > tsm dir                       # Browse directories with fzf, then run the custom/default config
 > tsm dir ~/code/projectA       # Start a session directly at ~/code/projectA
@@ -283,6 +285,13 @@ session rooted at the picked directory with the name you specify.
 > tsm dir ~/code/projectA -p    # Prompt for the session name instead of using the default
 > tsm dir ~/code/projectA -c    # Default config, even if a custom config is rooted there
 > ```
+>
+> Optional flags:
+> - `-c`, `--no-custom-config` — Ignore a [custom configuration](#configured-sessions) rooted at
+>   the selected repository.
+> - `-d`, `--no-default-config` — Skip the [shared default configuration](#sharing-a-default-configuration)
+>   once the session is created.
+> - `-p`, `--prompt-name` — Prompt for the session name instead of using the suggested one.
 > 
 > When no path is provided, fzf by default displays all non-hidden directories within 4 levels deep of your
 > `$HOME` directory. This can be changed by setting the `TSM_DIRS_CMD` environment variable in your `.bashrc/.zshenv`.
@@ -304,28 +313,16 @@ session rooted at the picked directory with the name you specify.
 > > ```
 > </details>
 >
-> Optional flags:
-> - `-c`, `--no-custom-config` — Ignore a [custom configuration](#configured-sessions) rooted at
->   the selected repository.
-> - `-d`, `--no-default-config` — Skip the [shared default configuration](#sharing-a-default-configuration)
->   once the session is created.
-> - `-p`, `--prompt-name` — Prompt for the session name instead of using the suggested one.
->
->
 > ![Launch Directory Sessions](docs/directory_launcher.gif)
 
 ### Git Repositories (`git`)
 
+> Create a new tmux session rooted at a git repository.
+> 
 > ```bash
 > tsm git      # Browse git repositories with fzf, then run the custom/default config
 > tsm git -bf  # Browse git repositories with fzf, showing a brief summary fetched from origin
 > ```
-> 
-> Works like `dir` but is tailored to git repositories. Options exist for displaying a
-> brief git status summary showing:
-> - the current branch
-> - ahead/behind counts
-> - unstaged changes
 > 
 > Optional flags:
 > - `-b`, `--brief` — Show git status information in the picker. Off by default so the picker
@@ -340,20 +337,12 @@ session rooted at the picked directory with the name you specify.
 >
 > By default, `tsm git` finds all directories containing `.git` within 4 levels of `$HOME`. This can be
 > changed by setting the `TSM_GIT_DIRS_CMD` environment variable in your `.bashrc/.zshenv`.
-
+>
 > With `-f`, the fetches run in parallel, 8 repositories at a time. `TSM_GIT_FETCH_JOBS` raises or
 > lowers that cap:
->
-> ```bash
-> export TSM_GIT_FETCH_JOBS=4
-> ```
->
-> The cap matters because every fetch also opens a connection to a remote. Lower it if a wide
-> `TSM_GIT_DIRS_CMD` makes the picker slow to appear or your connection is metered, or drop `-f`
-> to skip fetching altogether.
 > 
 > <details>
-> <summary><strong style="font-size: 1.25em;">Modifying <code>TSM_GIT_DIRS_CMD</code></strong></summary>
+> <summary><strong style="font-size: 1.25em;">Modifying <code>TSM_GIT_DIRS_CMD/TSM_GIT_FETCH_JOBS</code></strong></summary>
 > 
 > > `TSM_GIT_DIRS_CMD` can be set to any command that returns directories of git repositories.
 > >
@@ -362,11 +351,13 @@ session rooted at the picked directory with the name you specify.
 > > export TSM_GIT_DIRS_CMD='find "$HOME/code" -maxdepth 4 -name ".git" 2>/dev/null | sed "s/\/\.git$//"'
 > > ```
 > >
-> > Or you could get the `$ROOT` paths of all of your [configured sessions](#configured-sessions):
+> > The `TSM_GIT_FETCH_JOBS` cap matters because every fetch also opens a connection to a remote. Lower it if a wide
+> > `TSM_GIT_DIRS_CMD` makes the picker slow to appear or your connection is metered, or drop `-f`
+> > to skip fetching altogether.
+> >
 > > ```bash
-> > export TSM_GIT_DIRS_CMD='for f in "$HOME/.config/tsm/"*.sh; do ROOT=""; source "$f"; [ -n "$ROOT" ] && echo "$ROOT"; done'
+> > export TSM_GIT_FETCH_JOBS=4
 > > ```
-> 
 > </details>
 >
 > ![Launch Git Sessions](docs/git_launcher.gif)
@@ -375,6 +366,10 @@ session rooted at the picked directory with the name you specify.
 
 ### Git Worktrees (`worktree`)
 
+> Create a new tmux session rooted at a git worktree.
+>
+> **NOTE:** Can only be run when the current working directory is inside a git repo
+>
 > ```bash
 > tsm worktree             # Browse worktrees for current git repo with fzf
 > tsm worktree other       # Start session for worktree named 'other'
@@ -382,27 +377,40 @@ session rooted at the picked directory with the name you specify.
 > tsm worktree other -p    # Prompt for the session name instead of using the default
 > ```
 > 
-> Browse git worktrees for the current repository and create a session rooted at the selected worktree directory.
->
-> > **NOTE:** Can only be run when the current working directory is inside a git repo
+> Optional flags:
+> - `-c`, `--no-custom-config` — Ignore a [custom configuration](#configured-sessions) rooted at
+>   the selected repository.
+> - `-d`, `--no-default-config` — Skip the [shared default configuration](#sharing-a-default-configuration)
+>   once the session is created.
+> - `-p`, `--prompt-name` — Prompt for the session name instead of using the suggested one.
 > 
 > ![Launch Worktree Sessions](docs/worktree_launcher.gif)
 
 ### Zoxide (`zoxide`, Optional)
 
+> The Zoxide version of `dir`
+>
+> Requires **[zoxide](https://github.com/ajeetdsouza/zoxide)**.
+>
 > ```bash
 > tsm zoxide            # Browse zoxide entries interactively and start session from selection
 > tsm zoxide proj       # Start a session at the best zoxide match for "proj"
 > tsm zoxide proj -d    # Same, but skip the default config
 > tsm zoxide proj -p    # Prompt for the session name instead of using the default
 > ```
-> Requires **[zoxide](https://github.com/ajeetdsouza/zoxide)**.
 > 
 > Zoxide tracks directories you visit frequently, ranking them by "frecency" (frequency + recency). This makes
 > it easy to jump to projects with just a few characters of the directory name.
 > 
 > When no query is provided, `tsm zoxide` uses `zoxide query -i` for interactive selection with fzf. When a query is
 > provided, it uses `zoxide query` to find the best match directly.
+> 
+> Optional flags:
+> - `-c`, `--no-custom-config` — Ignore a [custom configuration](#configured-sessions) rooted at
+>   the selected repository.
+> - `-d`, `--no-default-config` — Skip the [shared default configuration](#sharing-a-default-configuration)
+>   once the session is created.
+> - `-p`, `--prompt-name` — Prompt for the session name instead of using the suggested one.
 > 
 > ![Zoxide Session Launcher](docs/zoxide_launcher.gif)
 
