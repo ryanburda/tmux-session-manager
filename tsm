@@ -13,7 +13,7 @@ usage() {
   echo "Tmux Session Manager"
   echo ""
   echo "Usage"
-  echo "  tsm                                  # Switch to session"
+  echo "  tsm                                  # Show help message"
   echo "  tsm active [session]                 # Switch to session"
   echo "  tsm kill [session]                   # Kill session (run cleanup script if present)"
   echo "  "
@@ -28,7 +28,7 @@ usage() {
   echo "    -b, --brief                        # (git) Show git status information in the picker"
   echo "    -f, --fetch                        # (git) Fetch before showing the brief; implies -b"
   echo "  "
-  echo "  tsm configured [config]              # Create configured session"
+  echo "  tsm configured [config]              # Start a configured session"
   echo "  tsm logs [session]                   # Browse configured session logs"
   echo "  tsm apply-default-config             # Apply the shared default configuration (inside a configuration's start())"
   echo "  "
@@ -975,7 +975,7 @@ record_agent_state() {
 
 # Parse arguments
 if [ $# -eq 0 ]; then
-  active_session
+  usage
   exit 0
 fi
 

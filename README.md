@@ -111,7 +111,7 @@ ln -s ~/.local/share/tmux-session-manager/completions/tsm.fish ~/.config/fish/co
 ## Usage
 
 ```bash
-tsm                                # Switch to session
+tsm                                # Show help message
 tsm active [session]               # Switch to session
 tsm kill [session]                 # Kill session (run cleanup script if present)
 
