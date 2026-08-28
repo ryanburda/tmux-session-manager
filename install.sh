@@ -69,5 +69,5 @@ esac
 
 echo
 echo "Done. Run 'tsm help' to see its usage."
-echo "Shell completions are not installed by this script; see the Installation"
+echo "Shell completions are not installed by this script; see the Shell Completions"
 echo "section of $TSM_HOME/README.md for the one-liner for your shell."

@@ -2,6 +2,7 @@
 
 A simple tmux session manager
 
+- **Define** a default layout for all of your tmux sessions
 - **Create** sessions rooted at directories or defined by configuration scripts
 - **Switch** between active sessions
 - **Kill** sessions with optional cleanup scripts
@@ -27,8 +28,7 @@ curl -fsSL https://raw.githubusercontent.com/ryanburda/tmux-session-manager/main
   | BIN_DIR=~/bin sh
 ```
 
-Shell completions are not installed by the script -- see the last step under Manual
-Installation below.
+**NOTE:** Shell completions are not installed by the script. See Shell Completions below.
 
 <details>
 <summary><strong style="font-size: 1.25em;">Manual Installation</strong></summary>
@@ -49,48 +49,54 @@ Installation below.
    export PATH="$HOME/.local/bin:$PATH"
    ```
 
-4. (Optional) Install shell completions:
+</details>
 
-   Completions provide:
-   - Active session names for `tsm active` and `tsm kill`
-   - Directory completion for `tsm dir`
-   - Config names for `tsm configured`
-   - Session names with logs for `tsm logs`
+<details>
+<summary><strong style="font-size: 1.25em;">Shell Completions</strong></summary>
 
-   <details>
-   <summary><strong>Bash</strong></summary>
+Completions provide:
+- Active session names for `tsm active` and `tsm kill`
+- Directory completion for `tsm dir`
+- Config names for `tsm configured`
+- Session names with logs for `tsm logs`
 
-   Add to your <code>~/.bashrc</code>:
+The paths below are the install script's checkout location. If you overrode `TSM_HOME`, or cloned
+manually, substitute that directory instead.
 
-   ```bash
-   source ~/git/ryanburda/tmux-session-manager/completions/tsm.bash
-   ```
+<details>
+<summary><strong>Bash</strong></summary>
 
-   </details>
+Add to your <code>~/.bashrc</code>:
 
-   <details>
-   <summary><strong>Zsh</strong></summary>
+```bash
+source ~/.local/share/tmux-session-manager/completions/tsm.bash
+```
 
-   Add to your <code>~/.zshrc</code>:
+</details>
 
-   ```bash
-   fpath=(~/git/ryanburda/tmux-session-manager/completions $fpath)
-   autoload -Uz compinit && compinit
-   ```
-   Or rename `tsm.zsh` to `_tsm` and place in an existing fpath directory.
+<details>
+<summary><strong>Zsh</strong></summary>
 
-   </details>
+Add to your <code>~/.zshrc</code>:
 
-   <details>
-   <summary><strong>Fish</strong></summary>
+```bash
+fpath=(~/.local/share/tmux-session-manager/completions $fpath)
+autoload -Uz compinit && compinit
+```
+Or rename `tsm.zsh` to `_tsm` and place in an existing fpath directory.
 
-   Symlink to fish completions directory:
+</details>
 
-   ```bash
-   ln -s ~/git/ryanburda/tmux-session-manager/completions/tsm.fish ~/.config/fish/completions/
-   ```
+<details>
+<summary><strong>Fish</strong></summary>
 
-   </details>
+Symlink to fish completions directory:
+
+```bash
+ln -s ~/.local/share/tmux-session-manager/completions/tsm.fish ~/.config/fish/completions/
+```
+
+</details>
 
 </details>
 
@@ -124,8 +130,6 @@ tsm agent-state [state]            # Record agent state on the current pane (for
 
 tsm help                           # Show help message
 ```
-
-When session/path arguments are omitted, `tsm` uses fzf for interactive selection.
 
 ## tmux Keybindings
 
@@ -189,12 +193,12 @@ This maps:
 > in your keybindings:
 > 
 > ```bash
-> bind-key s popup -h 24 -w 60 -E "~/git/ryanburda/tmux-session-manager/tsm"
-> bind-key d popup -h 24 -w 80 -E "~/git/ryanburda/tmux-session-manager/tsm dir"
-> bind-key X run-shell "~/git/ryanburda/tmux-session-manager/tsm kill #{session_name}"
+> bind-key s popup -h 24 -w 60 -E "~/.local/share/tmux-session-manager/tsm"
+> bind-key d popup -h 24 -w 80 -E "~/.local/share/tmux-session-manager/tsm dir"
+> bind-key X run-shell "~/.local/share/tmux-session-manager/tsm kill #{session_name}"
 > ```
 > 
-> Adjust the path to match where you cloned the repository.
+> Adjust the path if the repository lives somewhere else.
 > 
 > **Note:** If you specify a custom `TSM_DIRS_CMD`, add it to the same file where you configure your PATH
 > (e.g., `~/.zshenv` for zsh). Otherwise, `tsm dir` will use the default directory list in a tmux popup
