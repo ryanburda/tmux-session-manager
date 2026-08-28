@@ -106,8 +106,8 @@ tsm git [-b] [-f] [-c] [-d] [-p]   # Browse git repositories with fzf, creates s
 tsm worktree [name] [-c] [-d] [-p] # Create session at git worktree path
 tsm zoxide [query] [-c] [-d] [-p]  # Create session for zoxide match path
 
-  -c, --not-configured             # Ignore a configuration rooted at the selected path
-  -d, --no-start-default           # Skip the shared default layout
+  -c, --no-custom-config           # Ignore a custom configuration rooted at the selected path
+  -d, --no-default-config          # Skip the shared default configuration
   -p, --prompt-name                # Prompt for the session name instead of using the default
   -b, --brief                      # (git) Show git status information in the picker
   -f, --fetch                      # (git) Fetch before showing the brief; implies -b
@@ -115,7 +115,7 @@ tsm zoxide [query] [-c] [-d] [-p]  # Create session for zoxide match path
 # Configuration based sessions
 tsm configured [config]            # Create configured session
 tsm logs [session]                 # Browse configured session logs
-tsm start-default                  # Run the shared default layout (for use inside a configuration's start())
+tsm apply-default-config           # Apply the shared default configuration (inside a configuration's start())
 
 # AI agent panes
 tsm agents                         # Browse panes running an AI agent
@@ -218,7 +218,7 @@ Directory sessions allow you to open a new tmux session rooted at a specific dir
 All directory sessions work the same way: pick a directory, name the session, and go.
 There are several options that offer different ways to pick the directory.
 
-By default, every directory session runs the [shared default layout](#sharing-a-default-layout)
+By default, every directory session runs the [shared default configuration](#sharing-a-default-configuration)
 — the same layout a configured session without its own `start()` falls back to — right after the
 session is created, and names the session for you without prompting. So a bare `tsm dir` creates
 and lays out the session the first time, and just switches you to it on every call after that.
@@ -234,13 +234,14 @@ with an existing name would be.
 
 Three flags opt out of that:
 
-- `-c`, `--not-configured` — Ignore any configuration rooted at the picked path and create an
-  ordinary directory session there.
-- `-d`, `--no-start-default` — Skip the shared default layout and create a plain session.
+- `-c`, `--no-custom-config` — Ignore any custom configuration rooted at the picked path and create
+  an ordinary directory session there.
+- `-d`, `--no-default-config` — Skip the shared default configuration and create a plain session.
 - `-p`, `--prompt-name` — Prompt for the session name instead of using the suggested one.
 
-`-d` and `-p` describe the directory session `tsm` would create, so a path served by a configuration
-ignores both — pair them with `-c` when you want an ad hoc session at a configured path.
+`-d` and `-p` describe the directory session `tsm` would create, so a path served by a custom
+configuration ignores both — pair them with `-c` when you want an ad hoc session at a configured
+path.
 
 Short flags can be clustered, so `tsm git -bfcdp` restores the pre-flag-change behavior of every
 option being off.
@@ -248,11 +249,11 @@ option being off.
 ### Direct Path (`dir`)
 
 > ```bash
-> tsm dir                       # Browse directories with fzf, then run the default layout
+> tsm dir                       # Browse directories with fzf, then run the default config
 > tsm dir ~/code/projectA       # Start a session directly at ~/code/projectA
-> tsm dir -d                    # Browse directories with fzf, skipping the default layout
+> tsm dir -d                    # Browse directories with fzf, skipping the default config
 > tsm dir ~/code/projectA -p    # Prompt for the session name instead of using the default
-> tsm dir ~/code/projectA -c    # Plain session, even if a configuration is rooted there
+> tsm dir ~/code/projectA -c    # Plain session, even if a custom config is rooted there
 > ```
 > 
 > When no path is provided, fzf by default displays all non-hidden directories within 4 levels deep of your
@@ -296,10 +297,10 @@ option being off.
 >   appears immediately.
 > - `-f`, `--fetch` — Run `git fetch` before displaying status, so the ahead/behind counts reflect
 >   the latest remote tracking info. Implies `-b`.
-> - `-c`, `--not-configured` — Ignore a [configuration](#configured-sessions) rooted at the
->   selected repository.
-> - `-d`, `--no-start-default` — Skip the [shared default layout](#sharing-a-default-layout) once
->   the session is created.
+> - `-c`, `--no-custom-config` — Ignore a [custom configuration](#configured-sessions) rooted at
+>   the selected repository.
+> - `-d`, `--no-default-config` — Skip the [shared default configuration](#sharing-a-default-configuration)
+>   once the session is created.
 > - `-p`, `--prompt-name` — Prompt for the session name instead of using the suggested one.
 >
 > With `-f`, the fetches run in parallel, 8 repositories at a time. `TSM_GIT_FETCH_JOBS` raises or
@@ -339,7 +340,7 @@ option being off.
 > ```bash
 > tsm worktree             # Browse worktrees for current git repo with fzf
 > tsm worktree other       # Start session for worktree named 'other'
-> tsm worktree other -d    # Same, but skip the default layout
+> tsm worktree other -d    # Same, but skip the default config
 > tsm worktree other -p    # Prompt for the session name instead of using the default
 > ```
 > 
@@ -354,7 +355,7 @@ option being off.
 > ```bash
 > tsm zoxide            # Browse zoxide entries interactively and start session from selection
 > tsm zoxide proj       # Start a session at the best zoxide match for "proj"
-> tsm zoxide proj -d    # Same, but skip the default layout
+> tsm zoxide proj -d    # Same, but skip the default config
 > tsm zoxide proj -p    # Prompt for the session name instead of using the default
 > ```
 > Requires **[zoxide](https://github.com/ajeetdsouza/zoxide)**.
@@ -496,7 +497,7 @@ the file and you have renamed the session.
 `tsm configured` is not the only way in. The [directory pickers](#directory-sessions) look for a
 configuration whose `ROOT` is the path you picked, and start it when they find one, so `tsm dir`,
 `tsm git`, `tsm worktree` and `tsm zoxide` all land on the configured session for a project that
-has one. Their `-c`, `--not-configured` flag skips that lookup.
+has one. Their `-c`, `--no-custom-config` flag skips that lookup.
 
 Nesting works, and the whole path under the configuration directory is the name -- so a session can
 be called `myrepo/base`, matching the `repo/worktree` names [worktree sessions](#git-worktrees)
@@ -517,7 +518,8 @@ export ROOT="$HOME/notes"
 ```
 
 With no `start()`, the session is plain -- one window, one pane at `ROOT` -- unless
-[a default layout](#sharing-a-default-layout) is configured, in which case that runs instead.
+[a default configuration](#sharing-a-default-configuration) is configured, in which case that runs
+instead.
 
 ![Launch Configured Sessions](docs/configured_launcher.gif)
 
@@ -639,13 +641,13 @@ saves constructing a window target of your own.
 
 </details>
 
-#### Sharing a Default Layout
+#### Sharing a Default Configuration
 
 Most configurations end up wanting the same layout. Rather than repeat it in every file, put it once
-in `${XDG_CONFIG_HOME:-~/.config}/tsm/.start_default.sh`:
+in `${XDG_CONFIG_HOME:-~/.config}/tsm/.default_config.sh`:
 
 ```bash
-# ~/.config/tsm/.start_default.sh
+# ~/.config/tsm/.default_config.sh
 code=$(tlm get-current-pane)
 tmux rename-window -t "$code" code
 ai=$(tlm split-pane -h 35% "$code")
@@ -655,7 +657,7 @@ tlm focus-pane "$code"
 ```
 
 A configuration that defines no `start()` at all gets it automatically -- tsm falls back to
-`tsm start-default` whenever a configuration doesn't define `start()`:
+`tsm apply-default-config` whenever a configuration doesn't define `start()`:
 
 ```bash
 # ~/.config/tsm/myproject.sh
@@ -670,14 +672,14 @@ entirely:
 export ROOT="$HOME/code/myproject"
 
 start() {
-  tsm start-default
+  tsm apply-default-config
   make -C "$ROOT" up &
 }
 ```
 
-`tsm start-default` sources `.start_default.sh` at the point it's called, with `SESSION` and `ROOT`
-already in the environment -- same as any other command `start()` runs. `.start_default.sh` itself is
-excluded from the configured-session list and picker, since it is not a session to start. A
+`tsm apply-default-config` sources `.default_config.sh` at the point it's called, with `SESSION` and
+`ROOT` already in the environment -- same as any other command `start()` runs. `.default_config.sh`
+itself is excluded from the configured-session list and picker, since it is not a session to start. A
 configuration that wants no layout at all -- not even the default -- defines its own empty `start()`
 to opt out of the fallback.
 

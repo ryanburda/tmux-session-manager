@@ -22,15 +22,15 @@ usage() {
   echo "  tsm worktree [name] [-c] [-d] [-p]   # Create session at git worktree path"
   echo "  tsm zoxide [query] [-c] [-d] [-p]    # Create session for zoxide match path"
   echo "  "
-  echo "    -c, --not-configured               # Ignore a custom configuration rooted at the selected path"
-  echo "    -d, --no-start-default             # Skip the shared default layout"
+  echo "    -c, --no-custom-config             # Ignore a custom configuration rooted at the selected path"
+  echo "    -d, --no-default-config            # Skip the shared default configuration"
   echo "    -p, --prompt-name                  # Prompt for the session name instead of using the default"
   echo "    -b, --brief                        # (git) Show git status information in the picker"
   echo "    -f, --fetch                        # (git) Fetch before showing the brief; implies -b"
   echo "  "
   echo "  tsm configured [config]              # Create configured session"
   echo "  tsm logs [session]                   # Browse configured session logs"
-  echo "  tsm start-default                    # Run the shared default layout (for use inside a configuration's start())"
+  echo "  tsm apply-default-config             # Apply the shared default configuration (inside a configuration's start())"
   echo "  "
   echo "  tsm agents                           # Browse panes running an AI agent"
   echo "  tsm agent-state [state]              # Record agent state on the current pane (for agent hooks)"
@@ -215,7 +215,7 @@ configured_session_for_root() {
       echo "$config"
       return
     fi
-  done < <(find -L "$CONFIG_DIR" -type f -name '*.sh' ! -name '.start_default.sh' 2>/dev/null | sort)
+  done < <(find -L "$CONFIG_DIR" -type f -name '*.sh' ! -name '.default_config.sh' 2>/dev/null | sort)
 }
 
 session_name_prompt() {
@@ -406,7 +406,7 @@ configured_session() {
     # gets a name like "myrepo/base", matching what a worktree session is
     # called. -L because configurations are commonly symlinks into a project.
     local configured_sessions
-    configured_sessions=$(find -L "$CONFIG_DIR" -type f -name '*.sh' ! -name '.start_default.sh' 2>/dev/null \
+    configured_sessions=$(find -L "$CONFIG_DIR" -type f -name '*.sh' ! -name '.default_config.sh' 2>/dev/null \
       | while read -r f; do f="${f#"$CONFIG_DIR/"}"; echo "${f%.sh}"; done \
       | sort)
 
@@ -486,7 +486,7 @@ configured_session() {
     [ $? -eq 0 ] || exit 1
     export ROOT="${ROOT:-$HOME}"
     tmux new-session -d -s "$SESSION" -c "$ROOT" ${3:+-x "$3"} ${4:+-y "$4"} || exit 1
-    if declare -F start >/dev/null; then start; else tsm start-default; fi
+    if declare -F start >/dev/null; then start; else tsm apply-default-config; fi
   ' tsm "$session_file" "$session" "$width" "$height" >> "$log_file" 2>&1
 
   # The session is missing only if it was never created — a configuration that
@@ -501,16 +501,16 @@ configured_session() {
   switch_or_attach "$session"
 }
 
-start_default_layout() {
-  # Runs $CONFIG_DIR/.start_default.sh, a layout shared by configurations that
-  # would otherwise all write the same start() body. It is a plain script, not
-  # a function, sourced at the point a config calls `tsm start-default` --
-  # SESSION and ROOT are already exported by configured_session() by then, the
-  # same way tlm gets them.
-  local default_file="$CONFIG_DIR/.start_default.sh"
+apply_default_config() {
+  # Runs $CONFIG_DIR/.default_config.sh, the configuration shared by sessions
+  # that would otherwise all write the same start() body. It is a plain script,
+  # not a function, sourced at the point a config calls
+  # `tsm apply-default-config` -- SESSION and ROOT are already exported by
+  # configured_session() by then, the same way tlm gets them.
+  local default_file="$CONFIG_DIR/.default_config.sh"
 
   if [ ! -f "$default_file" ]; then
-    notify "Error: no default layout at $default_file"
+    notify "Error: no default configuration at $default_file"
     exit 1
   fi
 
@@ -518,12 +518,12 @@ start_default_layout() {
 }
 
 dir_session() {
-  local target_dir="" not_configured="" no_start_default="" prompt_name=""
+  local target_dir="" no_custom_config="" no_default_config="" prompt_name=""
   expand_short_flags "$@"
   for arg in "${EXPANDED_ARGS[@]}"; do
     case "$arg" in
-      -c | --not-configured) not_configured=1 ;;
-      -d | --no-start-default) no_start_default=1 ;;
+      -c | --no-custom-config) no_custom_config=1 ;;
+      -d | --no-default-config) no_default_config=1 ;;
       -p | --prompt-name) prompt_name=1 ;;
       -*)
         notify "Error: Unknown option '$arg' for 'tsm dir'"
@@ -572,7 +572,7 @@ dir_session() {
   # composes with -p: a configured path is served by its configuration whether
   # or not the session exists yet, and -c is how you ask for an ad hoc session
   # at that path anyway.
-  if [ -z "$not_configured" ]; then
+  if [ -z "$no_custom_config" ]; then
     local config
     config=$(configured_session_for_root "$selected")
     if [ -n "$config" ]; then
@@ -593,18 +593,18 @@ dir_session() {
     fi
   fi
 
-  if [ -z "$no_start_default" ]; then
+  if [ -z "$no_default_config" ]; then
     # Sized up front, like configured_session does, so a percentage split in
-    # the default layout is computed against the real client size rather than
-    # tmux's 80x24 default for a detached session.
+    # the default configuration is computed against the real client size
+    # rather than tmux's 80x24 default for a detached session.
     local width height
     read -r width height < <(client_size)
     tmux new-session -d -s "$session_name" -c "$selected" ${width:+-x "$width"} ${height:+-y "$height"}
 
-    # Run in a subshell: start_default_layout exits non-zero when there is no
-    # default layout to run, and that should not tear down a session that
-    # tmux already created.
-    ( SESSION="$session_name" ROOT="$selected" start_default_layout )
+    # Run in a subshell: apply_default_config exits non-zero when there is no
+    # default configuration to run, and that should not tear down a session
+    # that tmux already created.
+    ( SESSION="$session_name" ROOT="$selected" apply_default_config )
   else
     tmux new-session -d -s "$session_name" -c "$selected"
   fi
@@ -613,12 +613,12 @@ dir_session() {
 }
 
 zoxide_session() {
-  local query="" not_configured="" no_start_default="" prompt_name=""
+  local query="" no_custom_config="" no_default_config="" prompt_name=""
   expand_short_flags "$@"
   for arg in "${EXPANDED_ARGS[@]}"; do
     case "$arg" in
-      -c | --not-configured) not_configured=1 ;;
-      -d | --no-start-default) no_start_default=1 ;;
+      -c | --no-custom-config) no_custom_config=1 ;;
+      -d | --no-default-config) no_default_config=1 ;;
       -p | --prompt-name) prompt_name=1 ;;
       -*)
         notify "Error: Unknown option '$arg' for 'tsm zoxide'"
@@ -652,17 +652,17 @@ zoxide_session() {
     fi
   fi
 
-  dir_session "$selected" ${not_configured:+--not-configured} ${no_start_default:+--no-start-default} ${prompt_name:+--prompt-name}
+  dir_session "$selected" ${no_custom_config:+--no-custom-config} ${no_default_config:+--no-default-config} ${prompt_name:+--prompt-name}
 }
 
 git_session() {
-  local brief="" fetch="" not_configured="" no_start_default="" prompt_name=""
+  local brief="" fetch="" no_custom_config="" no_default_config="" prompt_name=""
   expand_short_flags "$@"
   for arg in "${EXPANDED_ARGS[@]}"; do
     case "$arg" in
       -b | --brief) brief=1 ;;
-      -c | --not-configured) not_configured=1 ;;
-      -d | --no-start-default) no_start_default=1 ;;
+      -c | --no-custom-config) no_custom_config=1 ;;
+      -d | --no-default-config) no_default_config=1 ;;
       -f | --fetch) fetch=1 ;;
       -p | --prompt-name) prompt_name=1 ;;
       *)
@@ -711,16 +711,16 @@ git_session() {
     exit 0
   fi
 
-  dir_session "$selected" ${not_configured:+--not-configured} ${no_start_default:+--no-start-default} ${prompt_name:+--prompt-name}
+  dir_session "$selected" ${no_custom_config:+--no-custom-config} ${no_default_config:+--no-default-config} ${prompt_name:+--prompt-name}
 }
 
 worktree_session() {
-  local name="" not_configured="" no_start_default="" prompt_name=""
+  local name="" no_custom_config="" no_default_config="" prompt_name=""
   expand_short_flags "$@"
   for arg in "${EXPANDED_ARGS[@]}"; do
     case "$arg" in
-      -c | --not-configured) not_configured=1 ;;
-      -d | --no-start-default) no_start_default=1 ;;
+      -c | --no-custom-config) no_custom_config=1 ;;
+      -d | --no-default-config) no_default_config=1 ;;
       -p | --prompt-name) prompt_name=1 ;;
       -*)
         notify "Error: Unknown option '$arg' for 'tsm worktree'"
@@ -783,7 +783,7 @@ worktree_session() {
     selected="${selected%%	*}"
   fi
 
-  dir_session "$selected" ${not_configured:+--not-configured} ${no_start_default:+--no-start-default} ${prompt_name:+--prompt-name}
+  dir_session "$selected" ${no_custom_config:+--no-custom-config} ${no_default_config:+--no-default-config} ${prompt_name:+--prompt-name}
 }
 
 browse_logs() {
@@ -1007,8 +1007,8 @@ case "$command" in
   logs)
     browse_logs "$1"
     ;;
-  start-default)
-    start_default_layout
+  apply-default-config)
+    apply_default_config
     ;;
   agents)
     agent_picker

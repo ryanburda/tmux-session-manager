@@ -11,7 +11,7 @@ _tsm_completions() {
     cmd="${COMP_WORDS[1]}"
 
     # Available subcommands
-    subcmds="active kill dir git worktree zoxide configured logs start-default agents agent-state help"
+    subcmds="active kill dir git worktree zoxide configured logs apply-default-config agents agent-state help"
 
     # Completing the subcommand itself
     if [ "$COMP_CWORD" -eq 1 ]; then
@@ -27,11 +27,11 @@ _tsm_completions() {
             return 0
             ;;
         dir)
-            COMPREPLY=($(compgen -d -W "-c --not-configured -d --no-start-default -p --prompt-name" -- "$cur"))
+            COMPREPLY=($(compgen -d -W "-c --no-custom-config -d --no-default-config -p --prompt-name" -- "$cur"))
             return 0
             ;;
         git)
-            COMPREPLY=($(compgen -W "-b --brief -f --fetch -c --not-configured -d --no-start-default -p --prompt-name" -- "$cur"))
+            COMPREPLY=($(compgen -W "-b --brief -f --fetch -c --no-custom-config -d --no-default-config -p --prompt-name" -- "$cur"))
             return 0
             ;;
         worktree)
@@ -41,11 +41,11 @@ _tsm_completions() {
                 /^$/ { if (path != "") { n = split(path, a, "/"); print a[n]; path = "" } }
                 END { if (path != "") { n = split(path, a, "/"); print a[n] } }
             ')
-            COMPREPLY=($(compgen -W "$worktrees -c --not-configured -d --no-start-default -p --prompt-name" -- "$cur"))
+            COMPREPLY=($(compgen -W "$worktrees -c --no-custom-config -d --no-default-config -p --prompt-name" -- "$cur"))
             return 0
             ;;
         zoxide)
-            COMPREPLY=($(compgen -W "-c --not-configured -d --no-start-default -p --prompt-name" -- "$cur"))
+            COMPREPLY=($(compgen -W "-c --no-custom-config -d --no-default-config -p --prompt-name" -- "$cur"))
             return 0
             ;;
         configured)

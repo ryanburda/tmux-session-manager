@@ -53,7 +53,7 @@ _tsm_commands() {
         'zoxide:Browse/start session via zoxide'
         'configured:Browse/start configured sessions'
         'logs:Browse session logs'
-        'start-default:Run the shared default layout'
+        'apply-default-config:Apply the shared default configuration'
         'agents:Browse panes running an AI agent'
         'agent-state:Record agent state on the current pane'
         'help:Show help message'
@@ -77,18 +77,18 @@ _tsm() {
         dir)
             _alternative \
                 'directories:directory:_files -/' \
-                'options:option:(-c --not-configured -d --no-start-default -p --prompt-name)'
+                'options:option:(-c --no-custom-config -d --no-default-config -p --prompt-name)'
             ;;
         git)
-            _values -s ' ' 'git options' '-b' '--brief' '-f' '--fetch' '-c' '--not-configured' '-d' '--no-start-default' '-p' '--prompt-name'
+            _values -s ' ' 'git options' '-b' '--brief' '-f' '--fetch' '-c' '--no-custom-config' '-d' '--no-default-config' '-p' '--prompt-name'
             ;;
         worktree)
             _alternative \
                 'worktrees:worktree:_tsm_worktrees' \
-                'options:option:(-c --not-configured -d --no-start-default -p --prompt-name)'
+                'options:option:(-c --no-custom-config -d --no-default-config -p --prompt-name)'
             ;;
         zoxide)
-            _values 'zoxide options' '-c' '--not-configured' '-d' '--no-start-default' '-p' '--prompt-name'
+            _values 'zoxide options' '-c' '--no-custom-config' '-d' '--no-default-config' '-p' '--prompt-name'
             ;;
         configured)
             _tsm_configured_sessions
