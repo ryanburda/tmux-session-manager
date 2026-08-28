@@ -111,32 +111,29 @@ ln -s ~/.local/share/tmux-session-manager/completions/tsm.fish ~/.config/fish/co
 ## Usage
 
 ```bash
-tsm                                # Show help message
-tsm active [session]               # Switch to session
-tsm kill [session]                 # Kill session (run cleanup script if present)
+tsm                                  # Show help message
+tsm active [session]                 # Switch to session
+tsm kill [session]                   # Kill session (run cleanup script if present)
 
-# Directory based sessions
-tsm dir [path] [-c] [-d] [-p]      # Create session at path
-tsm git [-b] [-f] [-c] [-d] [-p]   # Browse git repositories with fzf, creates session at path
-tsm worktree [name] [-c] [-d] [-p] # Create session at git worktree path
-tsm zoxide [query] [-c] [-d] [-p]  # Create session for zoxide match path
+tsm dir [path] [-c] [-d] [-p]        # Create session at path
+tsm git [-b] [-f] [-c] [-d] [-p]     # Browse git repositories with fzf, creates session at path
+tsm worktree [name] [-c] [-d] [-p]   # Create session at git worktree path
+tsm zoxide [query] [-c] [-d] [-p]    # Create session for zoxide match path
 
-  -c, --no-custom-config           # Ignore a custom configuration rooted at the selected path
-  -d, --no-default-config          # Skip the shared default configuration
-  -p, --prompt-name                # Prompt for the session name instead of using the default
-  -b, --brief                      # (git) Show git status information in the picker
-  -f, --fetch                      # (git) Fetch before showing the brief; implies -b
+  -c, --no-custom-config             # Ignore a custom configuration rooted at the selected path
+  -d, --no-default-config            # Skip the shared default configuration
+  -p, --prompt-name                  # Prompt for the session name instead of using the default
+  -b, --brief                        # (git) Show git status information in the picker
+  -f, --fetch                        # (git) Fetch before showing the brief; implies -b
 
-# Configuration based sessions
-tsm configured [config]            # Create configured session
-tsm logs [session]                 # Browse configured session logs
-tsm apply-default-config           # Apply the shared default configuration (inside a configuration's start())
+tsm configured [config]              # Start a configured session
+tsm logs [session]                   # Browse configured session logs
+tsm apply-default-config             # Apply the shared default configuration (inside a configuration's start())
 
-# AI agent panes
-tsm agents                         # Browse panes running an AI agent
-tsm agent-state [state]            # Record agent state on the current pane (for agent hooks)
+tsm agents                           # Browse panes running an AI agent
+tsm agent-state [state]              # Record agent state on the current pane (for agent hooks)
 
-tsm help                           # Show help message
+tsm help                             # Show help message
 ```
 
 ## tmux Keybindings
@@ -227,34 +224,48 @@ tsm session-name   # Switch to 'session-name'
 
 ## Directory Sessions
 
-Directory sessions allow you to open a new tmux session rooted at a specific directory.
-There are several options that offer different ways to pick the directory.
+Directory sessions open a tmux session rooted at a directory you pick. There
+are various pickers differing only in how they help you find the directory:
 
-### How the Layout Is Chosen
+- `tsm dir` - any path on the filesystem
+- `tsm git` - a git repository
+- `tsm worktree` - a worktree of the current repository
+- `tsm zoxide` - a zoxide entry (optional)
 
-The goal of `tsm` is create tmux sessions that are always laid the way you want them to be.
-Which layout you get is decided by the scripts in your configuration directory,
-`${XDG_CONFIG_HOME:-~/.config}/tsm/`.
-
-`dir`, `git`, `worktree` and `zoxide` differ only in how they help you pick a directory.
-Once one is picked, all four resolve the layout the same way:
+Once a directory is picked, all pickers resolve which session configuration to apply
+to the newly created session in the same way. Configuration scripts are stored in
+your configuration directory, `${XDG_CONFIG_HOME-~/.config}/tsm/`:
 
 ```
-      tsm dir  ·  tsm git  ·  tsm worktree  ·  tsm zoxide
-                             |
-                      picked directory
-                             |
-         does a ~/.config/tsm/*.sh set a matching $ROOT?
-              /                                    \
-            yes                                     no
-             |                                       |
-   start that configuration           does .default_config.sh exist?
-   (same session as tsm configured)     /                           \
-                                       yes                         no
-                                        |                           |
-                             create a session at the     create a bare session
-                             directory, then apply       at the directory
-                             .default_config.sh
+   -------------------------------------------------------
+   | tsm dir  ·  tsm git  ·  tsm worktree  ·  tsm zoxide |
+   -------------------------------------------------------
+                            |
+                   --------------------
+                   | picked directory |
+                   --------------------
+                            |
+      ---------------------------------------------------
+      | does a ~/.config/tsm/*.sh set a matching $ROOT? |
+      ---------------------------------------------------
+             /                                 \
+         -------                             ------
+         | yes |                             | no |
+         -------                             ------
+            |                                   |
+----------------------------   ----------------------------------
+| start that configuration |   | does .default_config.sh exist? |
+----------------------------   ----------------------------------
+                                 /                          \
+                              -------                     ------
+                              | yes |                     | no |
+                              -------                     ------
+                                |                            |
+                ---------------------------    -------------------------
+                | create a session at the |    | create a bare session |
+                | directory, then apply   |    |   at the directory    |
+                | .default_config.sh      |    -------------------------
+                ---------------------------
 ```
 
 1. **A custom configuration, if one claims the directory.** Every `<name>.sh` in the configuration
@@ -291,7 +302,7 @@ A third flag prompts for a session name instead of resolving to a name that is d
 Short flags can be clustered, so `tsm dir -cdp` is a convenient way to get a vanilla new tmux
 session rooted at the picked directory with the name you specify.
 
-### Direct Path (`dir`)
+### Directory (`tsm dir`)
 
 > Create a new tmux session rooted at a selected path.
 >
@@ -332,7 +343,7 @@ session rooted at the picked directory with the name you specify.
 >
 > ![Launch Directory Sessions](docs/directory_launcher.gif)
 
-### Git Repositories (`git`)
+### Git Repositories (`tsm git`)
 
 > Create a new tmux session rooted at a git repository.
 > 
@@ -381,7 +392,7 @@ session rooted at the picked directory with the name you specify.
 
 <a id="git-worktrees"></a>
 
-### Git Worktrees (`worktree`)
+### Git Worktrees (`tsm worktree`)
 
 > Create a new tmux session rooted at a git worktree.
 >
@@ -431,7 +442,7 @@ session rooted at the picked directory with the name you specify.
 > 
 > ![Zoxide Session Launcher](docs/zoxide_launcher.gif)
 
-## AI Agents (`agents`)
+## AI Agents (`tsm agents`)
 
 ```bash
 tsm agents   # Browse panes running an AI agent with fzf and jump to the selection
