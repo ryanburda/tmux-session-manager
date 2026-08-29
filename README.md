@@ -1,12 +1,27 @@
 # tmux-session-manager
 
-A simple tmux session manager
+Set up your ideal session once, get it in every project
 
-- **Define** a default layout for all of your tmux sessions
-- **Create** sessions rooted at directories or defined by configuration scripts
-- **Switch** between active sessions
-- **Kill** sessions with optional cleanup scripts
-- **Find** the AI agent that wants your attention, wherever it is running
+- **Define** how your sessions start up
+- **Create** sessions rooted at directories
+- **Switch** between sessions
+- **Kill** sessions with background cleanup hooks
+- **See** what every AI agent is doing, in any session
+
+Session setups are plain shell scripts in `${XDG_CONFIG_HOME:-~/.config}/tsm/`.
+
+No YAML, no DSL, just `tmux` commands.
+
+Write `.default_config.sh` once and every session that doesn't define its own configuration gets it.
+
+Projects that need something different get their own `<session-name>.sh`.
+
+You just define:
+- which directory that configuration is associated with
+- what to run there
+- and what to clean up on the way out
+
+`tsm` finds it automatically whenever you open that directory.
 
 ## Dependencies
 
@@ -20,7 +35,7 @@ curl -fsSL https://raw.githubusercontent.com/ryanburda/tmux-session-manager/main
 ```
 
 The command above:
-- Clones the repository to `~/.local/share/tmux-session-manager`
+- Clones the repository to `${XDG_DATA_HOME:-~/.local/share}/tmux-session-manager`
 - symlinks `tsm` into `~/.local/bin`
 
 Re-run it at any time to update to the latest revision.
@@ -113,7 +128,7 @@ ln -s ~/.local/share/tmux-session-manager/completions/tsm.fish ~/.config/fish/co
 ```bash
 tsm                                  # Show help message
 tsm active [session]                 # Switch to session
-tsm kill [session]                   # Kill session (run cleanup script if present)
+tsm kill [session]                   # Kill session (runs kill() hook if present)
 
 tsm dir [path] [-c] [-d] [-p]        # Create session at path
 tsm git [-b] [-f] [-c] [-d] [-p]     # Browse git repositories with fzf, creates session at path
@@ -163,7 +178,7 @@ bind-key l popup -E "tsm logs"
 This maps:
 - `prefix + s` - Active session switcher
 - `prefix + k` - Kill session selector
-- `prefix + X` - Kill the current session and run kill script
+- `prefix + X` - Kill the current session and run its kill() hook
 - `prefix + d` - Directory session launcher
 - `prefix + g` - Git repository session launcher
 - `prefix + G` - Git repository session launcher (with git brief)
@@ -274,7 +289,7 @@ your configuration directory, `${XDG_CONFIG_HOME-~/.config}/tsm/`:
    with its own name, `start()` and `kill()`. If that session is already running you are switched to
    it instead.
 2. **The shared default configuration, otherwise.** A session is created at the picked directory and
-   named after it, and [`.default_config.sh`](#sharing-a-default-configuration) is applied to it --
+   named after it, and [`.default_config.sh`](#defining-a-default-configuration) is applied to it --
    the same default a configuration without its own `start()` falls back to. `SESSION` is the
    session name and `ROOT` is the picked directory, exactly as a custom configuration would see
    them.
@@ -317,12 +332,13 @@ session rooted at the picked directory with the name you specify.
 > Optional flags:
 > - `-c`, `--no-custom-config` — Ignore a [custom configuration](#configured-sessions) rooted at
 >   the selected repository.
-> - `-d`, `--no-default-config` — Skip the [shared default configuration](#sharing-a-default-configuration)
+> - `-d`, `--no-default-config` — Skip the [shared default configuration](#defining-a-default-configuration)
 >   once the session is created.
 > - `-p`, `--prompt-name` — Prompt for the session name instead of using the suggested one.
 > 
-> When no path is provided, fzf by default displays all non-hidden directories within 4 levels deep of your
-> `$HOME` directory. This can be changed by setting the `TSM_DIRS_CMD` environment variable in your `.bashrc/.zshenv`.
+> When no path is provided, fzf by default displays non-hidden directories within 4 levels of your
+> `$HOME` directory, stopping at the root of each git repository. This can be changed by setting
+> the `TSM_DIRS_CMD` environment variable in your `.bashrc/.zshenv`.
 > 
 > <details>
 > <summary><strong style="font-size: 1.25em;">Modifying <code>TSM_DIRS_CMD</code></strong></summary>
@@ -359,7 +375,7 @@ session rooted at the picked directory with the name you specify.
 >   the latest remote tracking info. Implies `-b`.
 > - `-c`, `--no-custom-config` — Ignore a [custom configuration](#configured-sessions) rooted at
 >   the selected repository.
-> - `-d`, `--no-default-config` — Skip the [shared default configuration](#sharing-a-default-configuration)
+> - `-d`, `--no-default-config` — Skip the [shared default configuration](#defining-a-default-configuration)
 >   once the session is created.
 > - `-p`, `--prompt-name` — Prompt for the session name instead of using the suggested one.
 >
@@ -408,7 +424,7 @@ session rooted at the picked directory with the name you specify.
 > Optional flags:
 > - `-c`, `--no-custom-config` — Ignore a [custom configuration](#configured-sessions) rooted at
 >   the selected repository.
-> - `-d`, `--no-default-config` — Skip the [shared default configuration](#sharing-a-default-configuration)
+> - `-d`, `--no-default-config` — Skip the [shared default configuration](#defining-a-default-configuration)
 >   once the session is created.
 > - `-p`, `--prompt-name` — Prompt for the session name instead of using the suggested one.
 > 
@@ -436,7 +452,7 @@ session rooted at the picked directory with the name you specify.
 > Optional flags:
 > - `-c`, `--no-custom-config` — Ignore a [custom configuration](#configured-sessions) rooted at
 >   the selected repository.
-> - `-d`, `--no-default-config` — Skip the [shared default configuration](#sharing-a-default-configuration)
+> - `-d`, `--no-default-config` — Skip the [shared default configuration](#defining-a-default-configuration)
 >   once the session is created.
 > - `-p`, `--prompt-name` — Prompt for the session name instead of using the suggested one.
 > 
@@ -567,7 +583,7 @@ have renamed the session.
 > pane separators of a target, so a session named `my.project` would be created and then be
 > unreachable. tsm refuses such a name rather than quietly renaming the session out from under you.
 
-`tsm configured` is not the only way in. The [directory pickers](#how-the-layout-is-chosen) look for a
+`tsm configured` is not the only way in. The [directory pickers](#directory-sessions) look for a
 configuration whose `ROOT` is the path you picked, and start it when they find one, so `tsm dir`,
 `tsm git`, `tsm worktree` and `tsm zoxide` all land on the configured session for a project that
 has one. Their `-c`, `--no-custom-config` flag skips that lookup.
@@ -591,7 +607,7 @@ ROOT="$HOME/notes"
 ```
 
 With no `start()`, the session is plain -- one window, one pane at `ROOT` -- unless
-[a default configuration](#sharing-a-default-configuration) is configured, in which case that runs
+[a default configuration](#defining-a-default-configuration) is configured, in which case that runs
 instead.
 
 ![Launch Configured Sessions](docs/configured_launcher.gif)
