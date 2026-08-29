@@ -316,11 +316,11 @@ this fallback behaviour.
 > ```
 >
 > Optional flags:
-> - `-c`, `--no-custom-config` — Ignore a [custom configuration](#configured-sessions) rooted at
+> - `-c`, `--no-custom-config` - Ignore a [custom configuration](#configured-sessions) rooted at
 >   the selected repository.
-> - `-d`, `--no-default-config` — Skip the [shared default configuration](#defining-a-default-configuration)
+> - `-d`, `--no-default-config` - Skip the [shared default configuration](#defining-a-default-configuration)
 >   once the session is created.
-> - `-p`, `--prompt-name` — Prompt for the session name instead of using the suggested one.
+> - `-p`, `--prompt-name` - Prompt for the session name instead of using the suggested one.
 > 
 > When no path is provided, fzf by default displays non-hidden directories within 4 levels of your
 > `$HOME` directory, stopping at the root of each git repository. This can be changed by setting
@@ -356,15 +356,15 @@ this fallback behaviour.
 > ```
 > 
 > Optional flags:
-> - `-b`, `--brief` — Show git status information in the picker. Off by default so the picker
+> - `-b`, `--brief` - Show git status information in the picker. Off by default so the picker
 >   appears immediately.
-> - `-f`, `--fetch` — Run `git fetch` before displaying status, so the ahead/behind counts reflect
+> - `-f`, `--fetch` - Run `git fetch` before displaying status, so the ahead/behind counts reflect
 >   the latest remote tracking info. Implies `-b`.
-> - `-c`, `--no-custom-config` — Ignore a [custom configuration](#configured-sessions) rooted at
+> - `-c`, `--no-custom-config` - Ignore a [custom configuration](#configured-sessions) rooted at
 >   the selected repository.
-> - `-d`, `--no-default-config` — Skip the [shared default configuration](#defining-a-default-configuration)
+> - `-d`, `--no-default-config` - Skip the [shared default configuration](#defining-a-default-configuration)
 >   once the session is created.
-> - `-p`, `--prompt-name` — Prompt for the session name instead of using the suggested one.
+> - `-p`, `--prompt-name` - Prompt for the session name instead of using the suggested one.
 >
 > By default, `tsm git` finds all directories containing `.git` within 4 levels of `$HOME`. This can be
 > changed by setting the `TSM_GIT_DIRS_CMD` environment variable in your `.bashrc/.zshenv`.
@@ -407,11 +407,11 @@ this fallback behaviour.
 > ```
 > 
 > Optional flags:
-> - `-c`, `--no-custom-config` — Ignore a [custom configuration](#configured-sessions) rooted at
+> - `-c`, `--no-custom-config` - Ignore a [custom configuration](#configured-sessions) rooted at
 >   the selected repository.
-> - `-d`, `--no-default-config` — Skip the [shared default configuration](#defining-a-default-configuration)
+> - `-d`, `--no-default-config` - Skip the [shared default configuration](#defining-a-default-configuration)
 >   once the session is created.
-> - `-p`, `--prompt-name` — Prompt for the session name instead of using the suggested one.
+> - `-p`, `--prompt-name` - Prompt for the session name instead of using the suggested one.
 > 
 > ![Launch Worktree Sessions](docs/worktree_launcher.gif)
 
@@ -433,11 +433,11 @@ this fallback behaviour.
 > provided, it uses `zoxide query` to find the best match directly.
 > 
 > Optional flags:
-> - `-c`, `--no-custom-config` — Ignore a [custom configuration](#configured-sessions) rooted at
+> - `-c`, `--no-custom-config` - Ignore a [custom configuration](#configured-sessions) rooted at
 >   the selected repository.
-> - `-d`, `--no-default-config` — Skip the [shared default configuration](#defining-a-default-configuration)
+> - `-d`, `--no-default-config` - Skip the [shared default configuration](#defining-a-default-configuration)
 >   once the session is created.
-> - `-p`, `--prompt-name` — Prompt for the session name instead of using the suggested one.
+> - `-p`, `--prompt-name` - Prompt for the session name instead of using the suggested one.
 > 
 > ![Zoxide Session Launcher](docs/zoxide_launcher.gif)
 
@@ -492,11 +492,11 @@ option `@tsm_agent_state`. Valid states, in the order they sort in the picker:
 
 | State | Meaning |
 |-------|---------|
-| `blocked` | The agent needs input — a permission prompt or a question |
+| `blocked` | The agent needs input, a permission prompt or a question |
 | `done` | The agent finished its turn and its response is waiting |
 | `idle` | The agent is running but has nothing in flight |
 | `working` | The agent is busy |
-| `clear` | Not a state — removes the option, dropping the pane back to process detection |
+| `clear` | Not a state. Removes the option, dropping the pane back to process detection |
 
 Plus one pseudo-state:
 
@@ -787,7 +787,7 @@ tail of the currently highlighted file.
 > ```
 > 
 > **NOTE:** Background cleanup tasks in `kill()` with `&` so they run in parallel. Although `kill()`
-> itself runs asynchronously, commands within it still run sequentially — if one hangs or is slow, it
+> itself runs asynchronously, commands within it still run sequentially. If one hangs or is slow, it
 > will block the rest.
 >
 > **NOTE:** When backgrounding multiple processes, their output may interleave in the tsm log file.

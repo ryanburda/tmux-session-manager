@@ -148,14 +148,14 @@ default_session_name() {
   # worktree path, otherwise the sanitized basename. Echoes the name.
   #
   # Args:
-  #   $1: path — directory to derive the session name from
+  #   $1: path: directory to derive the session name from
   local path="$1"
 
   local git_dir
   git_dir=$(git -C "$path" rev-parse --git-dir 2>/dev/null)
 
   if [ -n "$git_dir" ] && [ "$git_dir" != ".git" ]; then
-    # Worktree — git_dir is absolute, e.g. /path/to/.bare/worktrees/wt_name
+    # Worktree: git_dir is absolute, e.g. /path/to/.bare/worktrees/wt_name
     local bare_repo_path
     bare_repo_path=$(dirname "$(dirname "$git_dir")")
     local bare_leaf
@@ -193,7 +193,7 @@ configured_session_for_root() {
   # already-resolved path the picker produced.
   #
   # Args:
-  #   $1: path — the resolved directory a directory session would be rooted at
+  #   $1: path: the resolved directory a directory session would be rooted at
   local path="$1"
 
   [ -d "$CONFIG_DIR" ] || return
@@ -224,7 +224,7 @@ session_name_prompt() {
   # Echoes the final session name.
   #
   # Args:
-  #   $1: path — directory to derive the session name from
+  #   $1: path: directory to derive the session name from
   local path="$1"
   local session_name
   session_name=$(default_session_name "$path")
@@ -375,7 +375,7 @@ kill_session() {
 
   # Run the configuration's kill hook in the background if it defines one, so
   # the session goes away immediately rather than waiting on cleanup. tsm kills
-  # the session itself either way — kill() is for everything around it.
+  # the session itself either way. kill() is for everything around it.
   if [ -f "$session_file" ]; then
     echo "[$(date '+%Y-%m-%d %H:%M:%S')] Killing session '$session'" > "$log_file"
     nohup bash -c '
@@ -402,7 +402,7 @@ configured_session() {
   # If no config provided, use fzf to select from configured sessions
   if [ -z "$config" ]; then
     # A configuration's path under $CONFIG_DIR, minus the .sh, is the session
-    # name — so nesting a configuration one directory deep is how a session
+    # name. Nesting a configuration one directory deep is how a session
     # gets a name like "myrepo/base", matching what a worktree session is
     # called. -L because configurations are commonly symlinks into a project.
     local configured_sessions
@@ -429,14 +429,14 @@ configured_session() {
     exit 1
   fi
 
-  # The configuration file names the session — there is nothing for the
+  # The configuration file names the session. There is nothing for the
   # configuration itself to declare, and nothing to disagree about. The name
   # therefore has to be one tmux can address: '.' and ':' separate the window
   # and pane parts of a target, so a session called my.project is created fine
   # and then unreachable by every "=$session" target below.
   case "$config" in
     *[.:]*)
-      notify "Error: '$config' cannot name a session — rename the file without '.' or ':'"
+      notify "Error: '$config' cannot name a session. Rename the file without '.' or ':'"
       exit 1
       ;;
   esac
@@ -489,7 +489,7 @@ configured_session() {
     if declare -F start >/dev/null; then start; else tsm apply-default-config; fi
   ' tsm "$session_file" "$session" "$width" "$height" >> "$log_file" 2>&1
 
-  # The session is missing only if it was never created — a configuration that
+  # The session is missing only if it was never created. A configuration that
   # aborted under `set -e` before tsm got to it, or a tmux failure. Either way
   # the reason is the last thing in the log.
   if ! tmux has-session -t "=$session" 2>/dev/null; then
@@ -700,8 +700,8 @@ git_session() {
   else
     if [ -n "$fetch" ]; then
       # Fetch in parallel, but bounded. Backgrounding one `git fetch` per repo
-      # and then waiting forks the whole list at once — and each fetch forks an
-      # ssh or git-remote-https child of its own — so a machine with a few
+      # and then waiting forks the whole list at once. Each fetch forks an
+      # ssh or git-remote-https child of its own. A machine with a few
       # hundred repos under $HOME opens that many remote connections at once
       # and can run into the process limit. xargs keeps a fixed number in
       # flight instead. NUL separation so repo paths with spaces survive.
@@ -849,7 +849,7 @@ agent_rows() {
   # overhanging the column. agent_picker peels the line off for fzf --header.
   #
   # The sort is -V so that window 10 lands after window 2 rather than before
-  # it, and it runs on the raw records — sorting the rendered rows would key
+  # it, and it runs on the raw records. Sorting the rendered rows would key
   # off the status dot's color escapes instead. The location's pane index is
   # for reading; the pane id in field 1 is what the picker actually targets.
   local agents
@@ -866,7 +866,7 @@ agent_rows() {
   # The state column is whatever agent_state_label emits: a dot and a space,
   # then the state padded to 7. The header mirrors that as two leading spaces
   # and its own 7 wide field, which puts `state` over the state names. 7 needs
-  # no widening — it already exceeds `state`, and every state name fits it.
+  # no widening since it already exceeds `state`, and every state name fits it.
   printf '\t  %-7s  %-*s  %s\n' 'state' "$max_loc" "$loc_label" 'agent'
 
   while IFS=$'\t' read -r state pane loc cmd; do
@@ -880,8 +880,6 @@ agent_picker() {
   #
   # The list is a snapshot: states are read once, when the picker opens, so an
   # agent that finishes while you are looking at it keeps its old status dot.
-  # Rows are built up front and reused for the empty check, since scanning is
-  # the whole cost of opening the picker — a tmux pane list plus a full `ps`.
   local rows
   rows=$(agent_rows)
 
@@ -925,11 +923,6 @@ notification_state() {
   # Maps a Claude Code Notification hook payload (JSON on stdin) to an agent
   # state, echoing it. Echoes nothing for notifications that say nothing about
   # whether the agent wants you, so the caller leaves the current state alone.
-  #
-  # The Notification event covers more than "the agent needs you" — it also
-  # fires after messageIdleNotifThresholdMs (60s by default) of sitting at the
-  # prompt, and for auth/quota chatter. Mapping the whole event to one state is
-  # what makes every agent eventually look blocked.
   local payload type message
 
   # Never block on a terminal when invoked by hand.
@@ -943,7 +936,7 @@ notification_state() {
     idle_prompt) echo idle ;;
     agent_completed) echo done ;;
     "")
-      # Older releases sent no notification_type — fall back to the message.
+      # Older releases sent no notification_type. Fall back to the message.
       message=$(printf '%s' "$payload" | sed -n 's/.*"message"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')
       case "$message" in
         *permission*) echo blocked ;;
@@ -956,10 +949,10 @@ notification_state() {
 record_agent_state() {
   # Records an AI agent's state on the tmux pane it is running in, so that
   # `tsm agents` can show it. Meant to be called from an agent's notification
-  # hooks — see the README for a Claude Code configuration.
+  # hooks. See the README for a Claude Code configuration.
   #
   # Args:
-  #   $1: state — working|blocked|done|idle|clear, or `notification` to derive
+  #   $1: state working|blocked|done|idle|clear|notification` to derive
   #       the state from a Claude Code Notification payload on stdin
   #
   # Never fails: a non-zero exit here would surface as an error in the agent.
@@ -967,7 +960,7 @@ record_agent_state() {
 
   if [ "$state" = "notification" ]; then
     state=$(notification_state)
-    # Nothing actionable in the payload — leave the pane as it is.
+    # Nothing actionable in the payload. leave the pane as it is.
     [ -n "$state" ] || exit 0
   fi
 
