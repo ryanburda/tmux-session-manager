@@ -142,7 +142,7 @@ tsm zoxide [query] [-c] [-d] [-p]    # Create session for zoxide match path
   -f, --fetch                        # (git) Fetch before showing the brief; implies -b
 
 tsm configured [config]              # Start a configured session
-tsm logs [session]                   # Browse configured session logs
+tsm logs [session]                   # Browse session logs
 tsm apply-default-config             # Apply the shared default configuration (inside a configuration's start())
 
 tsm agents                           # Browse panes running an AI agent
@@ -701,13 +701,15 @@ defines its own empty `start()` to opt out of the fallback.
 ### Logging
 
 Output from the `start()` and `kill()` hooks is redirected to a dedicated log file.
-Each configured session gets its own log directory. Logs can be found in
-`${XDG_STATE_HOME:-~/.local/state}/tsm/logs/<session-name>/tsm.log`. 
+Directory sessions are logged the same way when the default configuration runs, so
+`.default_config.sh` is as debuggable as a configuration of its own. A session created with `-d`
+runs no script and gets no log. Logs can be found in
+`${XDG_STATE_HOME:-~/.local/state}/tsm/logs/<session-name>/tsm.log`.
 
 Use `tsm logs` to browse all log files across sessions with fzf. The fzf preview pane shows the
 tail of the currently highlighted file.
 
-> **NOTE:** Each configured session's specific `tsm.log` file is wiped on each call to `start()` or `kill()`,
+> **NOTE:** Each session's `tsm.log` file is wiped on each start or kill,
 > so it only contains output from the most recent invocation. This prevents log files from growing unbounded.
 
 <details>

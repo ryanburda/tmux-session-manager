@@ -29,7 +29,7 @@ usage() {
   echo "    -f, --fetch                        # (git) Fetch before showing the brief; implies -b"
   echo "  "
   echo "  tsm configured [config]              # Start a configured session"
-  echo "  tsm logs [session]                   # Browse configured session logs"
+  echo "  tsm logs [session]                   # Browse session logs"
   echo "  tsm apply-default-config             # Apply the shared default configuration (inside a configuration's start())"
   echo "  "
   echo "  tsm agents                           # Browse panes running an AI agent"
@@ -599,12 +599,23 @@ dir_session() {
     # rather than tmux's 80x24 default for a detached session.
     local width height
     read -r width height < <(client_size)
-    tmux new-session -d -s "$session_name" -c "$selected" ${width:+-x "$width"} ${height:+-y "$height"}
 
-    # Run in a subshell: apply_default_config exits non-zero when there is no
-    # default configuration to run, and that should not tear down a session
-    # that tmux already created.
-    ( SESSION="$session_name" ROOT="$selected" apply_default_config )
+    # Logged the way a configured session is: the default configuration is a
+    # script like any other, and its output is the only thing to go on when it
+    # misbehaves. A session created with -d runs no script, so it gets no log.
+    local log_dir="$LOG_DIR/$session_name"
+    local log_file="$log_dir/tsm.log"
+    mkdir -p "$log_dir"
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] Starting session '$session_name'" > "$log_file"
+
+    {
+      tmux new-session -d -s "$session_name" -c "$selected" ${width:+-x "$width"} ${height:+-y "$height"}
+
+      # Run in a subshell: apply_default_config exits non-zero when there is no
+      # default configuration to run, and that should not tear down a session
+      # that tmux already created.
+      ( SESSION="$session_name" ROOT="$selected" apply_default_config )
+    } >> "$log_file" 2>&1
   else
     tmux new-session -d -s "$session_name" -c "$selected"
   fi
