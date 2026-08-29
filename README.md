@@ -231,18 +231,19 @@ This maps:
 ## Active Session Switcher
 
 ```bash
-tsm active         # Browse active sessions with fzf and switch to selection
-tsm session-name   # Switch to 'session-name'
+tsm active                  # Browse active sessions with fzf and switch to selection
+tsm active <session-name>   # Switch to 'session-name'
 ```
 
 ![Session Switcher](docs/session_switcher.gif)
 
 ## Directory Sessions
 
-Directory sessions open a tmux session rooted at a directory you pick. There
-are various pickers differing only in how they help you find the directory:
+Each directory session picker shown below opens a tmux session rooted at
+a directory you pick. There are various pickers differing only in how they
+help you find the directory:
 
-- `tsm dir` - any path on the filesystem
+- `tsm dir` - any directory on the filesystem
 - `tsm git` - a git repository
 - `tsm worktree` - a worktree of the current repository
 - `tsm zoxide` - a zoxide entry (optional)
@@ -283,42 +284,27 @@ your configuration directory, `${XDG_CONFIG_HOME-~/.config}/tsm/`:
                 ---------------------------
 ```
 
-1. **A custom configuration, if one claims the directory.** Every `<name>.sh` in the configuration
-   directory is checked for a `ROOT` equal to the path you picked. The first match starts as a
-   [configured session](#configured-sessions) -- the same session `tsm configured <name>` gives you,
-   with its own name, `start()` and `kill()`. If that session is already running you are switched to
-   it instead.
-2. **The shared default configuration, otherwise.** A session is created at the picked directory and
-   named after it, and [`.default_config.sh`](#defining-a-default-configuration) is applied to it --
-   the same default a configuration without its own `start()` falls back to. `SESSION` is the
-   session name and `ROOT` is the picked directory, exactly as a custom configuration would see
-   them.
-3. **Nothing, if there is no `.default_config.sh` either.** You get a plain one-window session at the
-   picked directory.
+1. **A custom configuration is applied if a configuration script claims the directory.**
 
-So a project with a script of its own gets that script no matter how you arrived at its directory,
-and everything else still comes up in your usual layout. A bare `tsm dir` therefore creates and lays
-out the session the first time and simply switches you to it on every call after that, since step 1
-and step 2 both recognize a session that already exists.
+   Every `<name>.sh` in the configuration directory is checked for a `ROOT` equal to the
+   path you picked. The first match starts as a [configured session](#configured-sessions),
+   with its own name, `start()` and `kill()`.
+2. **The shared default configuration, otherwise.**
 
-Two flags step out of the chain, allowing you to pick a directory with no session configuration applied after:
+   A session is created at the picked directory, named after that directory, and
+   [`.default_config.sh`](#defining-a-default-configuration) is applied to it.
+3. **Nothing, if there is no `.default_config.sh` either.**
 
-- `-c`, `--no-custom-config` — Skip step 1. Ignore any custom configuration rooted at the picked
-  path and create an ordinary directory session there, laid out by the default configuration.
-- `-d`, `--no-default-config` — Skip step 2. Create a plain session with nothing applied to it.
+   You get a plain one-window session at the picked directory.
 
-Passing `-cd` is a convenient way to get a vanilla new tmux session rooted at the picked directory.
+So a project with a script of its own gets that script no matter which directory picker you use,
+and everything else comes up in your usual setup.
 
-A third flag prompts for a session name instead of resolving to a name that is determined for you:
+Every picker takes the same flags: `-c` skips step 1, `-d` skips step 2 to allow you to bypass
+this fallback behaviour.
 
-- `-p`, `--prompt-name` — Prompt for the session name instead of using the suggested one.
-  In all cases `tsm` will switch to an existing session with the same name if one already exists.
-
-Short flags can be clustered, so `tsm dir -cdp` is a convenient way to get a vanilla new tmux
-session rooted at the picked directory with the name you specify.
-
-### Directory (`tsm dir`)
-
+> ### Directory (`tsm dir`)
+>
 > Create a new tmux session rooted at a selected path.
 >
 > ```bash
@@ -359,13 +345,14 @@ session rooted at the picked directory with the name you specify.
 >
 > ![Launch Directory Sessions](docs/directory_launcher.gif)
 
-### Git Repositories (`tsm git`)
-
+> ### Git Repositories (`tsm git`)
+>
 > Create a new tmux session rooted at a git repository.
 > 
 > ```bash
-> tsm git      # Browse git repositories with fzf, then run the custom/default config
-> tsm git -bf  # Browse git repositories with fzf, showing a brief summary fetched from origin
+> tsm git           # Browse git repositories with fzf, then run the custom/default config
+> tsm git -bf       # Browse git repositories with fzf, showing a brief summary fetched from origin
+> tsm git <path>    # Start session for git repo as path 'path'
 > ```
 > 
 > Optional flags:
@@ -408,17 +395,15 @@ session rooted at the picked directory with the name you specify.
 
 <a id="git-worktrees"></a>
 
-### Git Worktrees (`tsm worktree`)
-
+> ### Git Worktrees (`tsm worktree`)
+>
 > Create a new tmux session rooted at a git worktree.
 >
 > **NOTE:** Can only be run when the current working directory is inside a git repo
 >
 > ```bash
-> tsm worktree             # Browse worktrees for current git repo with fzf
-> tsm worktree other       # Start session for worktree named 'other'
-> tsm worktree other -d    # Same, but skip the default config
-> tsm worktree other -p    # Prompt for the session name instead of using the default
+> tsm worktree         # Browse worktrees for current git repo with fzf
+> tsm worktree <wt>    # Start session for worktree named 'wt'
 > ```
 > 
 > Optional flags:
@@ -430,17 +415,15 @@ session rooted at the picked directory with the name you specify.
 > 
 > ![Launch Worktree Sessions](docs/worktree_launcher.gif)
 
-### Zoxide (`zoxide`, Optional)
-
+> ### Zoxide (`zoxide`, Optional)
+>
 > The Zoxide version of `dir`
 >
 > Requires **[zoxide](https://github.com/ajeetdsouza/zoxide)**.
 >
 > ```bash
-> tsm zoxide            # Browse zoxide entries interactively and start session from selection
-> tsm zoxide proj       # Start a session at the best zoxide match for "proj"
-> tsm zoxide proj -d    # Same, but skip the default config
-> tsm zoxide proj -p    # Prompt for the session name instead of using the default
+> tsm zoxide           # Browse zoxide entries interactively and start session from selection
+> tsm zoxide <proj>    # Start a session at the best zoxide match for "proj"
 > ```
 > 
 > Zoxide tracks directories you visit frequently, ranking them by "frecency" (frequency + recency). This makes
@@ -481,7 +464,7 @@ A pane shows up in the picker if either of the following is true:
 
 1. It has a recorded agent state (see [Agent State Hooks](#agent-state-hooks) below).
 2. A known agent command is running anywhere in the pane's process tree. These panes are listed
-   with the state `unknown` — the agent is running, but nothing has told `tsm` what it is doing.
+   with the state `unknown` (the agent is running, but nothing has told `tsm` what it is doing).
 
 The commands recognized in step 2 default to:
 
@@ -497,7 +480,8 @@ export TSM_AGENT_CMDS="claude codex my-agent"
 
 <a id="agent-state-hooks"></a>
 
-### Agent State Hooks
+<details>
+<summary><strong style="font-size: 1.25em;">Agent State Hooks</strong></summary>
 
 Process detection tells you an agent is *running*; it can't tell you whether it is churning through
 a task, waiting on a permission prompt, or done. Agents that support notification hooks can report
@@ -518,53 +502,32 @@ Plus one pseudo-state:
 
 | Argument | Meaning |
 |----------|---------|
-| `notification` | Derive the state from an agent notification payload on stdin (see below) |
+| `notification` | Derive the state from an agent notification payload on stdin |
 
 The command is safe to call from anywhere: it does nothing outside of tmux, ignores unknown states,
 and always exits `0` so a misconfiguration never surfaces as an error inside the agent.
 
-<details>
-<summary><strong>Claude Code</strong></summary>
-
-> Add to `~/.claude/settings.json`:
->
-> ```json
-> {
->   "hooks": {
->     "SessionStart": [
->       { "hooks": [{ "type": "command", "command": "tsm agent-state idle" }] }
->     ],
->     "UserPromptSubmit": [
->       { "hooks": [{ "type": "command", "command": "tsm agent-state working" }] }
->     ],
->     "Notification": [
->       { "hooks": [{ "type": "command", "command": "tsm agent-state notification" }] }
->     ],
->     "Stop": [
->       { "hooks": [{ "type": "command", "command": "tsm agent-state done" }] }
->     ],
->     "SessionEnd": [
->       { "hooks": [{ "type": "command", "command": "tsm agent-state clear" }] }
->     ]
->   }
-> }
-> ```
->
-> **NOTE:** Hooks run in a non-interactive shell, so `tsm` must be on the PATH that shell starts with
-> — the same requirement as the tmux keybindings above. Use the absolute path to the script
-> (`$HOME/.local/bin/tsm agent-state idle`) if that is inconvenient.
+See [Agent Hook Setup](docs/agent-hooks.md) for how to wire this into a particular agent.
 
 </details>
 
 <a id="configured-sessions"></a>
 
-## Configured Sessions (`configured`)
+## Configured Sessions (`tsm configured`)
 
 Script up the perfect window/pane layout and automate tasks like starting up services when a session starts.
 Ideal for projects you work on regularly to keep things consistent and reproducible.
 
+> ```bash
+> tsm configured                   # Browse the set of configured sessions with fzf, then launch that session
+> tsm configured <session-name>    # Start a configured session with name <session-name>
+> ```
+
+![Launch Configured Sessions](docs/configured_launcher.gif)
+
 Session configurations are shell scripts stored in `${XDG_CONFIG_HOME:-~/.config}/tsm/<config-name>.sh`.
-**The file's name is the session's name** -- `myproject.sh` starts a session called `myproject`.
+
+**The file's name is the session's name** (`myproject.sh` starts a session called `myproject`).
 
 tsm owns the session's lifecycle: it creates the session before your configuration runs, and kills it
 when you kill the session. Everything the file defines is therefore optional, and describes what you
@@ -574,10 +537,6 @@ want *beyond* a plain session:
   - `start()`: Function that defines how the session should be customized. The session already exists
     by the time it runs. This is where you add windows, split panes, run services.
   - `kill()`: Runs asynchronously when the session is killed. Use this for cleanup tasks like stopping services.
-
-`SESSION` is set for you, and exported before the file is sourced so top-level code and `start()`
-alike can use it. There is nothing to declare and nothing to keep in sync: rename the file and you
-have renamed the session.
 
 > **NOTE:** Configuration file names cannot contain `.` or `:`. tmux reads both as the window and
 > pane separators of a target, so a session named `my.project` would be created and then be
@@ -594,29 +553,28 @@ sort next to them in the switcher:
 
 ```
 ~/.config/tsm/
-  notes.sh                 ->  session "notes"
-  myrepo/base.sh           ->  session "myrepo/base"
-  myrepo/experiment.sh     ->  session "myrepo/experiment"
+  notes.sh                ->  session "notes"
+  myrepo/base.sh          ->  session "myrepo/base"
+  myrepo/experiment.sh    ->  session "myrepo/experiment"
 ```
 
-The smallest useful configuration is a single line:
+An empty file is a valid configured session. This will launch a new session
+at `$HOME` with a single window and pane.
+
+A configured session file with just `$ROOT` specified is also valid.
+This will launch a session at the `$ROOT` with a single window and pane.
 
 ```bash
 # ~/.config/tsm/notes.sh  ->  a session named "notes", rooted at ~/notes
 ROOT="$HOME/notes"
 ```
 
-With no `start()`, the session is plain -- one window, one pane at `ROOT` -- unless
-[a default configuration](#defining-a-default-configuration) is configured, in which case that runs
-instead.
+### Building a Session
 
-![Launch Configured Sessions](docs/configured_launcher.gif)
-
-### Building Layouts
-
-Session configurations are plain shell scripts calling `tmux` directly. The session already exists by
-the time `start()` runs -- one window holding one pane, rooted at `ROOT` -- so a layout is built by
-splitting off that pane and sending commands into the panes that result:
+Session configurations are plain shell scripts calling `tmux` commands directly.
+The session already exists by the time `start()` runs with one window holding one
+pane, rooted at `ROOT`. Building a session involves splitting off that pane, creating
+new windows, and sending commands into the panes that result:
 
 ```bash
 ROOT="$HOME/code/myproject"
@@ -633,8 +591,9 @@ capturing ids and splitting off them. Positional targets like `"$SESSION:code.1"
 you as soon as a later split renumbers the window; ids never do.
 
 The session tsm hands you has one window holding one pane, so
-`tmux display-message -p -t "$SESSION" '#{pane_id}'` is the way in -- it prints that pane's id.
-Naming its window is one more command, and only worth doing if you care what the window is called:
+`tmux display-message -p -t "$SESSION" '#{pane_id}'` is the way in. That command
+prints that pane's id. Naming its window is one more command, and only worth doing
+if you care what the window is called:
 
 ```bash
 start() {
@@ -648,8 +607,7 @@ saves constructing a window target of your own.
 
 `-c "$ROOT"` is worth passing to every `split-window` and `new-window`. Without it a new pane
 inherits the working directory of the pane it came from, which is only `ROOT` until something in the
-layout has `cd`'d somewhere else. `SESSION` and `ROOT` are both exported around `start()` and
-`kill()`, so they are in the environment of everything the configuration runs.
+layout has `cd`'d somewhere else.
 
 <details>
 <summary><strong style="font-size: 1.25em;">Example: an editor and an agent</strong></summary>
@@ -714,7 +672,7 @@ tmux send-keys -t "$ai" 'ai' Enter
 tmux select-pane -t "$code"
 ```
 
-A configuration that defines no `start()` at all gets it automatically -- tsm falls back to
+A configuration that defines no `start()` at all gets it automatically. tsm falls back to
 `tsm apply-default-config` whenever a configuration doesn't define `start()`:
 
 ```bash
@@ -736,16 +694,15 @@ start() {
 ```
 
 `tsm apply-default-config` sources `.default_config.sh` at the point it's called, with `SESSION` and
-`ROOT` already in the environment -- same as any other command `start()` runs. `.default_config.sh`
-itself is excluded from the configured-session list and picker, since it is not a session to start. A
-configuration that wants no layout at all -- not even the default -- defines its own empty `start()`
-to opt out of the fallback.
+`ROOT` already in the environment. `.default_config.sh` itself is excluded from the configured-session
+list and picker, since it is not a session to start. A configuration that wants no layout at all
+defines its own empty `start()` to opt out of the fallback.
 
 ### Logging
 
-Output from the `start()` and `kill()` hooks -- and from the session creation around them -- is
-redirected to a dedicated log file. Each configured session gets its own log directory.
-Logs can be found in `${XDG_STATE_HOME:-~/.local/state}/tsm/logs/<session-name>/tsm.log`. 
+Output from the `start()` and `kill()` hooks is redirected to a dedicated log file.
+Each configured session gets its own log directory. Logs can be found in
+`${XDG_STATE_HOME:-~/.local/state}/tsm/logs/<session-name>/tsm.log`. 
 
 Use `tsm logs` to browse all log files across sessions with fzf. The fzf preview pane shows the
 tail of the currently highlighted file.
@@ -795,7 +752,7 @@ tail of the currently highlighted file.
 > }
 > ```
 > 
-> See [Building Layouts](#building-layouts) for the pane-addressing idiom these examples use, and
+> See [Building a Session](#building-a-session) for the pane-addressing idiom these examples use, and
 > `man tmux` for the full command list.
 
 </details>
