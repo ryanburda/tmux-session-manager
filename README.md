@@ -133,6 +133,7 @@ ln -s ~/.local/share/tmux-session-manager/completions/tsm.fish ~/.config/fish/co
 bind-key s popup -E "tsm active"
 bind-key k popup -E "tsm kill"
 bind-key X run-shell "tsm kill #{session_name}"
+bind-key l run-shell "tsm last"
 
 # Directory based sessions
 bind-key d popup -E "tsm dir"
@@ -142,19 +143,20 @@ bind-key w popup -E "tsm worktree"
 
 # Configuration based sessions
 bind-key c popup -E "tsm configured"
-bind-key l popup -E "tsm logs"
+bind-key L popup -E "tsm logs"
 ```
 
 This maps:
 - `prefix + s` - Active session switcher
 - `prefix + k` - Kill session selector
 - `prefix + X` - Kill the current session and run its kill() hook
+- `prefix + l` - Switch to the most recent session that is still open
 - `prefix + d` - Directory session launcher
 - `prefix + g` - Git repository session launcher
 - `prefix + G` - Git repository session launcher (with git brief)
 - `prefix + w` - Worktree session launcher
 - `prefix + c` - Configured session launcher
-- `prefix + l` - Browse configured session logs
+- `prefix + L` - Browse configured session logs
 
 <details>
 <summary><strong style="font-size: 1.25em;">Troubleshooting Keybinds</strong></summary>
@@ -201,8 +203,8 @@ This maps:
 ```bash
 tsm                                  # Show help message
 tsm active [session]                 # Switch to session
-tsm last                             # Switch to the most recent session that is still open
 tsm kill [session]                   # Kill session (runs kill() hook if present)
+tsm last                             # Switch to the most recent session that is still open
 
 tsm dir [path] [-c] [-d] [-p]        # Create session at path
 tsm git [-b] [-f] [-c] [-d] [-p]     # Browse git repositories with fzf, creates session at path
