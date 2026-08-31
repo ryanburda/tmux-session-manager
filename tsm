@@ -4,7 +4,6 @@ CONFIG_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/tsm"
 STATE_DIR="${XDG_STATE_HOME:-$HOME/.local/state}/tsm"
 LOG_DIR="$STATE_DIR/logs"
 HISTORY_FILE="$STATE_DIR/session_history"
-HISTORY_MAX_LINES=32
 mkdir -p "$CONFIG_DIR" "$LOG_DIR"
 
 TSM_DIRS_CMD_DEFAULT='find "$HOME" -maxdepth 4 -name ".*" -prune -o -type d \( -exec test -e {}/.git \; -print -prune -o -print \)'
@@ -54,8 +53,29 @@ notify() {
 }
 
 get_active_sessions() {
-  # Lists active tmux session names, one per line.
-  tmux ls 2>/dev/null | awk -F: '{print $1}'
+  # Lists active tmux session names, one per line. Formatted rather than cut
+  # out of `tmux ls` output, which would split a name at its first colon.
+  tmux list-sessions -F '#{session_name}' 2>/dev/null
+}
+
+prune_history() {
+  # Drops sessions that are no longer running from HISTORY_FILE, so the
+  # history only ever holds sessions that could still be switched to.
+  [ -f "$HISTORY_FILE" ] || return 0
+
+  local active
+  active=$(get_active_sessions)
+
+  # Whole-line keys, so a session name is never read as a pattern. Passed
+  # through the environment rather than -v, which would expand a backslash
+  # in a session name as an escape sequence.
+  TSM_ACTIVE="$active" awk '
+    BEGIN {
+      n = split(ENVIRON["TSM_ACTIVE"], names, "\n")
+      for (i = 1; i <= n; i++) live[names[i]]
+    }
+    $0 in live
+  ' "$HISTORY_FILE" > "$HISTORY_FILE.tmp" && mv "$HISTORY_FILE.tmp" "$HISTORY_FILE"
 }
 
 record_switch() {
@@ -75,6 +95,10 @@ record_switch() {
 
   [ -n "$from" ] && [ "$from" != "$to" ] || return
 
+  # Validated on every write. This, plus the dedupe below, is what bounds
+  # the file: it holds one line per session that is currently running.
+  prune_history
+
   # Compacted on every write. Drops any earlier occurrence of this session
   # before appending it. This prevents the history file from containing
   # duplicates of the same session name when only its most recent position
@@ -88,9 +112,6 @@ record_switch() {
   fi
 
   echo "$from" >> "$HISTORY_FILE"
-  # Trimmed on write rather than left to grow forever; a plain session
-  # history has no other natural end to prune it at.
-  tail -n "$HISTORY_MAX_LINES" "$HISTORY_FILE" > "$HISTORY_FILE.tmp" && mv "$HISTORY_FILE.tmp" "$HISTORY_FILE"
 }
 
 switch_or_attach() {
@@ -202,10 +223,10 @@ default_session_name() {
       repo_name="$bare_leaf"
     fi
 
-    local worktree_name
-    worktree_name=$(basename "$path")
-
-    echo "$(sanitize_directory_session_name "$repo_name")/${worktree_name}"
+    # Both halves sanitized: a worktree directory named for a branch like
+    # v1.2 would otherwise put a period in the session name, which tmux
+    # reads as a pane separator in every target it is later named in.
+    echo "$(sanitize_directory_session_name "$repo_name")/$(sanitize_directory_session_name "$path")"
   else
     sanitize_directory_session_name "$path"
   fi
@@ -270,7 +291,20 @@ session_name_prompt() {
       prompt="$prompt [$(tput setaf 4)${session_name}$(tput sgr0)]"
     fi
     read -rp "$prompt: " user_input
-    session_name="${user_input:-$session_name}"
+    local candidate="${user_input:-$session_name}"
+
+    # tmux target syntax is session:window.pane, so a name holding either
+    # separator can be created and then never referred to again. tsm cannot
+    # switch to or kill it, and neither can tmux. Rejected rather than
+    # rewritten: the name the user typed is not tsm's to change.
+    case "$candidate" in
+      *[:.]*)
+        printf "$(tput setaf 1)Session names cannot contain ':' or '.'$(tput sgr0)\n" >&2
+        continue
+        ;;
+    esac
+
+    session_name="$candidate"
     if ! tmux has-session -t "=$session_name" 2>/dev/null; then
       break
     fi
@@ -311,23 +345,29 @@ active_session() {
 }
 
 last_session() {
-  # Switches to the most recently visited session that is still open --
-  # what `tmux switch-client -l` gets at, but robust to the previous
+  # Switches to the most recently visited session that is still open.
+  # What `tmux switch-client -l` gets at, but robust to the previous
   # session having been closed since. record_switch builds HISTORY_FILE up
-  # as sessions are left, oldest first, so it is walked newest first here,
-  # skipping the current session and any that are no longer running, to
-  # find the first one that still is.
+  # as sessions are left, oldest first, and prune_history keeps only the
+  # ones still running, so it is walked newest first here to find the first
+  # that is not the session already being looked at.
   if [ ! -f "$HISTORY_FILE" ]; then
     notify "No session history yet -- see README for the tmux.conf hook 'tsm last' needs"
     exit 1
   fi
 
+  # Validated again on the way in: the file is only written when a switch
+  # happens, so sessions closed since the last one are still in it here.
+  prune_history
+
   local current=""
   [ -n "$TMUX" ] && current=$(tmux display-message -p '#S' 2>/dev/null)
 
+  # Every line left in the file names a session that was running as of the prune
+  # above, so the newest one that is not the current session is the target.
   local target=""
   while IFS= read -r session; do
-    if [ "$session" != "$current" ] && tmux has-session -t "=$session" 2>/dev/null; then
+    if [ "$session" != "$current" ]; then
       target="$session"
       break
     fi
