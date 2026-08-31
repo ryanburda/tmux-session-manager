@@ -20,7 +20,6 @@ usage() {
   echo "  tsm dir [path] [-c] [-d] [-p]            # Create session at path"
   echo "  tsm git [path] [-b] [-f] [-c] [-d] [-p]  # Browse git repositories with fzf, creates session at path"
   echo "  tsm worktree [name] [-c] [-d] [-p]       # Create session at git worktree path"
-  echo "  tsm zoxide [query] [-c] [-d] [-p]        # Create session for zoxide match path"
   echo "  "
   echo "    -c, --no-custom-config                 # Ignore a custom configuration rooted at the selected path"
   echo "    -d, --no-default-config                # Skip the shared default configuration"
@@ -680,49 +679,6 @@ dir_session() {
   switch_or_attach "$session_name"
 }
 
-zoxide_session() {
-  local query="" no_custom_config="" no_default_config="" prompt_name=""
-  expand_short_flags "$@"
-  for arg in "${EXPANDED_ARGS[@]}"; do
-    case "$arg" in
-      -c | --no-custom-config) no_custom_config=1 ;;
-      -d | --no-default-config) no_default_config=1 ;;
-      -p | --prompt-name) prompt_name=1 ;;
-      -*)
-        notify "Error: Unknown option '$arg' for 'tsm zoxide'"
-        exit 1
-        ;;
-      *) query="$arg" ;;
-    esac
-  done
-
-  local selected
-
-  if ! command -v zoxide &> /dev/null; then
-    notify "Error: zoxide is not installed"
-    exit 1
-  fi
-
-  if [ -n "$query" ]; then
-    # Query provided, use zoxide query directly
-    selected=$(zoxide query "$query" 2>/dev/null)
-
-    if [ -z "$selected" ]; then
-      notify "Error: No zoxide match found for '$query'"
-      exit 1
-    fi
-  else
-    # No query provided, use zoxide query -i for interactive selection
-    selected=$(zoxide query -i 2>/dev/null)
-
-    if [ -z "$selected" ]; then
-      exit 0
-    fi
-  fi
-
-  dir_session "$selected" ${no_custom_config:+--no-custom-config} ${no_default_config:+--no-default-config} ${prompt_name:+--prompt-name}
-}
-
 git_session() {
   local brief="" fetch="" no_custom_config="" no_default_config="" prompt_name=""
   expand_short_flags "$@"
@@ -1058,9 +1014,6 @@ case "$command" in
     ;;
   worktree)
     worktree_session "$@"
-    ;;
-  zoxide)
-    zoxide_session "$@"
     ;;
   configured)
     configured_session "$1"

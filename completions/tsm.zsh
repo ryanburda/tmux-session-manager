@@ -50,7 +50,6 @@ _tsm_commands() {
         'dir:Browse/start session at directory'
         'git:Browse git repositories with fzf'
         'worktree:Browse worktrees for current git repo session'
-        'zoxide:Browse/start session via zoxide'
         'configured:Browse/start configured sessions'
         'logs:Browse session logs'
         'apply-default-config:Apply the default configuration start hook'
@@ -87,9 +86,6 @@ _tsm() {
             _alternative \
                 'worktrees:worktree:_tsm_worktrees' \
                 'options:option:(-c --no-custom-config -d --no-default-config -p --prompt-name)'
-            ;;
-        zoxide)
-            _values 'zoxide options' '-c' '--no-custom-config' '-d' '--no-default-config' '-p' '--prompt-name'
             ;;
         configured)
             _tsm_configured_sessions

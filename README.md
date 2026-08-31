@@ -29,7 +29,6 @@ You just define:
 
 ### Optional Dependencies
 - `ps` (for `tsm agents`)
-- `zoxide` (for `tsm zoxide`)
 
 ### Installation
 ```bash
@@ -144,7 +143,6 @@ bind-key d popup -E "tsm dir"
 bind-key g popup -E "tsm git"
 bind-key G popup -E "tsm git -bf"
 bind-key w popup -E "tsm worktree"
-bind-key z popup -E "tsm zoxide"
 
 # AI agent sessions
 bind-key a popup -E "tsm agents"
@@ -162,7 +160,6 @@ This maps:
 - `prefix + g` - Git repository session launcher
 - `prefix + G` - Git repository session launcher (with git brief)
 - `prefix + w` - Worktree session launcher
-- `prefix + z` - Zoxide directory session launcher
 - `prefix + a` - AI agent picker
 - `prefix + c` - Configured session launcher
 - `prefix + l` - Browse configured session logs
@@ -217,7 +214,6 @@ tsm kill [session]                   # Kill session (runs kill() hook if present
 tsm dir [path] [-c] [-d] [-p]        # Create session at path
 tsm git [-b] [-f] [-c] [-d] [-p]     # Browse git repositories with fzf, creates session at path
 tsm worktree [name] [-c] [-d] [-p]   # Create session at git worktree path
-tsm zoxide [query] [-c] [-d] [-p]    # Create session for zoxide match path
 
   -c, --no-custom-config             # Ignore a custom configuration rooted at the selected path
   -d, --no-default-config            # Skip the shared default configuration
@@ -292,15 +288,14 @@ help you find the directory:
 - `tsm dir` - any directory on the filesystem
 - `tsm git` - a git repository
 - `tsm worktree` - a worktree of the current repository
-- `tsm zoxide` - a zoxide entry (optional)
 
 Once a directory is picked, all pickers resolve which session configuration to apply
 to the newly created session in the same way:
 
 ```
-   -------------------------------------------------------
-   | tsm dir  ·  tsm git  ·  tsm worktree  ·  tsm zoxide |
-   -------------------------------------------------------
+          ----------------------------------------
+          | tsm dir  ·  tsm git  ·  tsm worktree |
+          ----------------------------------------
                             |
                    --------------------
                    | picked directory |
@@ -329,7 +324,7 @@ to the newly created session in the same way:
                 ---------------------------
 ```
 
-All four pickers take the same flags. `-c` and `-d` opt out of a step of the resolution above:
+All three pickers take the same flags. `-c` and `-d` opt out of a step of the resolution above:
 
 - `-c`, `--no-custom-config` - Ignore a [custom configuration](#configured-sessions) rooted at the
   picked directory and apply the default configuration instead.
@@ -337,7 +332,7 @@ All four pickers take the same flags. `-c` and `-d` opt out of a step of the res
   leaving a bare session at the directory.
 - `-p`, `--prompt-name` - Prompt for the session name instead of using the suggested one.
 
-Each picker also takes an argument (a path, a worktree name, a zoxide query) to skip `fzf` and go
+Each picker also takes an argument (a path, a worktree name) to skip `fzf` and go
 straight to a session.
 
 See [Usage](#usage) for the exact arguments.
@@ -415,18 +410,6 @@ See [Usage](#usage) for the exact arguments.
 > **NOTE:** Can only be run when the current working directory is inside a git repo
 > 
 > ![Launch Worktree Sessions](docs/worktree_launcher.gif)
-
-> ### Zoxide (`tsm zoxide`, Optional)
->
-> A zoxide entry. Requires **[zoxide](https://github.com/ajeetdsouza/zoxide)**.
->
-> Zoxide tracks directories you visit frequently, ranking them by "frecency" (frequency + recency). This makes
-> it easy to jump to projects with just a few characters of the directory name.
-> 
-> When no query is provided, `tsm zoxide` uses `zoxide query -i` for interactive selection with fzf. When a query is
-> provided, it uses `zoxide query` to find the best match directly.
-> 
-> ![Zoxide Session Launcher](docs/zoxide_launcher.gif)
 
 <a id="configured-sessions"></a>
 

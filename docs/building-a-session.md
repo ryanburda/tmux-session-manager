@@ -187,7 +187,7 @@ start() {
 ```
 
 [Directory sessions](../README.md#directory-sessions) get both hooks without asking: any session
-`tsm dir`, `tsm git`, `tsm worktree` or `tsm zoxide` creates that no configuration of its own claims
+`tsm dir`, `tsm git` or `tsm worktree` creates that no configuration of its own claims
 runs the default `start()` on the way in and the default `kill()` on the way out. `SESSION` is the
 new session's name and `ROOT` is the directory you picked.
 
