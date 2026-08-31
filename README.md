@@ -1,32 +1,35 @@
 # tmux-session-manager
 
-Set up your ideal tmux session once, get it in every project
+Directory-based tmux sessions, configured on creation
 
-- **Define** how your sessions start up
 - **Create** sessions rooted at directories
+- **Script** up how your sessions starts
 - **Switch** between sessions
 - **Kill** sessions with background cleanup hooks
-- **See** what every AI agent is doing, in any session
+- **Observe** AI agents across all sessions
 
 Session configurations are plain shell scripts. No YAML, no DSL.
 
-Write a default configuration once and every session that doesn't define its own gets it.
+Write a default configuration for a familiar setup across projects.
 
-Projects that need something different get their own configuration script.
+Write custom configurations for projects that need something a bit different.
 
 You just define:
 - which directory that configuration is associated with
 - what to run on startup
 - and what to clean up on the way out
 
-`tsm` applies the appropriate configuration whenever a new tmux session is created for that directory.
+`tsm` applies the appropriate configuration based on which directory the session is rooted in.
 
 ## Install
 
 ### Dependencies
 
 - `fzf`
-- `ps` (only for `tsm agents`)
+
+### Optional Dependencies
+- `ps` (for `tsm agents`)
+- `zoxide` (for `tsm zoxide`)
 
 ### Installation
 ```bash
@@ -39,7 +42,7 @@ The command above:
 
 Re-run it at any time to update to the latest revision.
 
-**NOTE:** Shell completions are not installed by the script. See Shell Completions below.
+Shell completions are not installed by the script. See Shell Completions section below.
 
 <details>
 <summary><strong style="font-size: 1.25em;">Custom Installation</strong></summary>
@@ -273,7 +276,7 @@ The default configuration is applied to any session started with one of the
 [directory session pickers](#directory-sessions) if a custom configuration doesn't exist for the
 selected directory.
 
-# Command Overview
+# Overview
 
 ## Directory Sessions
 
@@ -287,7 +290,7 @@ help you find the directory:
 - `tsm zoxide` - a zoxide entry (optional)
 
 Once a directory is picked, all pickers resolve which session configuration to apply
-to the newly created session in the same way.
+to the newly created session in the same way:
 
 ```
    -------------------------------------------------------
@@ -321,32 +324,30 @@ to the newly created session in the same way.
                 ---------------------------
 ```
 
+All four pickers take the same flags. `-c` and `-d` opt out of a step of the resolution above:
+
+- `-c`, `--no-custom-config` - Ignore a [custom configuration](#configured-sessions) rooted at the
+  picked directory and apply the default configuration instead.
+- `-d`, `--no-default-config` - Skip the [shared default configuration](docs/building-a-session.md#defining-a-default-configuration),
+  leaving a bare session at the directory.
+- `-p`, `--prompt-name` - Prompt for the session name instead of using the suggested one.
+
+Each picker also takes an argument (a path, a worktree name, a zoxide query) to skip `fzf` and go
+straight to a session.
+
+See [Usage](#usage) for the exact arguments.
+
 > ### Directory (`tsm dir`)
 >
-> Create a new tmux session rooted at a selected path.
+> Any directory on the filesystem.
 >
-> ```bash
-> tsm dir                       # Browse directories with fzf, then run the custom/default config
-> tsm dir ~/code/projectA       # Start a session directly at ~/code/projectA
-> tsm dir -d                    # Browse directories with fzf, skipping the default config
-> tsm dir ~/code/projectA -p    # Prompt for the session name instead of using the default
-> tsm dir ~/code/projectA -c    # Default config, even if a custom config is rooted there
-> ```
+> By default fzf displays non-hidden directories within 4 levels of your `$HOME` directory, stopping
+> at the root of each git repository. This can be changed by setting the `TSM_DIRS_CMD` environment
+> variable in your `.bashrc/.zshenv`.
 >
-> Optional flags:
-> - `-c`, `--no-custom-config` - Ignore a [custom configuration](#configured-sessions) rooted at
->   the selected repository.
-> - `-d`, `--no-default-config` - Skip the [shared default configuration](docs/building-a-session.md#defining-a-default-configuration)
->   once the session is created.
-> - `-p`, `--prompt-name` - Prompt for the session name instead of using the suggested one.
-> 
-> When no path is provided, fzf by default displays non-hidden directories within 4 levels of your
-> `$HOME` directory, stopping at the root of each git repository. This can be changed by setting
-> the `TSM_DIRS_CMD` environment variable in your `.bashrc/.zshenv`.
-> 
 > <details>
 > <summary><strong style="font-size: 1.25em;">Modifying <code>TSM_DIRS_CMD</code></strong></summary>
-> 
+>
 > > `TSM_DIRS_CMD` can be set to any command that returns directories.
 > >
 > > The following example shows:
@@ -365,27 +366,16 @@ to the newly created session in the same way.
 
 > ### Git Repositories (`tsm git`)
 >
-> Create a new tmux session rooted at a git repository.
-> 
-> ```bash
-> tsm git           # Browse git repositories with fzf, then run the custom/default config
-> tsm git -bf       # Browse git repositories with fzf, showing a brief summary fetched from origin
-> tsm git <path>    # Start session for git repo as path 'path'
-> ```
-> 
-> Optional flags:
+> A git repository.
+>
+> By default `tsm git` finds all directories containing `.git` within 4 levels of `$HOME`. This can
+> be changed by setting the `TSM_GIT_DIRS_CMD` environment variable in your `.bashrc/.zshenv`.
+>
+> Two flags are specific to this picker:
 > - `-b`, `--brief` - Show git status information in the picker. Off by default so the picker
 >   appears immediately.
 > - `-f`, `--fetch` - Run `git fetch` before displaying status, so the ahead/behind counts reflect
 >   the latest remote tracking info. Implies `-b`.
-> - `-c`, `--no-custom-config` - Ignore a [custom configuration](#configured-sessions) rooted at
->   the selected repository.
-> - `-d`, `--no-default-config` - Skip the [shared default configuration](docs/building-a-session.md#defining-a-default-configuration)
->   once the session is created.
-> - `-p`, `--prompt-name` - Prompt for the session name instead of using the suggested one.
->
-> By default, `tsm git` finds all directories containing `.git` within 4 levels of `$HOME`. This can be
-> changed by setting the `TSM_GIT_DIRS_CMD` environment variable in your `.bashrc/.zshenv`.
 >
 > With `-f`, the fetches run in parallel, 8 repositories at a time. `TSM_GIT_FETCH_JOBS` raises or
 > lowers that cap:
@@ -415,58 +405,29 @@ to the newly created session in the same way.
 
 > ### Git Worktrees (`tsm worktree`)
 >
-> Create a new tmux session rooted at a git worktree.
+> A worktree of the current repository, in a session named `repo/worktree`.
 >
 > **NOTE:** Can only be run when the current working directory is inside a git repo
->
-> ```bash
-> tsm worktree         # Browse worktrees for current git repo with fzf
-> tsm worktree <wt>    # Start session for worktree named 'wt'
-> ```
-> 
-> Optional flags:
-> - `-c`, `--no-custom-config` - Ignore a [custom configuration](#configured-sessions) rooted at
->   the selected repository.
-> - `-d`, `--no-default-config` - Skip the [shared default configuration](docs/building-a-session.md#defining-a-default-configuration)
->   once the session is created.
-> - `-p`, `--prompt-name` - Prompt for the session name instead of using the suggested one.
 > 
 > ![Launch Worktree Sessions](docs/worktree_launcher.gif)
 
-> ### Zoxide (`zoxide`, Optional)
+> ### Zoxide (`tsm zoxide`, Optional)
 >
-> The Zoxide version of `dir`
+> A zoxide entry. Requires **[zoxide](https://github.com/ajeetdsouza/zoxide)**.
 >
-> Requires **[zoxide](https://github.com/ajeetdsouza/zoxide)**.
->
-> ```bash
-> tsm zoxide           # Browse zoxide entries interactively and start session from selection
-> tsm zoxide <proj>    # Start a session at the best zoxide match for "proj"
-> ```
-> 
 > Zoxide tracks directories you visit frequently, ranking them by "frecency" (frequency + recency). This makes
 > it easy to jump to projects with just a few characters of the directory name.
 > 
 > When no query is provided, `tsm zoxide` uses `zoxide query -i` for interactive selection with fzf. When a query is
 > provided, it uses `zoxide query` to find the best match directly.
 > 
-> Optional flags:
-> - `-c`, `--no-custom-config` - Ignore a [custom configuration](#configured-sessions) rooted at
->   the selected repository.
-> - `-d`, `--no-default-config` - Skip the [shared default configuration](docs/building-a-session.md#defining-a-default-configuration)
->   once the session is created.
-> - `-p`, `--prompt-name` - Prompt for the session name instead of using the suggested one.
-> 
 > ![Zoxide Session Launcher](docs/zoxide_launcher.gif)
+
+<a id="configured-sessions"></a>
 
 ## Configured Sessions (`tsm configured`)
 
-Launch a configured session directly.
-
-> ```bash
-> tsm configured                   # Browse the set of configured sessions with fzf, then launch that session
-> tsm configured <session-name>    # Start a configured session with name <session-name>
-> ```
+Launch a configured session directly, without going through a directory picker.
 
 ![Launch Configured Sessions](docs/configured_launcher.gif)
 
@@ -474,18 +435,11 @@ See **[Building a Session](docs/building-a-session.md)** for more info on writin
 
 ## Active Session Switcher
 
-```bash
-tsm active                  # Browse active sessions with fzf and switch to selection
-tsm active <session-name>   # Switch to 'session-name'
-```
+Browse the sessions that are currently running and switch to one.
 
 ![Session Switcher](docs/session_switcher.gif)
 
 ## AI Agents (`tsm agents`)
-
-```bash
-tsm agents   # Browse panes running an AI agent with fzf and jump to the selection
-```
 
 Long running agents scatter across sessions and windows, and the one you need is usually the one
 that finished or is waiting on you. `tsm agents` gives you a flat, cross-session list of every pane
@@ -550,9 +504,6 @@ and always exits `0` so a misconfiguration never surfaces as an error inside the
 See [Agent Hook Setup](docs/agent-hooks.md) for how to wire this into a particular agent.
 
 </details>
-
-<a id="configured-sessions"></a>
-
 
 ## License
 
