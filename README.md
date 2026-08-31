@@ -3,7 +3,7 @@
 Directory-based tmux sessions, configured on creation
 
 - **Create** sessions rooted at directories
-- **Script** up how your sessions starts
+- **Script** how your sessions start
 - **Switch** between sessions
 - **Kill** sessions with background cleanup hooks
 - **Observe** AI agents across all sessions

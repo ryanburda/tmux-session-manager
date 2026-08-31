@@ -12,9 +12,11 @@ Configurations are stored in `${XDG_CONFIG_HOME:-~/.config}/tsm/<config-name>.sh
 
 **The file's name is the session's name** (`myproject.sh` starts a session called `myproject`).
 
-tsm owns the session's lifecycle: it creates the session before your configuration runs, and kills it
-when you kill the session. Everything the file defines is therefore optional, and describes what you
-want *beyond* a plain session:
+tsm owns the session's lifecycle:
+- it creates the session before your configuration runs,
+- and kills it when you kill the session.
+
+Everything the file defines is therefore optional, and describes what you want *beyond* a plain session:
 
 - `ROOT`: The session's root directory, used as the working directory for its windows and panes.
   Defaults to `$HOME`.
@@ -37,8 +39,8 @@ pane. So is a file with nothing but a `ROOT`, which launches that session at `RO
 ROOT="$HOME/notes"
 ```
 
-Nesting works, and the whole path under the configuration directory is the session name -- so a session can
-be called `myrepo/base`, matching the `repo/worktree` names
+Nesting works, and the whole path under the configuration directory is the session name. For
+example, a session can be called `myrepo/base`, matching the `repo/worktree` names
 [worktree sessions](../README.md#git-worktrees) get, and sort next to them in the switcher:
 
 ```
@@ -87,45 +89,33 @@ saves constructing a window target of your own.
 inherits the working directory of the pane it came from, which is only `ROOT` until something in
 the layout has `cd`'d somewhere else.
 
-## Example: an editor and an agent
+## Example: a useful default
 
-An editor on the left, an AI agent on the right, focus back on the editor.
+This config creates:
+- A window named `code` with:
+  - your editor on the left
+  - a coding agent on the right
+- A window named `terminal` with nothing to run
 
 ```bash
 ROOT="$HOME/projects/myproject"
 
 start() {
-  code=$(tmux display-message -p -t "$SESSION" '#{pane_id}')
-  tmux rename-window -t "$code" code
-  ai=$(tmux split-window -P -F '#{pane_id}' -h -l 35% -t "$code" -c "$ROOT")
-  tmux send-keys -t "$code" 'nvim' Enter
+  # code window with `nvim` on left and `ai` on right.
+  code_window='code'
+  nvim=$(tmux display-message -p -t "$SESSION" '#{pane_id}')
+  tmux rename-window -t "$nvim" "$code_window"
+  ai=$(tmux split-window -P -F '#{pane_id}' -h -l 35% -t "$nvim" -c "$ROOT")
+  tmux send-keys -t "$nvim" 'nvim' Enter
   tmux send-keys -t "$ai" 'ai' Enter
-  tmux select-pane -t "$code"
-}
-```
-
-## Example: multiple windows
-
-```bash
-ROOT="$HOME/projects/myproject"
-
-start() {
-  # First window: the one the session starts with. Just an editor.
-  code=$(tmux display-message -p -t "$SESSION" '#{pane_id}')
-  tmux rename-window -t "$code" code
-  tmux send-keys -t "$code" 'nvim' Enter
-
-  # Second window: an editor with an agent to the right and a terminal below.
-  nav=$(tmux new-window -P -F '#{pane_id}' -t "$SESSION" -n nav -c "$ROOT")
-  nav_ai=$(tmux split-window -P -F '#{pane_id}' -h -l 30% -t "$nav" -c "$ROOT")
-  nav_terminal=$(tmux split-window -P -F '#{pane_id}' -v -l 20% -t "$nav" -c "$ROOT")
-  tmux send-keys -t "$nav" 'nvim lua/init.lua' Enter
-  tmux send-keys -t "$nav_ai" 'ai' Enter
-  tmux send-keys -t "$nav_terminal" 'ls' Enter
-  tmux select-pane -t "$nav"
-
-  # The last window created is the one you would attach to, so pick explicitly.
-  tmux select-window -t "$SESSION:code"
+  
+  # terminal window
+  terminal_window='terminal'
+  tmux new-window -t "$SESSION" -n "$terminal_window" -c "$ROOT"
+  
+  # session starts focused on `nvim` in 'code' window
+  tmux select-window -t "$SESSION:$code_window"
+  tmux select-pane -t "$nvim"
 }
 ```
 
