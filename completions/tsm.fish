@@ -56,6 +56,7 @@ complete -c tsm -f
 
 # Subcommands
 complete -c tsm -n '__fish_use_subcommand' -a active -d 'Switch to session'
+complete -c tsm -n '__fish_use_subcommand' -a last -d 'Switch to the most recent session that is still open'
 complete -c tsm -n '__fish_use_subcommand' -a kill -d 'Kill a session'
 complete -c tsm -n '__fish_use_subcommand' -a dir -d 'Browse/start session at directory'
 complete -c tsm -n '__fish_use_subcommand' -a git -d 'Browse git repositories with fzf'

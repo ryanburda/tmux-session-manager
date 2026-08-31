@@ -201,6 +201,7 @@ This maps:
 ```bash
 tsm                                  # Show help message
 tsm active [session]                 # Switch to session
+tsm last                             # Switch to the most recent session that is still open
 tsm kill [session]                   # Kill session (runs kill() hook if present)
 
 tsm dir [path] [-c] [-d] [-p]        # Create session at path
@@ -415,6 +416,21 @@ See **[Building a Session](docs/building-a-session.md)** for more info on writin
 Browse the sessions that are currently running and switch to one.
 
 ![Session Switcher](docs/session_switcher.gif)
+
+## Last Session (`tsm last`)
+
+`tsm last` switches to the most recently visited session that is still open.
+This is like `tmux switch-client -l`, but it keeps looking further back in history
+instead of failing outright when the previous session has since been closed.
+
+This only works if tmux tells `tsm` about session switches as they happen, so it
+requires one addition to `~/.tmux.conf`:
+
+```tmux
+set-hook -g client-session-changed 'run-shell "tsm _record-switch #{q:client_last_session} #{q:client_session}"'
+```
+This allows all session switches, not just ones made through `tsm`, appear in the history file.
+Without this hook, `tsm last` has nothing to work from and will tell you so.
 
 ## License
 

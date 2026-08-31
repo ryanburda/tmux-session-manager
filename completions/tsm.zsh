@@ -46,6 +46,7 @@ _tsm_configured_sessions() {
 _tsm_commands() {
     local commands=(
         'active:Switch to session'
+        'last:Switch to the most recent session that is still open'
         'kill:Kill a session'
         'dir:Browse/start session at directory'
         'git:Browse git repositories with fzf'

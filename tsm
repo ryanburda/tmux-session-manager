@@ -1,7 +1,10 @@
 #!/bin/bash
 
 CONFIG_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/tsm"
-LOG_DIR="${XDG_STATE_HOME:-$HOME/.local/state}/tsm/logs"
+STATE_DIR="${XDG_STATE_HOME:-$HOME/.local/state}/tsm"
+LOG_DIR="$STATE_DIR/logs"
+HISTORY_FILE="$STATE_DIR/session_history"
+HISTORY_MAX_LINES=200
 mkdir -p "$CONFIG_DIR" "$LOG_DIR"
 
 TSM_DIRS_CMD_DEFAULT='find "$HOME" -maxdepth 4 -name ".*" -prune -o -type d \( -exec test -e {}/.git \; -print -prune -o -print \)'
@@ -13,6 +16,7 @@ usage() {
   echo "Usage"
   echo "  tsm                                      # Show help message"
   echo "  tsm active [session]                     # Switch to session"
+  echo "  tsm last                                 # Switch to the most recent session that is still open"
   echo "  tsm kill [session]                       # Kill session (run cleanup script if present)"
   echo "  "
   echo "  tsm dir [path] [-c] [-d] [-p]            # Create session at path"
@@ -52,6 +56,38 @@ notify() {
 get_active_sessions() {
   # Lists active tmux session names, one per line.
   tmux ls 2>/dev/null | awk -F: '{print $1}'
+}
+
+record_switch() {
+  # Appends the session being switched away from to HISTORY_FILE, so `tsm
+  # last` can still find it later even if whatever replaces it as the
+  # current session is itself closed before `tsm last` is used.
+  #
+  # Called from the client-session-changed hook, which the user's
+  # tmux.conf is responsible for registering (see README) -- a startup-time
+  # concern, not something tsm reasserts on every switch. That hook is what
+  # makes this fire for every switch on the server, tsm's own and anything
+  # done outside it entirely, like a raw `switch-client` or tmux's own
+  # session tree -- not just the ones that happen to go through tsm.
+  #
+  # Args:
+  #   $1: from: the session that was left, already shell-quoted by tmux's
+  #       #{q:} format modifier before it ever became shell text
+  #   $2: to: the session that was switched to
+  local from="$1" to="$2"
+
+  [ -n "$from" ] && [ "$from" != "$to" ] || return
+
+  # A run of the same session (switching to it and back, or calling a
+  # picker and cancelling) should not pad the history with repeats of it.
+  if [ -f "$HISTORY_FILE" ] && [ "$(tail -n 1 "$HISTORY_FILE")" = "$from" ]; then
+    return
+  fi
+
+  echo "$from" >> "$HISTORY_FILE"
+  # Trimmed on write rather than left to grow forever; a plain session
+  # history has no other natural end to prune it at.
+  tail -n "$HISTORY_MAX_LINES" "$HISTORY_FILE" > "$HISTORY_FILE.tmp" && mv "$HISTORY_FILE.tmp" "$HISTORY_FILE"
 }
 
 switch_or_attach() {
@@ -269,6 +305,37 @@ active_session() {
   fi
 
   switch_or_attach "$session"
+}
+
+last_session() {
+  # Switches to the most recently visited session that is still open --
+  # what `tmux switch-client -l` gets at, but robust to the previous
+  # session having been closed since. record_switch builds HISTORY_FILE up
+  # as sessions are left, oldest first, so it is walked newest first here,
+  # skipping the current session and any that are no longer running, to
+  # find the first one that still is.
+  if [ ! -f "$HISTORY_FILE" ]; then
+    notify "No session history yet -- see README for the tmux.conf hook 'tsm last' needs"
+    exit 1
+  fi
+
+  local current=""
+  [ -n "$TMUX" ] && current=$(tmux display-message -p '#S' 2>/dev/null)
+
+  local target=""
+  while IFS= read -r session; do
+    if [ "$session" != "$current" ] && tmux has-session -t "=$session" 2>/dev/null; then
+      target="$session"
+      break
+    fi
+  done < <(tac "$HISTORY_FILE" 2>/dev/null || tail -r "$HISTORY_FILE" 2>/dev/null)
+
+  if [ -z "$target" ]; then
+    notify "No previous session still open"
+    exit 1
+  fi
+
+  switch_or_attach "$target"
 }
 
 kill_session() {
@@ -797,6 +864,9 @@ case "$command" in
   active)
     active_session "$1"
     ;;
+  last)
+    last_session
+    ;;
   kill)
     kill_session "$1"
     ;;
@@ -820,6 +890,11 @@ case "$command" in
     ;;
   kill-default-config)
     kill_default_config
+    ;;
+  _record-switch)
+    # Internal: invoked by the client-session-changed hook registered in
+    # the user's tmux.conf (see README). Not a user-facing command.
+    record_switch "$1" "$2"
     ;;
   help)
     usage
