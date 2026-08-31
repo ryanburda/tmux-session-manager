@@ -13,29 +13,30 @@ usage() {
   echo "Tmux Session Manager"
   echo ""
   echo "Usage"
-  echo "  tsm                                  # Show help message"
-  echo "  tsm active [session]                 # Switch to session"
-  echo "  tsm kill [session]                   # Kill session (run cleanup script if present)"
+  echo "  tsm                                      # Show help message"
+  echo "  tsm active [session]                     # Switch to session"
+  echo "  tsm kill [session]                       # Kill session (run cleanup script if present)"
   echo "  "
-  echo "  tsm dir [path] [-c] [-d] [-p]        # Create session at path"
-  echo "  tsm git [-b] [-f] [-c] [-d] [-p]     # Browse git repositories with fzf, creates session at path"
-  echo "  tsm worktree [name] [-c] [-d] [-p]   # Create session at git worktree path"
-  echo "  tsm zoxide [query] [-c] [-d] [-p]    # Create session for zoxide match path"
+  echo "  tsm dir [path] [-c] [-d] [-p]            # Create session at path"
+  echo "  tsm git [path] [-b] [-f] [-c] [-d] [-p]  # Browse git repositories with fzf, creates session at path"
+  echo "  tsm worktree [name] [-c] [-d] [-p]       # Create session at git worktree path"
+  echo "  tsm zoxide [query] [-c] [-d] [-p]        # Create session for zoxide match path"
   echo "  "
-  echo "    -c, --no-custom-config             # Ignore a custom configuration rooted at the selected path"
-  echo "    -d, --no-default-config            # Skip the shared default configuration"
-  echo "    -p, --prompt-name                  # Prompt for the session name instead of using the default"
-  echo "    -b, --brief                        # (git) Show git status information in the picker"
-  echo "    -f, --fetch                        # (git) Fetch before showing the brief; implies -b"
+  echo "    -c, --no-custom-config                 # Ignore a custom configuration rooted at the selected path"
+  echo "    -d, --no-default-config                # Skip the shared default configuration"
+  echo "    -p, --prompt-name                      # Prompt for the session name instead of using the default"
+  echo "    -b, --brief                            # (git) Show git status information in the picker"
+  echo "    -f, --fetch                            # (git) Fetch before showing the brief; implies -b"
   echo "  "
-  echo "  tsm configured [config]              # Start a configured session"
-  echo "  tsm logs [session]                   # Browse session logs"
-  echo "  tsm apply-default-config             # Apply the shared default configuration (inside a configuration's start())"
+  echo "  tsm configured [config]                  # Start a configured session"
+  echo "  tsm logs [session]                       # Browse session logs"
+  echo "  tsm apply-default-config                 # Apply the default configuration's start() (inside a configuration's start())"
+  echo "  tsm kill-default-config                  # Run the default configuration's kill() (inside a configuration's kill())"
   echo "  "
-  echo "  tsm agents                           # Browse panes running an AI agent"
-  echo "  tsm agent-state [state]              # Record agent state on the current pane (for agent hooks)"
+  echo "  tsm agents                               # Browse panes running an AI agent"
+  echo "  tsm agent-state [state]                  # Record agent state on the current pane (for agent hooks)"
   echo "  "
-  echo "  tsm help                             # Show help message"
+  echo "  tsm help                                 # Show help message"
   echo ""
   echo "See https://github.com/ryanburda/tmux-session-manager for more documentation"
 }
@@ -369,11 +370,27 @@ kill_session() {
   # A configured session is normally named after its configuration file, so the
   # file could be found from the session name alone. The recorded name is what
   # keeps that true after a `tmux rename-session`.
-  local configured_session
+  local configured_session default_config_root
   configured_session=$(tmux show-environment -t "=$session" TSM_CONFIGURED_SESSION 2>/dev/null | sed 's/^TSM_CONFIGURED_SESSION=//')
-  local session_file="$CONFIG_DIR/${configured_session:-$session}.sh"
+  default_config_root=$(tmux show-environment -t "=$session" TSM_DEFAULT_CONFIG_ROOT 2>/dev/null | sed 's/^TSM_DEFAULT_CONFIG_ROOT=//')
 
-  # Run the configuration's kill hook in the background if it defines one, so
+  # A session a configuration claimed runs that configuration's kill(), and
+  # only that one: the default configuration's cleanup is opted into with
+  # `tsm kill-default-config`, the same way its layout is. A session no
+  # configuration claimed came up under the default configuration, so its
+  # cleanup is the default configuration's, and ROOT is the directory it was
+  # created at rather than whatever the file happens to set.
+  local session_file session_root=""
+  if [ -n "$configured_session" ]; then
+    session_file="$CONFIG_DIR/$configured_session.sh"
+  elif [ -n "$default_config_root" ]; then
+    session_file="$CONFIG_DIR/.default_config.sh"
+    session_root="$default_config_root"
+  else
+    session_file="$CONFIG_DIR/$session.sh"
+  fi
+
+  # Run the kill hook in the background if the configuration defines one, so
   # the session goes away immediately rather than waiting on cleanup. tsm kills
   # the session itself either way. kill() is for everything around it.
   if [ -f "$session_file" ]; then
@@ -383,9 +400,9 @@ kill_session() {
       unset ROOT
       source "$1"
       [ $? -eq 0 ] || exit 1
-      export ROOT="${ROOT:-$HOME}"
+      export ROOT="${ROOT:-${3:-$HOME}}"
       if declare -F kill >/dev/null; then kill; fi
-    ' tsm "$session_file" "$session" >> "$log_file" 2>&1 &
+    ' tsm "$session_file" "$session" "$session_root" >> "$log_file" 2>&1 &
   fi
 
   tmux kill-session -t "=$session"
@@ -459,7 +476,10 @@ configured_session() {
   # tsm owns the session's lifecycle: it creates the session here and kills it
   # in kill_session. start() is an optional hook that customizes the session
   # that already exists, so a configuration only has to describe what it wants
-  # beyond a plain session rooted at $ROOT.
+  # beyond a plain session rooted at $ROOT. A configuration that defines no
+  # start() is asking for exactly that plain session; the shared default
+  # configuration is opted into, by calling `tsm apply-default-config`, never
+  # inherited.
   #
   # SESSION is exported before the file is sourced so that top-level code can
   # use it, and ROOT afterwards so the configuration gets to set it first.
@@ -486,7 +506,7 @@ configured_session() {
     [ $? -eq 0 ] || exit 1
     export ROOT="${ROOT:-$HOME}"
     tmux new-session -d -s "$SESSION" -c "$ROOT" ${3:+-x "$3"} ${4:+-y "$4"} || exit 1
-    if declare -F start >/dev/null; then start; else tsm apply-default-config; fi
+    if declare -F start >/dev/null; then start; fi
   ' tsm "$session_file" "$session" "$width" "$height" >> "$log_file" 2>&1
 
   # The session is missing only if it was never created. A configuration that
@@ -502,11 +522,14 @@ configured_session() {
 }
 
 apply_default_config() {
-  # Runs $CONFIG_DIR/.default_config.sh, the configuration shared by sessions
-  # that would otherwise all write the same start() body. It is a plain script,
-  # not a function, sourced at the point a config calls
-  # `tsm apply-default-config` -- SESSION and ROOT are already exported by
-  # configured_session() by then.
+  # Runs the start hook of $CONFIG_DIR/.default_config.sh, the configuration
+  # shared by sessions that would otherwise all write the same start() body.
+  # Sourced at the point a configuration calls `tsm apply-default-config`, or
+  # by dir_session for a session no configuration claimed -- SESSION and ROOT
+  # are already exported by then.
+  #
+  # The default configuration is a configuration like any other: its top level
+  # runs on the way in and on the way out, so the layout belongs in start().
   local default_file="$CONFIG_DIR/.default_config.sh"
 
   if [ ! -f "$default_file" ]; then
@@ -515,6 +538,29 @@ apply_default_config() {
   fi
 
   source "$default_file"
+
+  if declare -F start >/dev/null; then start; fi
+}
+
+kill_default_config() {
+  # The counterpart of apply_default_config: runs the kill hook of
+  # $CONFIG_DIR/.default_config.sh. A configuration that opted into the default
+  # layout by calling `tsm apply-default-config` in start() opts into its
+  # cleanup by calling `tsm kill-default-config` in kill(). Sessions that no
+  # configuration claimed get it without asking, from kill_session.
+  #
+  # Sourcing defines a kill() that shadows the builtin for the rest of this
+  # process. Nothing here runs after the hook, and tsm exits when it returns.
+  local default_file="$CONFIG_DIR/.default_config.sh"
+
+  if [ ! -f "$default_file" ]; then
+    notify "Error: no default configuration at $default_file"
+    exit 1
+  fi
+
+  source "$default_file"
+
+  if declare -F kill >/dev/null; then kill; fi
 }
 
 dir_session() {
@@ -614,7 +660,18 @@ dir_session() {
       # Run in a subshell: apply_default_config exits non-zero when there is no
       # default configuration to run, and that should not tear down a session
       # that tmux already created.
-      ( SESSION="$session_name" ROOT="$selected" apply_default_config )
+      # The marker is recorded inside that subshell for the same reason: it is
+      # only true once the default configuration has actually been applied.
+      #
+      # kill_session reads the marker to know that this session's cleanup is
+      # the default configuration's, and its value to know what to set ROOT to
+      # when it runs -- the directory the session was created at, which the
+      # file does not carry itself. A session created with -d records nothing:
+      # cleaning up a layout it never got is worse than not cleaning up at all.
+      (
+        SESSION="$session_name" ROOT="$selected" apply_default_config
+        tmux set-environment -t "=$session_name" TSM_DEFAULT_CONFIG_ROOT "$selected"
+      )
     } >> "$log_file" 2>&1
   else
     tmux new-session -d -s "$session_name" -c "$selected"
@@ -1013,6 +1070,9 @@ case "$command" in
     ;;
   apply-default-config)
     apply_default_config
+    ;;
+  kill-default-config)
+    kill_default_config
     ;;
   agents)
     agent_picker

@@ -27,6 +27,9 @@ Everything the file defines is therefore optional, and describes what you want *
 
 Both functions run with `SESSION`, the name of the session, and `ROOT` already in the environment.
 
+A configuration that defines no `start()` gets exactly the plain session described above. The
+[default configuration](#defining-a-default-configuration) is opted into, never inherited.
+
 **NOTE:** Configuration file names cannot contain `.` or `:`. tmux reads both as the window and
 pane separators of a target, so a session named `my.project` would be created and then be
 unreachable. tsm refuses such a name rather than quietly renaming the session out from under you.
@@ -164,29 +167,32 @@ kill() {
 ## Defining a Default Configuration
 
 Most configurations end up wanting the same layout. Rather than repeat it in every file, put it once
-in `${XDG_CONFIG_HOME:-~/.config}/tsm/.default_config.sh` -- the body of a `start()`, without the
-wrapper:
+in `${XDG_CONFIG_HOME:-~/.config}/tsm/.default_config.sh`. It is a configuration like any other:
+`start()` builds the layout, `kill()` tears down whatever `start()` brought up.
 
 ```bash
 # ~/.config/tsm/.default_config.sh
-code=$(tmux display-message -p -t "$SESSION" '#{pane_id}')
-tmux rename-window -t "$code" code
-ai=$(tmux split-window -P -F '#{pane_id}' -h -l 35% -t "$code" -c "$ROOT")
-tmux send-keys -t "$code" 'nvim' Enter
-tmux send-keys -t "$ai" 'ai' Enter
-tmux select-pane -t "$code"
+start() {
+  code=$(tmux display-message -p -t "$SESSION" '#{pane_id}')
+  tmux rename-window -t "$code" code
+  ai=$(tmux split-window -P -F '#{pane_id}' -h -l 35% -t "$code" -c "$ROOT")
+  tmux send-keys -t "$code" 'nvim' Enter
+  tmux send-keys -t "$ai" 'ai' Enter
+  tmux select-pane -t "$code"
+}
+
+# kill() {
+#   # Implement kill if you need it
+# }
 ```
 
-A configuration that defines no `start()` at all gets it automatically. tsm falls back to
-`tsm apply-default-config` whenever a configuration doesn't define `start()`:
+[Directory sessions](../README.md#directory-sessions) get both hooks without asking: any session
+`tsm dir`, `tsm git`, `tsm worktree` or `tsm zoxide` creates that no configuration of its own claims
+runs the default `start()` on the way in and the default `kill()` on the way out. `SESSION` is the
+new session's name and `ROOT` is the directory you picked.
 
-```bash
-# ~/.config/tsm/myproject.sh
-ROOT="$HOME/code/myproject"
-```
-
-Write `start()` yourself only when you want to do more around the default, or something different
-entirely:
+Configurations of your own get neither. Opt in by calling `tsm apply-default-config` in `start()`
+and `tsm kill-default-config` in `kill()`:
 
 ```bash
 # ~/.config/tsm/myproject.sh
@@ -196,15 +202,24 @@ start() {
   tsm apply-default-config
   make -C "$ROOT" up &
 }
+
+kill() {
+  tsm kill-default-config
+  make -C "$ROOT" down
+}
 ```
 
-`tsm apply-default-config` sources `.default_config.sh` at the point it's called, with `SESSION` and
-`ROOT` already in the environment. `.default_config.sh` itself is excluded from the configured-session
-list and picker, since it is not a session to start. A configuration that wants no layout at all
-defines its own empty `start()` to opt out of the fallback.
+`tsm apply-default-config` sources `.default_config.sh` and runs its `start()`.
+`tsm kill-default-config` does the same for its `kill()`. Both run at the point they are called,
+with `SESSION` and `ROOT` already in the environment, so a configuration is free to do its own work
+before or after the shared setup.
 
-The [directory pickers](../README.md#directory-sessions) apply it too, to every session they create
-that no configuration of its own claims.
+`.default_config.sh` is excluded from the configured-session list and picker, since it is not a
+session to start.
+
+**NOTE:** Like every configuration, the file is sourced on the way in *and* on the way out, so
+top-level code runs on both. The layout belongs inside `start()`. Anything left at the top level
+runs a second time as the session is torn down.
 
 ## Beyond tmux commands
 

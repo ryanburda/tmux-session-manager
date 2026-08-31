@@ -227,7 +227,8 @@ tsm zoxide [query] [-c] [-d] [-p]    # Create session for zoxide match path
 
 tsm configured [config]              # Start a configured session
 tsm logs [session]                   # Browse session logs
-tsm apply-default-config             # Apply the shared default configuration (inside a configuration's start())
+tsm apply-default-config             # Apply the default configuration's start() (inside a configuration's start())
+tsm kill-default-config              # Run the default configuration's kill() (inside a configuration's kill())
 
 tsm agents                           # Browse panes running an AI agent
 tsm agent-state [state]              # Record agent state on the current pane (for agent hooks)
@@ -272,9 +273,13 @@ See **[Building a Session](docs/building-a-session.md)** for the full guide: pan
 multi-window layouts, starting and stopping services, and worked examples.
 
 A default configuration can be defined at `${XDG_CONFIG_HOME:-~/.config}/tsm/.default_config.sh`.
-The default configuration is applied to any session started with one of the
-[directory session pickers](#directory-sessions) if a custom configuration doesn't exist for the
-selected directory.
+It defines `start()` and `kill()` like any other configuration, and is applied to any session
+started with one of the [directory session pickers](#directory-sessions) if a custom configuration
+doesn't exist for the selected directory.
+
+Configurations of your own never inherit it. They opt in by calling `tsm apply-default-config` in
+`start()` and `tsm kill-default-config` in `kill()`, which leaves them free to run their own work
+before or after the shared setup.
 
 # Overview
 

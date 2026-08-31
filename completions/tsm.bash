@@ -11,7 +11,7 @@ _tsm_completions() {
     cmd="${COMP_WORDS[1]}"
 
     # Available subcommands
-    subcmds="active kill dir git worktree zoxide configured logs apply-default-config agents agent-state help"
+    subcmds="active kill dir git worktree zoxide configured logs apply-default-config kill-default-config agents agent-state help"
 
     # Completing the subcommand itself
     if [ "$COMP_CWORD" -eq 1 ]; then
