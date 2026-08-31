@@ -64,8 +64,6 @@ complete -c tsm -n '__fish_use_subcommand' -a configured -d 'Browse/start config
 complete -c tsm -n '__fish_use_subcommand' -a logs -d 'Browse session logs'
 complete -c tsm -n '__fish_use_subcommand' -a apply-default-config -d 'Apply the default configuration start hook'
 complete -c tsm -n '__fish_use_subcommand' -a kill-default-config -d 'Run the default configuration kill hook'
-complete -c tsm -n '__fish_use_subcommand' -a agents -d 'Browse panes running an AI agent'
-complete -c tsm -n '__fish_use_subcommand' -a agent-state -d 'Record agent state on the current pane'
 complete -c tsm -n '__fish_use_subcommand' -a help -d 'Show help message'
 
 # Subcommand arguments
@@ -77,4 +75,3 @@ complete -c tsm -n '__fish_seen_subcommand_from worktree' -xa '(__tsm_worktrees)
 complete -c tsm -n '__fish_seen_subcommand_from worktree' -xa '-c --no-custom-config -d --no-default-config -p --prompt-name'
 complete -c tsm -n '__fish_seen_subcommand_from configured' -xa '(__tsm_configured_sessions)'
 complete -c tsm -n '__fish_seen_subcommand_from logs' -xa '(__tsm_log_sessions)'
-complete -c tsm -n '__fish_seen_subcommand_from agent-state' -xa 'working blocked done idle clear'

@@ -11,7 +11,7 @@ _tsm_completions() {
     cmd="${COMP_WORDS[1]}"
 
     # Available subcommands
-    subcmds="active kill dir git worktree configured logs apply-default-config kill-default-config agents agent-state help"
+    subcmds="active kill dir git worktree configured logs apply-default-config kill-default-config help"
 
     # Completing the subcommand itself
     if [ "$COMP_CWORD" -eq 1 ]; then
@@ -58,10 +58,6 @@ _tsm_completions() {
                 local sessions=$(for dir in "$log_dir"/*/; do [ -d "$dir" ] && basename "$dir"; done 2>/dev/null)
                 COMPREPLY=($(compgen -W "$sessions" -- "$cur"))
             fi
-            return 0
-            ;;
-        agent-state)
-            COMPREPLY=($(compgen -W "working blocked done idle clear" -- "$cur"))
             return 0
             ;;
     esac

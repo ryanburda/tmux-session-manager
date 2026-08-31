@@ -21,11 +21,9 @@ die() {
 command -v git > /dev/null 2>&1 || die "git is required but was not found on PATH"
 command -v tmux > /dev/null 2>&1 || die "tmux is required but was not found on PATH"
 
-# Not fatal: the commands install fine and only some subcommands need these.
+# Not fatal: the commands install fine and only some subcommands need this.
 command -v fzf > /dev/null 2>&1 ||
     echo "install.sh: warning: fzf was not found on PATH; the session pickers require it." >&2
-command -v ps > /dev/null 2>&1 ||
-    echo "install.sh: warning: ps was not found on PATH; 'tsm agents' requires it." >&2
 
 # Fetch (or update) the source checkout that the symlinks point at.
 if [ -d "$TSM_HOME/.git" ]; then

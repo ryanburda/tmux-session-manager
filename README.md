@@ -6,7 +6,6 @@ Directory-based tmux sessions, configured on creation
 - **Script** how your sessions start
 - **Switch** between sessions
 - **Kill** sessions with background cleanup hooks
-- **Observe** AI agents across all sessions
 
 Session configurations are plain shell scripts. No YAML, no DSL.
 
@@ -26,9 +25,6 @@ You just define:
 ### Dependencies
 
 - `fzf`
-
-### Optional Dependencies
-- `ps` (for `tsm agents`)
 
 ### Installation
 ```bash
@@ -144,9 +140,6 @@ bind-key g popup -E "tsm git"
 bind-key G popup -E "tsm git -bf"
 bind-key w popup -E "tsm worktree"
 
-# AI agent sessions
-bind-key a popup -E "tsm agents"
-
 # Configuration based sessions
 bind-key c popup -E "tsm configured"
 bind-key l popup -E "tsm logs"
@@ -160,7 +153,6 @@ This maps:
 - `prefix + g` - Git repository session launcher
 - `prefix + G` - Git repository session launcher (with git brief)
 - `prefix + w` - Worktree session launcher
-- `prefix + a` - AI agent picker
 - `prefix + c` - Configured session launcher
 - `prefix + l` - Browse configured session logs
 
@@ -225,9 +217,6 @@ tsm configured [config]              # Start a configured session
 tsm logs [session]                   # Browse session logs
 tsm apply-default-config             # Apply the default configuration's start() (inside a configuration's start())
 tsm kill-default-config              # Run the default configuration's kill() (inside a configuration's kill())
-
-tsm agents                           # Browse panes running an AI agent
-tsm agent-state [state]              # Record agent state on the current pane (for agent hooks)
 
 tsm help                             # Show help message
 ```
@@ -426,72 +415,6 @@ See **[Building a Session](docs/building-a-session.md)** for more info on writin
 Browse the sessions that are currently running and switch to one.
 
 ![Session Switcher](docs/session_switcher.gif)
-
-## AI Agents (`tsm agents`)
-
-Long running agents scatter across sessions and windows, and the one you need is usually the one
-that finished or is waiting on you. `tsm agents` gives you a flat, cross-session list of every pane
-running an agent, ordered by session, window, and pane. Selecting an entry switches session,
-window, and pane in one step.
-
-```
-  state    session:window:pane  agent
-● done     dotfiles:1:0         claude
-● idle     tsm/base:1:0         claude
-● blocked  work/api:2:1         claude
-● working  work/webapp:3:0      codex
-```
-
-A pane shows up in the picker if either of the following is true:
-
-1. It has a recorded agent state (see [Agent State Hooks](#agent-state-hooks) below).
-2. A known agent command is running anywhere in the pane's process tree. These panes are listed
-   with the state `unknown` (the agent is running, but nothing has told `tsm` what it is doing).
-
-The commands recognized in step 2 default to:
-
-```
-claude codex aider cursor-agent opencode goose gemini amp crush copilot droid
-```
-
-Override the list with the `TSM_AGENT_CMDS` environment variable (whitespace separated):
-
-```bash
-export TSM_AGENT_CMDS="claude codex my-agent"
-```
-
-<a id="agent-state-hooks"></a>
-
-<details>
-<summary><strong style="font-size: 1.25em;">Agent State Hooks</strong></summary>
-
-Process detection tells you an agent is *running*; it can't tell you whether it is churning through
-a task, waiting on a permission prompt, or done. Agents that support notification hooks can report
-that themselves.
-
-`tsm agent-state <state>` records a state on the pane it is called from, as the pane-scoped tmux
-option `@tsm_agent_state`. Valid states, in the order they sort in the picker:
-
-| State | Meaning |
-|-------|---------|
-| `blocked` | The agent needs input, a permission prompt or a question |
-| `done` | The agent finished its turn and its response is waiting |
-| `idle` | The agent is running but has nothing in flight |
-| `working` | The agent is busy |
-| `clear` | Not a state. Removes the option, dropping the pane back to process detection |
-
-Plus one pseudo-state:
-
-| Argument | Meaning |
-|----------|---------|
-| `notification` | Derive the state from an agent notification payload on stdin |
-
-The command is safe to call from anywhere: it does nothing outside of tmux, ignores unknown states,
-and always exits `0` so a misconfiguration never surfaces as an error inside the agent.
-
-See [Agent Hook Setup](docs/agent-hooks.md) for how to wire this into a particular agent.
-
-</details>
 
 ## License
 

@@ -54,8 +54,6 @@ _tsm_commands() {
         'logs:Browse session logs'
         'apply-default-config:Apply the default configuration start hook'
         'kill-default-config:Run the default configuration kill hook'
-        'agents:Browse panes running an AI agent'
-        'agent-state:Record agent state on the current pane'
         'help:Show help message'
     )
     _describe 'command' commands
@@ -92,9 +90,6 @@ _tsm() {
             ;;
         logs)
             _tsm_log_sessions
-            ;;
-        agent-state)
-            _values 'state' working blocked done idle clear
             ;;
     esac
 }
