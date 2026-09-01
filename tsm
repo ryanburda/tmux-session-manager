@@ -1372,6 +1372,11 @@ bookmark_status() {
   # Each character is padded inside its own style, the way buf-mark's status
   # does it, so that a style with a background reads as a block rather than as
   # a tinted letter.
+  #
+  # Each style is preceded by a reset, because tmux styles accumulate: without
+  # one, the attributes of the current session's character (its color, its
+  # bold) stay on for every character drawn after it, and the current session
+  # is no longer the one that stands out.
   read_bookmarks | TSM_OPEN_PATHS="$open" TSM_CURRENT_PATH="$current" \
     TSM_STYLE="$style" TSM_CURRENT_STYLE="$current_style" awk -F'\t' '
       BEGIN {
@@ -1383,7 +1388,7 @@ bookmark_status() {
       }
 
       $2 in open {
-        out = out "#[" (current != "" && $2 == current ? current_style : style) "] " $1 " "
+        out = out "#[default]#[" (current != "" && $2 == current ? current_style : style) "] " $1 " "
       }
 
       END { if (out != "") print out "#[default]" }
