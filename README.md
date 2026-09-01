@@ -502,12 +502,24 @@ See [Usage](#usage) for the exact arguments.
 > set -g status-right "#(tsm bookmark-status '#{session_path}' -s 'fg=colour244' -c 'fg=black,bg=blue,bold')"
 > ```
 >
-> The line is redrawn on tmux's `status-interval`, so how quickly a session appearing or
-> disappearing shows up is that option's business:
+> A status line is otherwise only redrawn every `status-interval` seconds, so a session opened or
+> killed somewhere else would take until the next tick to appear or go away. Two hooks close that
+> gap:
 >
 > ```tmux
-> set -g status-interval 5
+> set-hook -g session-created 'run-shell -b "tsm _refresh-status"'
+> set-hook -g session-closed 'run-shell -b "tsm _refresh-status"'
 > ```
+>
+> `tsm _refresh-status` redraws the status line of **every** attached client, re-running the
+> commands in it. Every client, because tmux's own `refresh-client -S` reaches only the client the
+> hook fired for, and passing `#{session_path}` gives each client a `#()` job of its own -- so
+> refreshing one client's line leaves the others showing what they showed before.
+>
+> Switching sessions needs no hook: that redraws the client's status line by itself, and the
+> character that is highlighted follows along. Setting or removing a bookmark needs none either --
+> `tsm bookmark-add` and `tsm bookmark-remove` refresh the line themselves, since no session was
+> created or killed for a hook to notice.
 
 <a id="configured-sessions"></a>
 

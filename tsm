@@ -121,6 +121,25 @@ record_switch() {
   echo "$from" >> "$HISTORY_FILE"
 }
 
+refresh_status() {
+  # Redraws every attached client's status line, re-running the commands in
+  # it. Called from the tmux hooks that fire when the set of sessions changes,
+  # which the user's tmux.conf is responsible for registering (see README), so
+  # that a status line holding `tsm bookmark-status` shows a session appearing
+  # or disappearing as it happens rather than at the next status-interval.
+  #
+  # Every client, one at a time, because tmux's own refresh-client reaches
+  # only the client the hook fired for, and the rest are showing a line that
+  # is just as out of date. A status line that passes #{session_path} makes
+  # each client's #() a job of its own, so refreshing one client's does not
+  # touch what the others are showing.
+  local client
+
+  while IFS= read -r client; do
+    [ -n "$client" ] && tmux refresh-client -S -t "$client" 2>/dev/null
+  done < <(tmux list-clients -F '#{client_name}' 2>/dev/null)
+}
+
 switch_or_attach() {
   # Switches to a tmux session if inside tmux, otherwise attaches to it.
   local session="$1"
@@ -1208,6 +1227,10 @@ bookmark_add() {
     printf '%s\t%s\n' "$char" "$path"
   } | LC_ALL=C sort | write_bookmarks
 
+  # What the status line shows just changed, and no session was created or
+  # killed for a hook to notice it.
+  refresh_status
+
   notify "Bookmark set: $char -> $path"
 }
 
@@ -1239,6 +1262,8 @@ bookmark_remove() {
   fi
 
   read_bookmarks | without_bookmark "$char" | write_bookmarks
+
+  refresh_status
 
   notify "Bookmark removed: $char"
 }
@@ -1558,6 +1583,12 @@ case "$command" in
     # Internal: invoked by the client-session-changed hook registered in
     # the user's tmux.conf (see README). Not a user-facing command.
     record_switch "$1" "$2"
+    ;;
+  _refresh-status)
+    # Internal: invoked by the session-created and session-closed hooks
+    # registered in the user's tmux.conf (see README). Not a user-facing
+    # command.
+    refresh_status
     ;;
   _bookmark-prompted)
     # Internal: what tmux's status line prompt runs once its key is pressed.
