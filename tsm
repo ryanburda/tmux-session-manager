@@ -33,6 +33,7 @@ usage() {
   echo "  tsm bookmark-add [char] [path]           # Bookmark a directory (prompts for char; path defaults to the current directory)"
   echo "  tsm bookmark-remove [char]               # Remove a bookmark (prompts for char)"
   echo "  tsm bookmark-list [-f]                   # List bookmarks (-f, --fzf: browse them with fzf and start a session)"
+  echo "  tsm bookmark-status [path]               # Bookmarks of the open sessions, for a tmux status line (-s, -c set its styles)"
   echo "  "
   echo "  tsm configured [config]                  # Start a configured session"
   echo "  tsm logs [session]                       # Browse session logs"
@@ -1274,6 +1275,96 @@ bookmark_list() {
   done <<< "$entries"
 }
 
+bookmark_status() {
+  # Prints the bookmark characters of the sessions that are open, for a tmux
+  # status line: one character per bookmark whose directory a session is
+  # currently rooted at, with the current session's styled differently.
+  #
+  # This is the compact alternative to reading session names off a status
+  # line. Only bookmarks are shown, and only the ones you could switch to
+  # right now, so the line stays short enough to take in at a glance.
+  #
+  # Nothing is printed when no open session is bookmarked, and nothing is ever
+  # notified: this runs on every status line redraw, so anything it has to say
+  # would be said over and over.
+  #
+  # Args:
+  #   $1: path: the directory of the session to treat as the current one
+  #       (default: the session tmux reports as current)
+  #   -s, --style: tmux style for the other sessions' characters
+  #   -c, --current-style: tmux style for the current session's character
+  local style="dim" current_style="fg=yellow,bold" current="" current_given=""
+
+  # Styles are given without their #[] wrapper, so that a status line format
+  # holding one does not have to escape it.
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      -s | --style | -c | --current-style)
+        if [ $# -lt 2 ]; then
+          notify "Error: '$1' needs a tmux style"
+          exit 1
+        fi
+        case "$1" in
+          -s | --style) style="$2" ;;
+          -c | --current-style) current_style="$2" ;;
+        esac
+        shift 2
+        ;;
+      -*)
+        notify "Error: Unknown option '$1' for 'tsm bookmark-status'"
+        exit 1
+        ;;
+      *)
+        if [ -n "$current_given" ]; then
+          notify "Error: Too many arguments for 'tsm bookmark-status'"
+          exit 1
+        fi
+        current="$1"
+        current_given=1
+        shift
+        ;;
+    esac
+  done
+
+  local open
+  open=$(tmux list-sessions -F '#{session_path}' 2>/dev/null)
+  [ -n "$open" ] || return 0
+
+  # A session is the current one by the directory it is rooted at, the same
+  # thing a bookmark holds.
+  #
+  # Which session that is has to be given by whoever is drawing the status
+  # line, because tmux runs a #() command without a client and shares its
+  # output between them all: asking tmux here would answer for some other
+  # client's session, and answer the same thing for every client. A status
+  # line passes #{session_path}, which tmux expands per client and which makes
+  # each client's line a job of its own. Asking is the fallback, for a shell
+  # that has a session of its own to be current.
+  if [ -z "$current_given" ] && [ -n "$TMUX" ]; then
+    current=$(tmux display-message -p '#{session_path}' 2>/dev/null)
+  fi
+
+  # Each character is padded inside its own style, the way buf-mark's status
+  # does it, so that a style with a background reads as a block rather than as
+  # a tinted letter.
+  read_bookmarks | TSM_OPEN_PATHS="$open" TSM_CURRENT_PATH="$current" \
+    TSM_STYLE="$style" TSM_CURRENT_STYLE="$current_style" awk -F'\t' '
+      BEGIN {
+        n = split(ENVIRON["TSM_OPEN_PATHS"], paths, "\n")
+        for (i = 1; i <= n; i++) if (paths[i] != "") open[paths[i]]
+        current = ENVIRON["TSM_CURRENT_PATH"]
+        style = ENVIRON["TSM_STYLE"]
+        current_style = ENVIRON["TSM_CURRENT_STYLE"]
+      }
+
+      $2 in open {
+        out = out "#[" (current != "" && $2 == current ? current_style : style) "] " $1 " "
+      }
+
+      END { if (out != "") print out "#[default]" }
+    '
+}
+
 bookmark_goto() {
   # Starts a session at the directory a character is bookmarking. The session
   # itself is a directory session like any other, so a configuration rooted at
@@ -1447,6 +1538,9 @@ case "$command" in
     ;;
   bookmark-list)
     bookmark_list "$@"
+    ;;
+  bookmark-status)
+    bookmark_status "$@"
     ;;
   configured)
     configured_session "$1"

@@ -11,7 +11,7 @@ _tsm_completions() {
     cmd="${COMP_WORDS[1]}"
 
     # Available subcommands
-    subcmds="active last kill dir git worktree bookmark bookmark-add bookmark-remove bookmark-list configured logs apply-default-config kill-default-config help"
+    subcmds="active last kill dir git worktree bookmark bookmark-add bookmark-remove bookmark-list bookmark-status configured logs apply-default-config kill-default-config help"
 
     # Completing the subcommand itself
     if [ "$COMP_CWORD" -eq 1 ]; then
@@ -61,6 +61,10 @@ _tsm_completions() {
             ;;
         bookmark-list)
             COMPREPLY=($(compgen -W "-f --fzf" -- "$cur"))
+            return 0
+            ;;
+        bookmark-status)
+            COMPREPLY=($(compgen -W "-s --style -c --current-style" -- "$cur"))
             return 0
             ;;
         bookmark-add)

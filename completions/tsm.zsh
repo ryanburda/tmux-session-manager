@@ -66,6 +66,7 @@ _tsm_commands() {
         'bookmark-add:Bookmark a directory at a character'
         'bookmark-remove:Remove a bookmark'
         'bookmark-list:List all bookmarks, or browse them with fzf'
+        'bookmark-status:The open sessions bookmarks, for a tmux status line'
         'configured:Browse/start configured sessions'
         'logs:Browse session logs'
         'apply-default-config:Apply the default configuration start hook'
@@ -111,6 +112,9 @@ _tsm() {
             ;;
         bookmark-list)
             _values -s ' ' 'bookmark-list options' '-f' '--fzf'
+            ;;
+        bookmark-status)
+            _values -s ' ' 'bookmark-status options' '-s' '--style' '-c' '--current-style'
             ;;
         bookmark-add)
             # The character comes first and is the user's to pick; the

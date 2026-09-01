@@ -233,6 +233,7 @@ tsm bookmark [char] [-c] [-d] [-p]   # Create session at a bookmarked directory 
 tsm bookmark-add [char] [path]       # Bookmark a directory (prompts for char; path defaults to the current directory)
 tsm bookmark-remove [char]           # Remove a bookmark (prompts for char)
 tsm bookmark-list [-f]               # List bookmarks (-f, --fzf browses them with fzf and starts a session)
+tsm bookmark-status [path]           # Bookmarks of the open sessions, for a tmux status line
 
 tsm configured [config]              # Start a configured session
 tsm logs [session]                   # Browse session logs
@@ -449,6 +450,7 @@ See [Usage](#usage) for the exact arguments.
 > | `tsm bookmark-add [char] [path]` | Bookmark a directory at `<char>`, defaulting to the current directory |
 > | `tsm bookmark-remove [char]` | Remove the bookmark at `<char>` |
 > | `tsm bookmark-list [-f]` | List all bookmarks, or browse them with `fzf` |
+> | `tsm bookmark-status [path]` | The open sessions' bookmarks, for a tmux status line |
 >
 > A bookmark character is a single printable character. Bookmarking a directory at a character
 > that is already bookmarked replaces it, the way setting a vim mark that is already set does.
@@ -468,6 +470,44 @@ See [Usage](#usage) for the exact arguments.
 >   character will not come to mind.
 >
 > Bookmarks are stored as JSON in `${XDG_STATE_HOME:-~/.local/state}/tsm/bookmarks.json`.
+>
+> #### Status Line (`tsm bookmark-status`)
+>
+> `tsm bookmark-status` prints the bookmark characters of the sessions that are **open**, for a
+> tmux status line:
+>
+> ```tmux
+> set -g status-right "#(tsm bookmark-status '#{session_path}')"
+> ```
+>
+> The character of the session you are in is styled differently from the rest. This is the compact
+> alternative to reading session names off a status line: the characters you chose, in the order
+> you would type them, and nothing for the sessions you never bookmarked. A bookmark you have set
+> but have no session open for is not shown -- what is on the line is what you can switch to right
+> now.
+>
+> `#{session_path}` is how the line says which session is being drawn for. tmux runs a `#()`
+> command without a client and shares its output between them all, so a status line that does not
+> pass this would highlight some other client's session -- and highlight the same one everywhere.
+>
+> Two flags set the styles. They are tmux style specifications written without their `#[]`
+> wrapper, so that nothing in the status line format needs escaping:
+>
+> | flag | description |
+> |------|-------------|
+> | `-s`, `--style` | Style for the other open sessions' characters (default: `dim`) |
+> | `-c`, `--current-style` | Style for the current session's character (default: `fg=yellow,bold`) |
+>
+> ```tmux
+> set -g status-right "#(tsm bookmark-status '#{session_path}' -s 'fg=colour244' -c 'fg=black,bg=blue,bold')"
+> ```
+>
+> The line is redrawn on tmux's `status-interval`, so how quickly a session appearing or
+> disappearing shows up is that option's business:
+>
+> ```tmux
+> set -g status-interval 5
+> ```
 
 <a id="configured-sessions"></a>
 
