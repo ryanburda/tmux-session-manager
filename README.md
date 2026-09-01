@@ -140,6 +140,10 @@ bind-key d popup -E "tsm dir"
 bind-key g popup -E "tsm git"
 bind-key G popup -E "tsm git -bf"
 bind-key w popup -E "tsm worktree"
+bind-key b run-shell -b "tsm bookmark"
+bind-key B popup -E "tsm bookmark-list -f"
+bind-key m run-shell -b "tsm bookmark-add"
+bind-key M run-shell -b "tsm bookmark-remove"
 
 # Configuration based sessions
 bind-key c popup -E "tsm configured"
@@ -155,8 +159,17 @@ This maps:
 - `prefix + g` - Git repository session launcher
 - `prefix + G` - Git repository session launcher (with git brief)
 - `prefix + w` - Worktree session launcher
+- `prefix + b` - Bookmarked directory session launcher, asking for the character in the status line
+- `prefix + B` - Bookmarked directory session launcher, browsing with fzf
+- `prefix + m` - Bookmark the session's directory, asking for the character in the status line
+- `prefix + M` - Remove a bookmark, asking for the character in the status line
 - `prefix + c` - Configured session launcher
 - `prefix + L` - Browse configured session logs
+
+The three bindings that ask for a character use `run-shell` rather than `popup -E`: the prompt is
+tmux's own, shown in the status line, so there is no popup to put it in. `tsm bookmark-add` bound
+this way bookmarks the directory the session is rooted at. To bookmark the directory the current
+pane is in instead, pass it: `bind-key m run-shell -b "tsm bookmark-add '' '#{pane_current_path}'"`.
 
 <details>
 <summary><strong style="font-size: 1.25em;">Troubleshooting Keybinds</strong></summary>
@@ -209,12 +222,17 @@ tsm last                             # Switch to the most recent session that is
 tsm dir [path] [-c] [-d] [-p]        # Create session at path
 tsm git [-b] [-f] [-c] [-d] [-p]     # Browse git repositories with fzf, creates session at path
 tsm worktree [name] [-c] [-d] [-p]   # Create session at git worktree path
+tsm bookmark [char] [-c] [-d] [-p]   # Create session at a bookmarked directory (prompts for char)
 
   -c, --no-custom-config             # Ignore a custom configuration rooted at the selected path
   -d, --no-default-config            # Skip the shared default configuration
   -p, --prompt-name                  # Prompt for the session name instead of using the default
   -b, --brief                        # (git) Show git status information in the picker
   -f, --fetch                        # (git) Fetch before showing the brief; implies -b
+
+tsm bookmark-add [char] [path]       # Bookmark a directory (prompts for char; path defaults to the current directory)
+tsm bookmark-remove [char]           # Remove a bookmark (prompts for char)
+tsm bookmark-list [-f]               # List bookmarks (-f, --fzf browses them with fzf and starts a session)
 
 tsm configured [config]              # Start a configured session
 tsm logs [session]                   # Browse session logs
@@ -280,6 +298,7 @@ help you find the directory:
 - `tsm dir` - any directory on the filesystem
 - `tsm git` - a git repository
 - `tsm worktree` - a worktree of the current repository
+- `tsm bookmark` - a directory you have bookmarked to a single character
 
 Once a directory is picked, all pickers resolve which session configuration to apply
 to the newly created session in the same way:
@@ -316,7 +335,7 @@ to the newly created session in the same way:
                 ---------------------------
 ```
 
-All three pickers take the same flags. `-c` and `-d` opt out of a step of the resolution above:
+All four pickers take the same flags. `-c` and `-d` opt out of a step of the resolution above:
 
 - `-c`, `--no-custom-config` - Ignore a [custom configuration](#configured-sessions) rooted at the
   picked directory and apply the default configuration instead.
@@ -324,8 +343,8 @@ All three pickers take the same flags. `-c` and `-d` opt out of a step of the re
   leaving a bare session at the directory.
 - `-p`, `--prompt-name` - Prompt for the session name instead of using the suggested one.
 
-Each picker also takes an argument (a path, a worktree name) to skip `fzf` and go
-straight to a session.
+Each picker also takes an argument (a path, a worktree name, a bookmark character) to skip the
+picker and go straight to a session.
 
 See [Usage](#usage) for the exact arguments.
 
@@ -402,6 +421,53 @@ See [Usage](#usage) for the exact arguments.
 > **NOTE:** Can only be run when the current working directory is inside a git repo
 > 
 > ![Launch Worktree Sessions](docs/worktree_launcher.gif)
+
+<a id="bookmarks"></a>
+
+> ### Bookmarks (`tsm bookmark`)
+>
+> A directory you have bookmarked, keyed by a single character.
+>
+> A bookmark maps one character to one directory. `tsm bookmark m` goes straight to a session
+> at whatever directory `m` is bookmarking, with no picker in the way. Bookmarks are meant for
+> the handful of directories you return to constantly, the ones worth recalling from memory
+> instead of fuzzy finding for.
+>
+> | command | description |
+> |---------|-------------|
+> | `tsm bookmark <char> [-c] [-d] [-p]` | Start a session at the directory bookmarked at `<char>` |
+> | `tsm bookmark [-c] [-d] [-p]` | Ask for a character, then start a session at its directory |
+>
+> The session that starts is a directory session like any other: a custom configuration rooted
+> at the bookmarked directory is what starts if one exists, the default configuration applies if
+> none claims it, and `-c`, `-d` and `-p` mean what they mean for the other pickers.
+>
+> The bookmarks themselves are managed with three commands of their own:
+>
+> | command | description |
+> |---------|-------------|
+> | `tsm bookmark-add [char] [path]` | Bookmark a directory at `<char>`, defaulting to the current directory |
+> | `tsm bookmark-remove [char]` | Remove the bookmark at `<char>` |
+> | `tsm bookmark-list [-f]` | List all bookmarks, or browse them with `fzf` |
+>
+> A bookmark character is a single printable character. Bookmarking a directory at a character
+> that is already bookmarked replaces it, the way setting a vim mark that is already set does.
+>
+> Called without a character, `tsm bookmark`, `tsm bookmark-add` and `tsm bookmark-remove` ask for
+> one and take the next key pressed, the way vim's `m{char}` does. `enter` or `escape` backs out.
+> This is what makes them worth binding to a tmux key: the binding does not have to carry a
+> character, so one key covers every bookmark.
+>
+> Inside tmux the question is asked in the status line, so a binding needs no popup to hold it --
+> `run-shell` is enough. Answering it is what starts the session, or sets or removes the bookmark.
+> Outside tmux the character is read from the terminal instead.
+>
+> - `-f`, `--fzf` - (`bookmark-list`) Browse the bookmarks with `fzf` instead of printing them.
+>   Each row is a bookmark's character and its directory; `enter` starts a session at the one
+>   picked, and `ctrl-x` removes it without leaving the picker. This is the way back when a
+>   character will not come to mind.
+>
+> Bookmarks are stored as JSON in `${XDG_STATE_HOME:-~/.local/state}/tsm/bookmarks.json`.
 
 <a id="configured-sessions"></a>
 

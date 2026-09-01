@@ -11,7 +11,7 @@ _tsm_completions() {
     cmd="${COMP_WORDS[1]}"
 
     # Available subcommands
-    subcmds="active last kill dir git worktree configured logs apply-default-config kill-default-config help"
+    subcmds="active last kill dir git worktree bookmark bookmark-add bookmark-remove bookmark-list configured logs apply-default-config kill-default-config help"
 
     # Completing the subcommand itself
     if [ "$COMP_CWORD" -eq 1 ]; then
@@ -42,6 +42,33 @@ _tsm_completions() {
                 END { if (path != "") { n = split(path, a, "/"); print a[n] } }
             ')
             COMPREPLY=($(compgen -W "$worktrees -c --no-custom-config -d --no-default-config -p --prompt-name" -- "$cur"))
+            return 0
+            ;;
+        bookmark|bookmark-remove)
+            # Only asked for when there is something to list: with no bookmarks
+            # set, tsm says so, and inside tmux it says so in the status line.
+            local bookmarks_file="${XDG_STATE_HOME:-$HOME/.local/state}/tsm/bookmarks.json"
+            local bookmarks=""
+            if [ -s "$bookmarks_file" ]; then
+                bookmarks=$(tsm bookmark-list 2>/dev/null | awk 'length($1) == 1 { print $1 }')
+            fi
+            if [ "$cmd" = "bookmark" ]; then
+                COMPREPLY=($(compgen -W "$bookmarks -c --no-custom-config -d --no-default-config -p --prompt-name" -- "$cur"))
+            else
+                COMPREPLY=($(compgen -W "$bookmarks" -- "$cur"))
+            fi
+            return 0
+            ;;
+        bookmark-list)
+            COMPREPLY=($(compgen -W "-f --fzf" -- "$cur"))
+            return 0
+            ;;
+        bookmark-add)
+            # The character comes first and is the user's to pick; the
+            # directory after it is the one being bookmarked.
+            if [ "$COMP_CWORD" -gt 2 ]; then
+                COMPREPLY=($(compgen -d -- "$cur"))
+            fi
             return 0
             ;;
         configured)

@@ -51,6 +51,20 @@ function __tsm_worktrees
     '
 end
 
+# Helper function: get bookmark characters and their directories
+function __tsm_bookmarks
+    set -l state_dir "$XDG_STATE_HOME"
+    if test -z "$state_dir"
+        set state_dir "$HOME/.local/state"
+    end
+
+    # Only asked for when there is something to list: with no bookmarks set,
+    # tsm says so, and inside tmux it says so in the status line.
+    if test -s "$state_dir/tsm/bookmarks.json"
+        tsm bookmark-list 2>/dev/null | awk 'length($1) == 1 { c = $1; sub(/^.[[:space:]]+/, ""); print c "\t" $0 }'
+    end
+end
+
 # Disable file completion by default
 complete -c tsm -f
 
@@ -61,6 +75,10 @@ complete -c tsm -n '__fish_use_subcommand' -a kill -d 'Kill a session'
 complete -c tsm -n '__fish_use_subcommand' -a dir -d 'Browse/start session at directory'
 complete -c tsm -n '__fish_use_subcommand' -a git -d 'Browse git repositories with fzf'
 complete -c tsm -n '__fish_use_subcommand' -a worktree -d 'Browse worktrees for current git repo session'
+complete -c tsm -n '__fish_use_subcommand' -a bookmark -d 'Browse/start session at a bookmarked directory'
+complete -c tsm -n '__fish_use_subcommand' -a bookmark-add -d 'Bookmark a directory at a character'
+complete -c tsm -n '__fish_use_subcommand' -a bookmark-remove -d 'Remove a bookmark'
+complete -c tsm -n '__fish_use_subcommand' -a bookmark-list -d 'List all bookmarks, or browse them with fzf'
 complete -c tsm -n '__fish_use_subcommand' -a configured -d 'Browse/start configured sessions'
 complete -c tsm -n '__fish_use_subcommand' -a logs -d 'Browse session logs'
 complete -c tsm -n '__fish_use_subcommand' -a apply-default-config -d 'Apply the default configuration start hook'
@@ -74,5 +92,10 @@ complete -c tsm -n '__fish_seen_subcommand_from dir' -xa '-c --no-custom-config 
 complete -c tsm -n '__fish_seen_subcommand_from git' -xa '-b --brief -f --fetch -c --no-custom-config -d --no-default-config -p --prompt-name'
 complete -c tsm -n '__fish_seen_subcommand_from worktree' -xa '(__tsm_worktrees)'
 complete -c tsm -n '__fish_seen_subcommand_from worktree' -xa '-c --no-custom-config -d --no-default-config -p --prompt-name'
+complete -c tsm -n '__fish_seen_subcommand_from bookmark' -xa '(__tsm_bookmarks)'
+complete -c tsm -n '__fish_seen_subcommand_from bookmark' -xa '-c --no-custom-config -d --no-default-config -p --prompt-name'
+complete -c tsm -n '__fish_seen_subcommand_from bookmark-remove' -xa '(__tsm_bookmarks)'
+complete -c tsm -n '__fish_seen_subcommand_from bookmark-list' -xa '-f --fzf'
+complete -c tsm -n '__fish_seen_subcommand_from bookmark-add' -ra '(__fish_complete_directories)'
 complete -c tsm -n '__fish_seen_subcommand_from configured' -xa '(__tsm_configured_sessions)'
 complete -c tsm -n '__fish_seen_subcommand_from logs' -xa '(__tsm_log_sessions)'

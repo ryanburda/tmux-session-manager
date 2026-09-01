@@ -34,6 +34,17 @@ _tsm_worktrees() {
     _describe 'worktree' worktrees
 }
 
+_tsm_bookmarks() {
+    # Only asked for when there is something to list: with no bookmarks set,
+    # tsm says so, and inside tmux it says so in the status line.
+    local bookmarks_file="${XDG_STATE_HOME:-$HOME/.local/state}/tsm/bookmarks.json"
+    local bookmarks
+    if [[ -s "$bookmarks_file" ]]; then
+        bookmarks=(${(f)"$(tsm bookmark-list 2>/dev/null | awk 'length($1) == 1 { c = $1; sub(/^.[[:space:]]+/, ""); print c ":" $0 }')"})
+        _describe 'bookmark' bookmarks
+    fi
+}
+
 _tsm_configured_sessions() {
     local config_dir="${XDG_CONFIG_HOME:-$HOME/.config}/tsm"
     local sessions
@@ -51,6 +62,10 @@ _tsm_commands() {
         'dir:Browse/start session at directory'
         'git:Browse git repositories with fzf'
         'worktree:Browse worktrees for current git repo session'
+        'bookmark:Browse/start session at a bookmarked directory'
+        'bookmark-add:Bookmark a directory at a character'
+        'bookmark-remove:Remove a bookmark'
+        'bookmark-list:List all bookmarks, or browse them with fzf'
         'configured:Browse/start configured sessions'
         'logs:Browse session logs'
         'apply-default-config:Apply the default configuration start hook'
@@ -85,6 +100,24 @@ _tsm() {
             _alternative \
                 'worktrees:worktree:_tsm_worktrees' \
                 'options:option:(-c --no-custom-config -d --no-default-config -p --prompt-name)'
+            ;;
+        bookmark)
+            _alternative \
+                'bookmarks:bookmark:_tsm_bookmarks' \
+                'options:option:(-c --no-custom-config -d --no-default-config -p --prompt-name)'
+            ;;
+        bookmark-remove)
+            _tsm_bookmarks
+            ;;
+        bookmark-list)
+            _values -s ' ' 'bookmark-list options' '-f' '--fzf'
+            ;;
+        bookmark-add)
+            # The character comes first and is the user's to pick; the
+            # directory after it is the one being bookmarked.
+            if (( CURRENT > 2 )); then
+                _files -/
+            fi
             ;;
         configured)
             _tsm_configured_sessions
