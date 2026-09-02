@@ -9,7 +9,7 @@ Directory-based tmux sessions, configured on creation
 
 Session configurations are plain shell scripts. No YAML, no DSL.
 
-Write a default configuration for a familiar setup across projects.
+Write a shared configuration for a familiar setup across a whole tree of projects.
 
 Write custom configurations for projects that need something a bit different.
 
@@ -219,13 +219,12 @@ tsm active [session]                 # Switch to session
 tsm kill [session]                   # Kill session (runs kill() hook if present)
 tsm last                             # Switch to the most recent session that is still open
 
-tsm dir [path] [-c] [-d] [-p]        # Create session at path
-tsm git [-b] [-f] [-c] [-d] [-p]     # Browse git repositories with fzf, creates session at path
-tsm worktree [name] [-c] [-d] [-p]   # Create session at git worktree path
-tsm bookmark [char] [-c] [-d] [-p]   # Create session at a bookmarked directory (prompts for char)
+tsm dir [path] [-c] [-p]             # Create session at path
+tsm git [-b] [-f] [-c] [-p]          # Browse git repositories with fzf, creates session at path
+tsm worktree [name] [-c] [-p]        # Create session at git worktree path
+tsm bookmark [char] [-c] [-p]        # Create session at a bookmarked directory (prompts for char)
 
-  -c, --no-custom-config             # Ignore a custom configuration rooted at the selected path
-  -d, --no-default-config            # Skip the shared default configuration
+  -c, --no-config                    # Ignore any configuration claiming the selected path
   -p, --prompt-name                  # Prompt for the session name instead of using the default
   -b, --brief                        # (git) Show git status information in the picker
   -f, --fetch                        # (git) Fetch before showing the brief; implies -b
@@ -237,8 +236,8 @@ tsm bookmark-status [path]           # Bookmarks of the open sessions, for a tmu
 
 tsm configured [config]              # Start a configured session
 tsm logs [session]                   # Browse session logs
-tsm apply-default-config             # Apply the default configuration's start() (inside a configuration's start())
-tsm kill-default-config              # Run the default configuration's kill() (inside a configuration's kill())
+tsm apply-matching-config            # Apply the matching configuration's start() (inside a configuration's start())
+tsm kill-matching-config             # Run the matching configuration's kill() (inside a configuration's kill())
 
 tsm help                             # Show help message
 ```
@@ -279,13 +278,35 @@ The script above:
 See **[Building a Session](docs/building-a-session.md)** for the full guide: pane addressing,
 multi-window layouts, starting and stopping services, and worked examples.
 
-A default configuration can be defined at `${XDG_CONFIG_HOME:-~/.config}/tsm/.default_config.sh`.
-It defines `start()` and `kill()` like any other configuration, and is applied to any session
-started with one of the [directory session pickers](#directory-sessions) if a custom configuration
-doesn't exist for the selected directory.
+A configuration whose file name starts with a dot covers a whole set of directories instead of one.
+It swaps `ROOT` for `ROOT_PATTERN`, a bash regular expression tested against the directory you
+picked, and is applied to any session started with one of the
+[directory session pickers](#directory-sessions) when no configuration of its own is rooted there.
+It is how a layout is shared across every repository in a tree without a file per repository:
 
-Configurations of your own never inherit it. They opt in by calling `tsm apply-default-config` in
-`start()` and `tsm kill-default-config` in `kill()`, which leaves them free to run their own work
+```bash
+# ~/.config/tsm/.work.sh
+#
+# the layout for every repository directly under ~/code/work
+
+ROOT_PATTERN="^$HOME/code/work/[^/]+$"
+
+start() {
+  vim=$(tmux display-message -p -t "$SESSION" '#{pane_id}')
+  ai=$(tmux split-window -P -F '#{pane_id}' -h -l 35% -t "$vim" -c "$ROOT")
+  tmux send-keys -t "$vim" 'vim' Enter
+  tmux send-keys -t "$ai" 'ai' Enter
+}
+```
+
+Dot files are skipped by `tsm configured` and its picker, since they name no session of their own.
+Files are tried in sorted order and the first match wins, so the file name decides
+[precedence](docs/building-a-session.md#precedence). A directory that matches no `ROOT` and no
+`ROOT_PATTERN` gets a bare session. To get a default for everything back, add a file declaring
+`ROOT_PATTERN=".*"` under a name that sorts last, such as `.zz-default.sh`.
+
+Configurations of your own never inherit one. They opt in by calling `tsm apply-matching-config` in
+`start()` and `tsm kill-matching-config` in `kill()`, which leaves them free to run their own work
 before or after the shared setup.
 
 # Overview
@@ -321,9 +342,10 @@ to the newly created session in the same way:
          | yes |                             | no |
          -------                             ------
             |                                   |
-----------------------------   ----------------------------------
-| start that configuration |   | does .default_config.sh exist? |
-----------------------------   ----------------------------------
+----------------------------   -------------------------------------
+| start that configuration |   | does a ~/.config/tsm/.*.sh set a  |
+----------------------------   | $ROOT_PATTERN matching the path?  |
+                               -------------------------------------
                                  /                          \
                               -------                     ------
                               | yes |                     | no |
@@ -332,16 +354,15 @@ to the newly created session in the same way:
                 ---------------------------    -------------------------
                 | create a session at the |    | create a bare session |
                 | directory, then apply   |    |   at the directory    |
-                | .default_config.sh      |    -------------------------
+                | that configuration      |    -------------------------
                 ---------------------------
 ```
 
-All four pickers take the same flags. `-c` and `-d` opt out of a step of the resolution above:
+All four pickers take the same flags. `-c` opts out of the resolution above entirely:
 
-- `-c`, `--no-custom-config` - Ignore a [custom configuration](#configured-sessions) rooted at the
-  picked directory and apply the default configuration instead.
-- `-d`, `--no-default-config` - Skip the [shared default configuration](docs/building-a-session.md#defining-a-default-configuration),
-  leaving a bare session at the directory.
+- `-c`, `--no-config` - Skip both steps: ignore a [configuration](#configured-sessions) rooted at
+  the picked directory and any [shared configuration](docs/building-a-session.md#defining-a-shared-configuration)
+  whose `ROOT_PATTERN` claims it, leaving a bare session at the directory.
 - `-p`, `--prompt-name` - Prompt for the session name instead of using the suggested one.
 
 Each picker also takes an argument (a path, a worktree name, a bookmark character) to skip the
@@ -436,12 +457,12 @@ See [Usage](#usage) for the exact arguments.
 >
 > | command | description |
 > |---------|-------------|
-> | `tsm bookmark <char> [-c] [-d] [-p]` | Start a session at the directory bookmarked at `<char>` |
-> | `tsm bookmark [-c] [-d] [-p]` | Ask for a character, then start a session at its directory |
+> | `tsm bookmark <char> [-c] [-p]` | Start a session at the directory bookmarked at `<char>` |
+> | `tsm bookmark [-c] [-p]` | Ask for a character, then start a session at its directory |
 >
-> The session that starts is a directory session like any other: a custom configuration rooted
-> at the bookmarked directory is what starts if one exists, the default configuration applies if
-> none claims it, and `-c`, `-d` and `-p` mean what they mean for the other pickers.
+> The session that starts is a directory session like any other: a configuration rooted at the
+> bookmarked directory is what starts if one exists, a shared configuration whose `ROOT_PATTERN`
+> claims it applies if none does, and `-c` and `-p` mean what they mean for the other pickers.
 >
 > The bookmarks themselves are managed with three commands of their own:
 >
@@ -460,9 +481,9 @@ See [Usage](#usage) for the exact arguments.
 > This is what makes them worth binding to a tmux key: the binding does not have to carry a
 > character, so one key covers every bookmark.
 >
-> Inside tmux the question is asked in the status line, so a binding needs no popup to hold it --
-> `run-shell` is enough. Answering it is what starts the session, or sets or removes the bookmark.
-> Outside tmux the character is read from the terminal instead.
+> Inside tmux the question is asked in the status line, so a binding needs no popup to hold it.
+> Using `run-shell` is enough. Answering it is what starts the session, or sets or removes the
+> bookmark. Outside tmux the character is read from the terminal instead.
 >
 > - `-f`, `--fzf` - (`bookmark-list`) Browse the bookmarks with `fzf` instead of printing them.
 >   Each row is a bookmark's character and its directory; `enter` starts a session at the one
@@ -481,14 +502,9 @@ See [Usage](#usage) for the exact arguments.
 > ```
 >
 > The character of the session you are in is styled differently from the rest. This is the compact
-> alternative to reading session names off a status line: the characters you chose, in the order
-> you would type them, and nothing for the sessions you never bookmarked. A bookmark you have set
-> but have no session open for is not shown -- what is on the line is what you can switch to right
-> now.
->
-> `#{session_path}` is how the line says which session is being drawn for. tmux runs a `#()`
-> command without a client and shares its output between them all, so a status line that does not
-> pass this would highlight some other client's session -- and highlight the same one everywhere.
+> alternative to reading session names off a status line. A bookmark you have set but have no
+> session open for is not shown. The line only contains the bookmarked sessions you are focusing on
+> right now.
 >
 > Two flags set the styles. They are tmux style specifications written without their `#[]`
 > wrapper, so that nothing in the status line format needs escaping:
@@ -513,13 +529,12 @@ See [Usage](#usage) for the exact arguments.
 >
 > `tsm _refresh-status` redraws the status line of **every** attached client, re-running the
 > commands in it. Every client, because tmux's own `refresh-client -S` reaches only the client the
-> hook fired for, and passing `#{session_path}` gives each client a `#()` job of its own -- so
+> hook fired for, and passing `#{session_path}` gives each client a `#()` job of its own. So
 > refreshing one client's line leaves the others showing what they showed before.
 >
 > Switching sessions needs no hook: that redraws the client's status line by itself, and the
-> character that is highlighted follows along. Setting or removing a bookmark needs none either --
-> `tsm bookmark-add` and `tsm bookmark-remove` refresh the line themselves, since no session was
-> created or killed for a hook to notice.
+> character that is highlighted follows along. Setting or removing a bookmark needs none either since
+> `tsm bookmark-add` and `tsm bookmark-remove` refresh the line themselves.
 
 <a id="configured-sessions"></a>
 

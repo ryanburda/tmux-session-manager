@@ -69,8 +69,8 @@ _tsm_commands() {
         'bookmark-status:The open sessions bookmarks, for a tmux status line'
         'configured:Browse/start configured sessions'
         'logs:Browse session logs'
-        'apply-default-config:Apply the default configuration start hook'
-        'kill-default-config:Run the default configuration kill hook'
+        'apply-matching-config:Apply the matching configuration start hook'
+        'kill-matching-config:Run the matching configuration kill hook'
         'help:Show help message'
     )
     _describe 'command' commands
@@ -92,20 +92,20 @@ _tsm() {
         dir)
             _alternative \
                 'directories:directory:_files -/' \
-                'options:option:(-c --no-custom-config -d --no-default-config -p --prompt-name)'
+                'options:option:(-c --no-config -p --prompt-name)'
             ;;
         git)
-            _values -s ' ' 'git options' '-b' '--brief' '-f' '--fetch' '-c' '--no-custom-config' '-d' '--no-default-config' '-p' '--prompt-name'
+            _values -s ' ' 'git options' '-b' '--brief' '-f' '--fetch' '-c' '--no-config' '-p' '--prompt-name'
             ;;
         worktree)
             _alternative \
                 'worktrees:worktree:_tsm_worktrees' \
-                'options:option:(-c --no-custom-config -d --no-default-config -p --prompt-name)'
+                'options:option:(-c --no-config -p --prompt-name)'
             ;;
         bookmark)
             _alternative \
                 'bookmarks:bookmark:_tsm_bookmarks' \
-                'options:option:(-c --no-custom-config -d --no-default-config -p --prompt-name)'
+                'options:option:(-c --no-config -p --prompt-name)'
             ;;
         bookmark-remove)
             _tsm_bookmarks

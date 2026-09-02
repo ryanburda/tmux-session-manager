@@ -19,13 +19,12 @@ usage() {
   echo "  tsm kill [session]                       # Kill session (run cleanup script if present)"
   echo "  tsm last                                 # Switch to the most recent session that is still open"
   echo "  "
-  echo "  tsm dir [path] [-c] [-d] [-p]            # Create session at path"
-  echo "  tsm git [path] [-b] [-f] [-c] [-d] [-p]  # Browse git repositories with fzf, creates session at path"
-  echo "  tsm worktree [name] [-c] [-d] [-p]       # Create session at git worktree path"
-  echo "  tsm bookmark [char] [-c] [-d] [-p]       # Create session at a bookmarked directory (prompts for char)"
+  echo "  tsm dir [path] [-c] [-p]                 # Create session at path"
+  echo "  tsm git [path] [-b] [-f] [-c] [-p]       # Browse git repositories with fzf, creates session at path"
+  echo "  tsm worktree [name] [-c] [-p]            # Create session at git worktree path"
+  echo "  tsm bookmark [char] [-c] [-p]            # Create session at a bookmarked directory (prompts for char)"
   echo "  "
-  echo "    -c, --no-custom-config                 # Ignore a custom configuration rooted at the selected path"
-  echo "    -d, --no-default-config                # Skip the shared default configuration"
+  echo "    -c, --no-config                        # Ignore any configuration claiming the selected path"
   echo "    -p, --prompt-name                      # Prompt for the session name instead of using the default"
   echo "    -b, --brief                            # (git) Show git status information in the picker"
   echo "    -f, --fetch                            # (git) Fetch before showing the brief; implies -b"
@@ -37,8 +36,8 @@ usage() {
   echo "  "
   echo "  tsm configured [config]                  # Start a configured session"
   echo "  tsm logs [session]                       # Browse session logs"
-  echo "  tsm apply-default-config                 # Apply the default configuration's start() (inside a configuration's start())"
-  echo "  tsm kill-default-config                  # Run the default configuration's kill() (inside a configuration's kill())"
+  echo "  tsm apply-matching-config                # Apply the matching configuration's start() (inside a configuration's start())"
+  echo "  tsm kill-matching-config                 # Run the matching configuration's kill() (inside a configuration's kill())"
   echo "  "
   echo "  tsm help                                 # Show help message"
   echo ""
@@ -298,6 +297,11 @@ configured_session_for_root() {
   # Echoes the name of the configuration whose $ROOT is the given directory, or
   # nothing if no configuration claims it. The first match wins.
   #
+  # Only configurations whose file name does not start with a dot are
+  # considered. A dot file is not a session of its own: it claims a whole set
+  # of directories through $ROOT_PATTERN, and matching_config_for_root is what
+  # resolves those.
+  #
   # A configuration is a shell file, so its $ROOT is only knowable by running
   # it: each one is sourced in a bash of its own -- the same way
   # configured_session runs it, and with the same SESSION/ROOT contract -- and
@@ -332,7 +336,52 @@ configured_session_for_root() {
       echo "$config"
       return
     fi
-  done < <(find -L "$CONFIG_DIR" -type f -name '*.sh' ! -name '.default_config.sh' 2>/dev/null | sort)
+  done < <(find -L "$CONFIG_DIR" -type f -name '*.sh' ! -name '.*' 2>/dev/null | LC_ALL=C sort)
+}
+
+matching_config_for_root() {
+  # Echoes the name of the dot configuration whose $ROOT_PATTERN matches the
+  # given directory, or nothing if none does. Files are tried in sorted order
+  # and the first match wins.
+  #
+  # Where a plain configuration names one directory with $ROOT, a dot
+  # configuration describes a set of them with $ROOT_PATTERN, a bash regular
+  # expression tested against the resolved path. It is the way to say "every
+  # repository under ~/code/work gets this layout" without a file per
+  # repository. Nothing claims a directory by default: a path no $ROOT and no
+  # $ROOT_PATTERN matches gets a bare session.
+  #
+  # Which file wins is a matter of what it is called, so the sort is pinned to
+  # LC_ALL=C. A locale-aware sort collates on the full path with punctuation
+  # ignored in the first pass, which puts a nested `sub/.work.sh` ahead of a
+  # top-level `.zz-default.sh` in en_US.UTF-8 and behind it in C. Precedence
+  # should not depend on the environment tsm happens to be run from.
+  #
+  # The match is made inside the same bash that sourced the file, so the regex
+  # never reaches this shell: a file that fails to source, sets no
+  # $ROOT_PATTERN, or sets one that is not a valid regex all leave a non-zero
+  # status, which is to say they simply do not match.
+  #
+  # Args:
+  #   $1: path: the resolved directory a directory session would be rooted at
+  local path="$1"
+
+  [ -d "$CONFIG_DIR" ] || return
+
+  local file config
+  while IFS= read -r file; do
+    if bash -c '
+      export SESSION=""
+      unset ROOT ROOT_PATTERN
+      source "$1" >/dev/null 2>&1
+      [ -n "$ROOT_PATTERN" ] || exit 1
+      [[ "$2" =~ $ROOT_PATTERN ]]
+    ' tsm "$file" "$path" 2>/dev/null; then
+      config="${file#"$CONFIG_DIR/"}"
+      echo "${config%.sh}"
+      return
+    fi
+  done < <(find -L "$CONFIG_DIR" -type f -name '.*.sh' 2>/dev/null | LC_ALL=C sort)
 }
 
 session_name_prompt() {
@@ -710,22 +759,26 @@ kill_session() {
   # A configured session is normally named after its configuration file, so the
   # file could be found from the session name alone. The recorded name is what
   # keeps that true after a `tmux rename-session`.
-  local configured_session default_config_root
+  local configured_session matching_config matching_config_root
   configured_session=$(tmux show-environment -t "=$session" TSM_CONFIGURED_SESSION 2>/dev/null | sed 's/^TSM_CONFIGURED_SESSION=//')
-  default_config_root=$(tmux show-environment -t "=$session" TSM_DEFAULT_CONFIG_ROOT 2>/dev/null | sed 's/^TSM_DEFAULT_CONFIG_ROOT=//')
+  matching_config=$(tmux show-environment -t "=$session" TSM_MATCHING_CONFIG 2>/dev/null | sed 's/^TSM_MATCHING_CONFIG=//')
+  matching_config_root=$(tmux show-environment -t "=$session" TSM_MATCHING_CONFIG_ROOT 2>/dev/null | sed 's/^TSM_MATCHING_CONFIG_ROOT=//')
 
-  # A session a configuration claimed runs that configuration's kill(), and
-  # only that one: the default configuration's cleanup is opted into with
-  # `tsm kill-default-config`, the same way its layout is. A session no
-  # configuration claimed came up under the default configuration, so its
-  # cleanup is the default configuration's, and ROOT is the directory it was
-  # created at rather than whatever the file happens to set.
+  # A session a configuration of its own claimed runs that configuration's
+  # kill(), and only that one: a dot configuration's cleanup is opted into with
+  # `tsm kill-matching-config`, the same way its layout is. A session that came
+  # up under a dot configuration runs that file's kill(), with ROOT set to the
+  # directory it was created at rather than whatever the file happens to set.
+  #
+  # The file is read back from the marker rather than resolved again, so the
+  # session is torn down by the configuration that built it even if the
+  # patterns have since been edited to claim its directory differently.
   local session_file session_root=""
   if [ -n "$configured_session" ]; then
     session_file="$CONFIG_DIR/$configured_session.sh"
-  elif [ -n "$default_config_root" ]; then
-    session_file="$CONFIG_DIR/.default_config.sh"
-    session_root="$default_config_root"
+  elif [ -n "$matching_config" ]; then
+    session_file="$CONFIG_DIR/$matching_config.sh"
+    session_root="$matching_config_root"
   else
     session_file="$CONFIG_DIR/$session.sh"
   fi
@@ -762,8 +815,11 @@ configured_session() {
     # name. Nesting a configuration one directory deep is how a session
     # gets a name like "myrepo/base", matching what a worktree session is
     # called. -L because configurations are commonly symlinks into a project.
+    #
+    # Dot files are left out: they describe a set of directories rather than a
+    # session, so there is no name here to start.
     local configured_sessions
-    configured_sessions=$(find -L "$CONFIG_DIR" -type f -name '*.sh' ! -name '.default_config.sh' 2>/dev/null \
+    configured_sessions=$(find -L "$CONFIG_DIR" -type f -name '*.sh' ! -name '.*' 2>/dev/null \
       | while read -r f; do f="${f#"$CONFIG_DIR/"}"; echo "${f%.sh}"; done \
       | sort)
 
@@ -817,9 +873,9 @@ configured_session() {
   # in kill_session. start() is an optional hook that customizes the session
   # that already exists, so a configuration only has to describe what it wants
   # beyond a plain session rooted at $ROOT. A configuration that defines no
-  # start() is asking for exactly that plain session; the shared default
-  # configuration is opted into, by calling `tsm apply-default-config`, never
-  # inherited.
+  # start() is asking for exactly that plain session; a dot configuration whose
+  # $ROOT_PATTERN covers this $ROOT is opted into, by calling
+  # `tsm apply-matching-config`, never inherited.
   #
   # SESSION is exported before the file is sourced so that top-level code can
   # use it, and ROOT afterwards so the configuration gets to set it first.
@@ -861,55 +917,88 @@ configured_session() {
   switch_or_attach "$session"
 }
 
-apply_default_config() {
-  # Runs the start hook of $CONFIG_DIR/.default_config.sh, the configuration
-  # shared by sessions that would otherwise all write the same start() body.
-  # Sourced at the point a configuration calls `tsm apply-default-config`, or
-  # by dir_session for a session no configuration claimed -- SESSION and ROOT
-  # are already exported by then.
+run_config_start() {
+  # Sources a configuration file and runs its start() hook. SESSION and ROOT
+  # are expected to be in the environment already, so the file sees the same
+  # contract whether it was reached as a session of its own or as the dot
+  # configuration claiming a picked directory.
   #
-  # The default configuration is a configuration like any other: its top level
-  # runs on the way in and on the way out, so the layout belongs in start().
-  local default_file="$CONFIG_DIR/.default_config.sh"
-
-  if [ ! -f "$default_file" ]; then
-    notify "Error: no default configuration at $default_file"
-    exit 1
-  fi
-
-  source "$default_file"
+  # A configuration is a configuration like any other: its top level runs on
+  # the way in and on the way out, so the layout belongs in start().
+  #
+  # Args:
+  #   $1: file: the configuration file to source
+  source "$1"
 
   if declare -F start >/dev/null; then start; fi
 }
 
-kill_default_config() {
-  # The counterpart of apply_default_config: runs the kill hook of
-  # $CONFIG_DIR/.default_config.sh. A configuration that opted into the default
-  # layout by calling `tsm apply-default-config` in start() opts into its
-  # cleanup by calling `tsm kill-default-config` in kill(). Sessions that no
-  # configuration claimed get it without asking, from kill_session.
-  #
-  # Sourcing defines a kill() that shadows the builtin for the rest of this
-  # process. Nothing here runs after the hook, and tsm exits when it returns.
-  local default_file="$CONFIG_DIR/.default_config.sh"
-
-  if [ ! -f "$default_file" ]; then
-    notify "Error: no default configuration at $default_file"
+matching_config_file() {
+  # Echoes the path of the dot configuration claiming $ROOT, for the two
+  # commands a configuration uses to opt into one. Both run inside a hook, so
+  # ROOT is already exported; it is resolved here the way the pickers resolve
+  # the directory they hand to matching_config_for_root, so a $ROOT written
+  # with a symlink or a `..` is tested as the same path either way.
+  if [ -z "$ROOT" ]; then
+    notify "Error: ROOT is not set. Run this inside a configuration's start() or kill()"
     exit 1
   fi
 
-  source "$default_file"
+  local resolved config
+  resolved=$(cd "$ROOT" 2>/dev/null && pwd -P) || resolved="$ROOT"
+
+  config=$(matching_config_for_root "$resolved")
+  [ -n "$config" ] || return 1
+
+  echo "$CONFIG_DIR/$config.sh"
+}
+
+apply_matching_config() {
+  # Runs the start hook of the dot configuration whose $ROOT_PATTERN matches
+  # $ROOT -- the layout a directory session at that path would have got. It is
+  # how a configuration of its own reuses the setup its neighbours share
+  # instead of repeating it, at the point it calls `tsm apply-matching-config`.
+  #
+  # No dot configuration matching is not an error. It is the same answer a
+  # picked directory would get: nothing is applied. Saying so on stdout puts it
+  # in the session log, where a $ROOT_PATTERN that was meant to match can be
+  # seen not to have.
+  local file
+  file=$(matching_config_file) || {
+    echo "No configuration matches ROOT '$ROOT'; nothing to apply"
+    return
+  }
+
+  run_config_start "$file"
+}
+
+kill_matching_config() {
+  # The counterpart of apply_matching_config: runs the kill hook of the dot
+  # configuration matching $ROOT. A configuration that opted into the shared
+  # layout by calling `tsm apply-matching-config` in start() opts into its
+  # cleanup by calling `tsm kill-matching-config` in kill(). Sessions that no
+  # configuration of their own claimed get it without asking, from
+  # kill_session.
+  #
+  # Sourcing defines a kill() that shadows the builtin for the rest of this
+  # process. Nothing here runs after the hook, and tsm exits when it returns.
+  local file
+  file=$(matching_config_file) || {
+    echo "No configuration matches ROOT '$ROOT'; nothing to clean up"
+    return
+  }
+
+  source "$file"
 
   if declare -F kill >/dev/null; then kill; fi
 }
 
 dir_session() {
-  local target_dir="" no_custom_config="" no_default_config="" prompt_name=""
+  local target_dir="" no_config="" prompt_name=""
   expand_short_flags "$@"
   for arg in "${EXPANDED_ARGS[@]}"; do
     case "$arg" in
-      -c | --no-custom-config) no_custom_config=1 ;;
-      -d | --no-default-config) no_default_config=1 ;;
+      -c | --no-config) no_config=1 ;;
       -p | --prompt-name) prompt_name=1 ;;
       -*)
         notify "Error: Unknown option '$arg' for 'tsm dir'"
@@ -950,21 +1039,30 @@ dir_session() {
   # Resolve to absolute path
   selected=$(cd "$selected" && pwd -P)
 
-  # A path that is some configuration's $ROOT already has a session described
-  # for it, so hand off and start that instead of a plain directory session --
-  # picking a directory is then just another way of reaching `tsm configured`.
-  # configured_session switches to the session when it is already running, the
-  # same thing the default-name path below does for directory sessions, so this
-  # composes with -p: a configured path is served by its configuration whether
-  # or not the session exists yet, and -c is how you ask for an ad hoc session
-  # at that path anyway.
-  if [ -z "$no_custom_config" ]; then
+  # Resolution runs from the specific to the broad. A path that is some
+  # configuration's $ROOT already has a session described for it, so hand off
+  # and start that instead of a plain directory session -- picking a directory
+  # is then just another way of reaching `tsm configured`. configured_session
+  # switches to the session when it is already running, the same thing the
+  # default-name path below does for directory sessions, so this composes with
+  # -p: a configured path is served by its configuration whether or not the
+  # session exists yet, and -c is how you ask for a bare session at that path
+  # anyway.
+  #
+  # Failing that, a dot configuration may claim the path with its
+  # $ROOT_PATTERN. That one does not name the session -- the directory does,
+  # the same as if nothing had matched -- so it is resolved here and applied
+  # below, once the session exists.
+  local matching_config=""
+  if [ -z "$no_config" ]; then
     local config
     config=$(configured_session_for_root "$selected")
     if [ -n "$config" ]; then
       configured_session "$config"
       return
     fi
+
+    matching_config=$(matching_config_for_root "$selected")
   fi
 
   # Create the session
@@ -979,16 +1077,17 @@ dir_session() {
     fi
   fi
 
-  if [ -z "$no_default_config" ]; then
+  if [ -n "$matching_config" ]; then
     # Sized up front, like configured_session does, so a percentage split in
-    # the default configuration is computed against the real client size
-    # rather than tmux's 80x24 default for a detached session.
+    # the dot configuration is computed against the real client size rather
+    # than tmux's 80x24 default for a detached session.
     local width height
     read -r width height < <(client_size)
 
-    # Logged the way a configured session is: the default configuration is a
-    # script like any other, and its output is the only thing to go on when it
-    # misbehaves. A session created with -d runs no script, so it gets no log.
+    # Logged the way a configured session is: a dot configuration is a script
+    # like any other, and its output is the only thing to go on when it
+    # misbehaves. A session no configuration claimed runs no script, so it gets
+    # no log.
     local log_dir="$LOG_DIR/$session_name"
     local log_file="$log_dir/tsm.log"
     mkdir -p "$log_dir"
@@ -997,20 +1096,20 @@ dir_session() {
     {
       tmux new-session -d -s "$session_name" -c "$selected" ${width:+-x "$width"} ${height:+-y "$height"}
 
-      # Run in a subshell: apply_default_config exits non-zero when there is no
-      # default configuration to run, and that should not tear down a session
-      # that tmux already created.
-      # The marker is recorded inside that subshell for the same reason: it is
-      # only true once the default configuration has actually been applied.
+      # Run in a subshell so that a configuration aborting under its own
+      # `set -e` does not tear down a session that tmux already created.
+      # The markers are recorded inside it for the same reason: they are only
+      # true once the configuration has actually been applied.
       #
-      # kill_session reads the marker to know that this session's cleanup is
-      # the default configuration's, and its value to know what to set ROOT to
-      # when it runs -- the directory the session was created at, which the
-      # file does not carry itself. A session created with -d records nothing:
-      # cleaning up a layout it never got is worse than not cleaning up at all.
+      # kill_session reads them to know which file this session's cleanup
+      # belongs to, and what to set ROOT to when it runs -- the directory the
+      # session was created at, which a dot configuration does not carry
+      # itself. A session created with -c records nothing: cleaning up a layout
+      # it never got is worse than not cleaning up at all.
       (
-        SESSION="$session_name" ROOT="$selected" apply_default_config
-        tmux set-environment -t "=$session_name" TSM_DEFAULT_CONFIG_ROOT "$selected"
+        SESSION="$session_name" ROOT="$selected" run_config_start "$CONFIG_DIR/$matching_config.sh"
+        tmux set-environment -t "=$session_name" TSM_MATCHING_CONFIG "$matching_config"
+        tmux set-environment -t "=$session_name" TSM_MATCHING_CONFIG_ROOT "$selected"
       )
     } >> "$log_file" 2>&1
   else
@@ -1021,13 +1120,12 @@ dir_session() {
 }
 
 git_session() {
-  local brief="" fetch="" no_custom_config="" no_default_config="" prompt_name=""
+  local brief="" fetch="" no_config="" prompt_name=""
   expand_short_flags "$@"
   for arg in "${EXPANDED_ARGS[@]}"; do
     case "$arg" in
       -b | --brief) brief=1 ;;
-      -c | --no-custom-config) no_custom_config=1 ;;
-      -d | --no-default-config) no_default_config=1 ;;
+      -c | --no-config) no_config=1 ;;
       -f | --fetch) fetch=1 ;;
       -p | --prompt-name) prompt_name=1 ;;
       *)
@@ -1076,16 +1174,15 @@ git_session() {
     exit 0
   fi
 
-  dir_session "$selected" ${no_custom_config:+--no-custom-config} ${no_default_config:+--no-default-config} ${prompt_name:+--prompt-name}
+  dir_session "$selected" ${no_config:+--no-config} ${prompt_name:+--prompt-name}
 }
 
 worktree_session() {
-  local name="" no_custom_config="" no_default_config="" prompt_name=""
+  local name="" no_config="" prompt_name=""
   expand_short_flags "$@"
   for arg in "${EXPANDED_ARGS[@]}"; do
     case "$arg" in
-      -c | --no-custom-config) no_custom_config=1 ;;
-      -d | --no-default-config) no_default_config=1 ;;
+      -c | --no-config) no_config=1 ;;
       -p | --prompt-name) prompt_name=1 ;;
       -*)
         notify "Error: Unknown option '$arg' for 'tsm worktree'"
@@ -1148,7 +1245,7 @@ worktree_session() {
     selected="${selected%%	*}"
   fi
 
-  dir_session "$selected" ${no_custom_config:+--no-custom-config} ${no_default_config:+--no-default-config} ${prompt_name:+--prompt-name}
+  dir_session "$selected" ${no_config:+--no-config} ${prompt_name:+--prompt-name}
 }
 
 bookmark_prompted() {
@@ -1469,12 +1566,11 @@ bookmark_pick() {
 }
 
 bookmark_session() {
-  local char="" no_custom_config="" no_default_config="" prompt_name=""
+  local char="" no_config="" prompt_name=""
   expand_short_flags "$@"
   for arg in "${EXPANDED_ARGS[@]}"; do
     case "$arg" in
-      -c | --no-custom-config) no_custom_config=1 ;;
-      -d | --no-default-config) no_default_config=1 ;;
+      -c | --no-config) no_config=1 ;;
       -p | --prompt-name) prompt_name=1 ;;
       -*)
         notify "Error: Unknown option '$arg' for 'tsm bookmark'"
@@ -1486,7 +1582,7 @@ bookmark_session() {
 
   # A character goes straight to its session. Without one, bookmark_goto asks
   # for the character first.
-  bookmark_goto "$char" ${no_custom_config:+--no-custom-config} ${no_default_config:+--no-default-config} ${prompt_name:+--prompt-name}
+  bookmark_goto "$char" ${no_config:+--no-config} ${prompt_name:+--prompt-name}
 }
 
 browse_logs() {
@@ -1578,11 +1674,11 @@ case "$command" in
   logs)
     browse_logs "$1"
     ;;
-  apply-default-config)
-    apply_default_config
+  apply-matching-config)
+    apply_matching_config
     ;;
-  kill-default-config)
-    kill_default_config
+  kill-matching-config)
+    kill_matching_config
     ;;
   _record-switch)
     # Internal: invoked by the client-session-changed hook registered in

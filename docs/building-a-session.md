@@ -27,8 +27,8 @@ Everything the file defines is therefore optional, and describes what you want *
 
 Both functions run with `SESSION`, the name of the session, and `ROOT` already in the environment.
 
-A configuration that defines no `start()` gets exactly the plain session described above. The
-[default configuration](#defining-a-default-configuration) is opted into, never inherited.
+A configuration that defines no `start()` gets exactly the plain session described above. A
+[matching configuration](#defining-a-shared-configuration) is opted into, never inherited.
 
 **NOTE:** Configuration file names cannot contain `.` or `:`. tmux reads both as the window and
 pane separators of a target, so a session named `my.project` would be created and then be
@@ -164,14 +164,20 @@ kill() {
 }
 ```
 
-## Defining a Default Configuration
+## Defining a Shared Configuration
 
-Most configurations end up wanting the same layout. Rather than repeat it in every file, put it once
-in `${XDG_CONFIG_HOME:-~/.config}/tsm/.default_config.sh`. It is a configuration like any other:
-`start()` builds the layout, `kill()` tears down whatever `start()` brought up.
+Most configurations end up wanting the same layout. Rather than repeat it in every file, write it
+once in a file whose name starts with a dot and say which directories it covers with `ROOT_PATTERN`.
+
+Where a normal configuration names one directory with `ROOT`, a dot configuration describes a whole
+set of them with `ROOT_PATTERN`, a [bash regular expression](https://www.gnu.org/software/bash/manual/bash.html#Conditional-Constructs)
+tested against the directory you picked. It is how you say "every repository under `~/code/work`
+gets this layout" without writing a file per repository.
 
 ```bash
-# ~/.config/tsm/.default_config.sh
+# ~/.config/tsm/.work.sh
+ROOT_PATTERN="^$HOME/code/work/[^/]+$"
+
 start() {
   code=$(tmux display-message -p -t "$SESSION" '#{pane_id}')
   tmux rename-window -t "$code" code
@@ -186,36 +192,75 @@ start() {
 # }
 ```
 
-[Directory sessions](../README.md#directory-sessions) get both hooks without asking: any session
-`tsm dir`, `tsm git` or `tsm worktree` creates that no configuration of its own claims
-runs the default `start()` on the way in and the default `kill()` on the way out. `SESSION` is the
-new session's name and `ROOT` is the directory you picked.
+The match is unanchored, the same as any bash `=~` test, so anchor it yourself when you mean it.
+`^$HOME/code/work/[^/]+$` claims the repositories directly under `~/code/work` and nothing deeper;
+`^$HOME/code/work/` claims everything beneath it, at any depth.
 
-Configurations of your own get neither. Opt in by calling `tsm apply-default-config` in `start()`
-and `tsm kill-default-config` in `kill()`:
+Being a regex rather than a glob is easy to forget. `ROOT_PATTERN="~/code/*"` matches nothing at
+all: `~` is not expanded inside quotes, and tsm tests against fully resolved absolute paths. Written
+unquoted the tilde does expand, but `*` is still a regex quantifier on the preceding `/`, so
+`~/code/*` reduces to "the path contains `/home/you/code`", which also claims `~/codegen`. Use
+`$HOME` and anchor with `^`.
+
+Dot files are excluded from the configured-session list and picker, since they are not sessions to
+start. A dot file is only ever reached by matching a directory.
+
+[Directory sessions](../README.md#directory-sessions) get both hooks without asking. Any session
+`tsm dir`, `tsm git` or `tsm worktree` creates that no configuration of its own claims runs the
+matching dot configuration's `start()` on the way in and its `kill()` on the way out. `SESSION` is
+the new session's name and `ROOT` is the directory you picked. The session is still named after the
+directory. A dot configuration describes a layout, not a session.
+
+A directory that matches no `ROOT` and no `ROOT_PATTERN` gets a bare session.
+
+### Precedence
+
+Files are tried in sorted order and the first match wins, so **the file name decides precedence**.
+The sort is byte order (`LC_ALL=C`), on the path relative to the configuration directory, and does
+not change with your locale.
+
+This matters most when you want a fallback for everything. `.*` is a regex that matches every path,
+so a file declaring it claims any directory the more specific patterns did not:
+
+```bash
+# ~/.config/tsm/.zz-default.sh
+ROOT_PATTERN=".*"
+```
+
+Note the name. A catch-all is only a fallback if it sorts *last*, otherwise it wins first and
+every other pattern becomes unreachable:
+
+| Catch-all named | Order | `~/code/work/repo` gets |
+| --- | --- | --- |
+| `.default_config.sh` | `.default_config.sh`, `.work.sh` | `.default_config.sh` -- `.work.sh` never runs |
+| `.zz-default.sh` | `.work.sh`, `.zz-default.sh` | `.work.sh` |
+
+**NOTE:** `ROOT_PATTERN=""` does not mean "match everything". An empty value reads as declaring no
+pattern at all, and the file is skipped. Write `".*"`.
+
+Configurations of your own get neither hook. Opt in by calling `tsm apply-matching-config` in
+`start()` and `tsm kill-matching-config` in `kill()`:
 
 ```bash
 # ~/.config/tsm/myproject.sh
-ROOT="$HOME/code/myproject"
+ROOT="$HOME/code/work/myproject"
 
 start() {
-  tsm apply-default-config
+  tsm apply-matching-config
   make -C "$ROOT" up &
 }
 
 kill() {
-  tsm kill-default-config
+  tsm kill-matching-config
   make -C "$ROOT" down
 }
 ```
 
-`tsm apply-default-config` sources `.default_config.sh` and runs its `start()`.
-`tsm kill-default-config` does the same for its `kill()`. Both run at the point they are called,
-with `SESSION` and `ROOT` already in the environment, so a configuration is free to do its own work
-before or after the shared setup.
-
-`.default_config.sh` is excluded from the configured-session list and picker, since it is not a
-session to start.
+`tsm apply-matching-config` finds the dot configuration whose `ROOT_PATTERN` matches `$ROOT`
+(`.work.sh` above) and runs its `start()`. `tsm kill-matching-config` does the same for its
+`kill()`. Both run at the point they are called, with `SESSION` and `ROOT` already in the
+environment, so a configuration is free to do its own work before or after the shared setup. If no
+dot configuration matches `$ROOT`, both are a no-op and say so in the session log.
 
 **NOTE:** Like every configuration, the file is sourced on the way in *and* on the way out, so
 top-level code runs on both. The layout belongs inside `start()`. Anything left at the top level
@@ -256,8 +301,8 @@ will block the rest.
 ## Logging
 
 Output from the `start()` and `kill()` hooks is redirected to a dedicated log file.
-Directory sessions are logged the same way when the default configuration runs, so
-`.default_config.sh` is as debuggable as a configuration of its own. A session created with `-d`
+Directory sessions are logged the same way when a dot configuration runs, so a `.work.sh` is as
+debuggable as a configuration of its own. A session that matched nothing, or one created with `-c`,
 runs no script and gets no log. Logs can be found in
 `${XDG_STATE_HOME:-~/.local/state}/tsm/logs/<session-name>/tsm.log`.
 

@@ -11,7 +11,7 @@ _tsm_completions() {
     cmd="${COMP_WORDS[1]}"
 
     # Available subcommands
-    subcmds="active last kill dir git worktree bookmark bookmark-add bookmark-remove bookmark-list bookmark-status configured logs apply-default-config kill-default-config help"
+    subcmds="active last kill dir git worktree bookmark bookmark-add bookmark-remove bookmark-list bookmark-status configured logs apply-matching-config kill-matching-config help"
 
     # Completing the subcommand itself
     if [ "$COMP_CWORD" -eq 1 ]; then
@@ -27,11 +27,11 @@ _tsm_completions() {
             return 0
             ;;
         dir)
-            COMPREPLY=($(compgen -d -W "-c --no-custom-config -d --no-default-config -p --prompt-name" -- "$cur"))
+            COMPREPLY=($(compgen -d -W "-c --no-config -p --prompt-name" -- "$cur"))
             return 0
             ;;
         git)
-            COMPREPLY=($(compgen -W "-b --brief -f --fetch -c --no-custom-config -d --no-default-config -p --prompt-name" -- "$cur"))
+            COMPREPLY=($(compgen -W "-b --brief -f --fetch -c --no-config -p --prompt-name" -- "$cur"))
             return 0
             ;;
         worktree)
@@ -41,7 +41,7 @@ _tsm_completions() {
                 /^$/ { if (path != "") { n = split(path, a, "/"); print a[n]; path = "" } }
                 END { if (path != "") { n = split(path, a, "/"); print a[n] } }
             ')
-            COMPREPLY=($(compgen -W "$worktrees -c --no-custom-config -d --no-default-config -p --prompt-name" -- "$cur"))
+            COMPREPLY=($(compgen -W "$worktrees -c --no-config -p --prompt-name" -- "$cur"))
             return 0
             ;;
         bookmark|bookmark-remove)
@@ -53,7 +53,7 @@ _tsm_completions() {
                 bookmarks=$(tsm bookmark-list 2>/dev/null | awk 'length($1) == 1 { print $1 }')
             fi
             if [ "$cmd" = "bookmark" ]; then
-                COMPREPLY=($(compgen -W "$bookmarks -c --no-custom-config -d --no-default-config -p --prompt-name" -- "$cur"))
+                COMPREPLY=($(compgen -W "$bookmarks -c --no-config -p --prompt-name" -- "$cur"))
             else
                 COMPREPLY=($(compgen -W "$bookmarks" -- "$cur"))
             fi
