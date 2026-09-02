@@ -395,12 +395,174 @@ All four pickers take the same flags. `-c` opts out of the resolution above enti
 - `-c`, `--no-config` - Skip both steps: ignore a [configuration](#configured-sessions) rooted at
   the picked directory and any [shared configuration](docs/building-a-session.md#defining-a-shared-configuration)
   whose `pattern` claims it, leaving a bare session at the directory.
-- `-p`, `--prompt-name` - Prompt for the session name instead of using the suggested one.
+- `-p`, `--prompt-name` - Prompt for the session name instead of using the suggested one. See
+  [Session names](#session-names).
 
 Each picker also takes an argument (a path, a worktree name, a bookmark character) to skip the
 picker and go straight to a session.
 
 See [Usage](#usage) for the exact arguments.
+
+### Session names
+
+A picker names the session after the directory it starts at: the sanitized basename, or
+`repo/worktree` inside a git worktree. Two directories can share that name -- `~/code/api` and
+`~/work/api` are both `api` -- and the name is the only handle tmux has for telling sessions
+apart.
+
+For worktrees the name is disambiguated for you. git gives every worktree an internal name, kept
+as a directory under the repository's `.git/worktrees/` and derived from the last segment of the
+worktree's path. When two worktrees end in the same segment, git appends a counter rather than
+letting them collide:
+
+```
+.git/worktrees/
+├── feature/      <- ~/code/project/a/feature
+└── feature1/     <- ~/code/project/b/feature
+```
+
+`tsm` names sessions from that internal name rather than from the path's basename, so those two
+worktrees are `project/feature` and `project/feature1` and both can be open at once.
+
+One caveat comes with borrowing git's name: **`git worktree move` does not rename it.** Move
+`a/feature` to `a/renamed` and git's internal name stays `feature`, so the session is still
+called `project/feature` while the directory on disk is `renamed`:
+
+```
+$ git worktree move ../a/feature ../a/renamed
+$ basename "$(git -C ../a/renamed rev-parse --absolute-git-dir)"
+feature
+```
+
+git offers no way to rename a worktree's internal directory, so nothing here can follow the move.
+The name stays unique and stays pointed at the right directory -- it just stops matching what the
+directory is called. `-p`, or `TSM_SESSION_NAME_CMD` below, is the way out if that bothers you.
+
+### Conventions beat fallbacks
+
+All of the above is a safety net, and the best thing you can do is not need it. A layout that
+keeps every worktree at the same level -- all siblings of the bare repository, or all under a
+single `worktrees/` directory -- makes the leaf of every worktree path unique by construction,
+because one directory cannot hold two entries with the same name. Nested worktrees at differing
+depths are the only way to produce a counter, and a flat layout cannot produce them, so no
+counter is ever assigned and every session is named after a directory you actually named.
+[git-ext](https://github.com/ryanburda/git-ext)'s `git worktree-add` enforces exactly this by
+refusing a worktree name containing `/`, though the convention is what matters, not the tool.
+Any layout with the same property works, and `tsm` requires none of them.
+
+The habit worth keeping is the naming one. A worktree is a directory you name yourself, and a
+name you chose (`api-v2`, `hotfix`, `review`) is easier to recognise on a status line than
+`feature1`, a path hash, or anything else a program can derive for you. Reusing one generic name
+like `wt` or `feature` under several parents is what makes derived names collide in the first
+place; distinct names never collide, so no fallback ever has to fire. The `git worktree move`
+caveat above is the one exception -- it follows from renaming a directory, not from where the
+directory sits, so no layout prevents it.
+
+Outside a worktree there is no internal name to lean on, so a genuine collision is reported
+rather than papered over:
+
+```
+$ tsm dir ~/work/api
+Error: session 'api' is already open at /home/you/code/api. Use -p to name this one.
+```
+
+Picking a directory that already has a session open still switches to it -- that is the point of
+picking it again. The error is only for a *different* directory whose derived name would land on
+top of it.
+
+`-p` takes the name into your own hands, in any of the four pickers:
+
+```sh
+tsm dir -p ~/work/api    # suggests "api"; enter accepts it, anything else replaces it
+```
+
+The prompt refuses `.` and `:`. tmux reads both as the window and pane separators of a target, so
+a session holding either can be created and then never switched to or killed again.
+
+### Naming sessions yourself (`TSM_SESSION_NAME_CMD`)
+
+`-p` renames one session. `TSM_SESSION_NAME_CMD` replaces the derivation altogether, for a naming
+scheme of your own:
+
+```bash
+export TSM_SESSION_NAME_CMD='basename "$1"'
+```
+
+The directory arrives both as `$1` and as `$TSM_DIR`, so the command can be an inline snippet or
+the bare path of a script. Only the first line of its output is used, with surrounding whitespace
+trimmed.
+
+A command that prints nothing, or that fails, falls back to the built-in derivation. A scheme
+with no opinion about a particular directory is a normal thing to write, and it should not wedge
+the pickers. Output containing `.` or `:` is refused rather than rewritten -- the same rule the
+`-p` prompt enforces, for the same reason.
+
+The name it returns is what `-p` offers as its suggestion, so the two compose: the hook sets the
+default, `-p` still overrides it for one session.
+
+Like `TSM_DIRS_CMD`, set this in the file that configures your PATH (`~/.zshenv` for zsh), or
+tmux keybindings will derive names differently from your interactive shell. See the PATH note
+under [Installation](#installation).
+
+<details>
+<summary><strong style="font-size: 1.25em;">Examples</strong></summary>
+
+> Name worktree sessions after their branch rather than their directory. git allows a branch to be
+> checked out in only one worktree at a time, so a branch is unique across a repository by
+> construction:
+>
+> ```bash
+> export TSM_SESSION_NAME_CMD='git -C "$1" branch --show-current 2>/dev/null | tr "/." "__"'
+> ```
+>
+> The `tr` is not optional: branch names routinely contain both of the characters a session name
+> cannot. Note that this trades one kind of staleness for another -- the session keeps the name of
+> whatever branch was checked out when it started, and a worktree you re-branch keeps the old name
+> until you kill the session. It suits a worktree-per-branch workflow, not a durable
+> worktree you move between branches.
+>
+> Let a directory name itself, falling back to the default when it does not:
+>
+> ```bash
+> export TSM_SESSION_NAME_CMD='cat "$1/.tsm-name" 2>/dev/null'
+> ```
+>
+> `cat` fails on a directory with no `.tsm-name`, which is exactly the fallback contract: the
+> named directories get their names, everything else is derived as usual.
+>
+> Hash the path. This is the uniqueness argument taken to its limit -- every distinct directory
+> gets a distinct name, with no counter, no ordering effect, and no dependence on git at all
+> (`cksum` is POSIX, so this needs nothing installed):
+>
+> ```bash
+> export TSM_SESSION_NAME_CMD='printf %s "$1" | cksum | cut -d" " -f1'
+> ```
+>
+> ```
+> ~/code/project/a/feature  ->  799783932
+> ~/code/project/b/feature  ->  2866497250
+> ```
+>
+> It is also the clearest argument for the default. A session name is something you read off a
+> status line, type at `tsm active`, and hold in your head while moving between four of them.
+> `799783932` is none of those. `project/feature` is a name a person chose, and the counter in
+> `project/feature1` shows up only on the rare pair that actually collides. Uniqueness is the
+> cheap half of the problem; being able to tell which worktree you are looking at is the half
+> worth optimising for.
+>
+> Keeping the leaf and appending the hash buys some of both, at the cost of length:
+>
+> ```bash
+> export TSM_SESSION_NAME_CMD='echo "$(basename "$1")-$(printf %s "$1" | cksum | cut -d" " -f1)"'
+> # -> feature-799783932
+> ```
+>
+> A path hash also trades one staleness for another. It follows `git worktree move` precisely
+> because the path changed, so a session already running under the old hash keeps a name that no
+> longer matches anything, and picking the moved directory again starts a second session next to
+> it. The default fails the other way round: one session, one stale name.
+
+</details>
 
 > ### Directory (`tsm dir`)
 >
@@ -470,7 +632,8 @@ See [Usage](#usage) for the exact arguments.
 
 > ### Git Worktrees (`tsm worktree`)
 >
-> A worktree of the current repository, in a session named `repo/worktree`.
+> A worktree of the current repository, in a session named `repo/worktree`, where `worktree` is
+> git's [internal name](#session-names) for it.
 >
 > **NOTE:** Can only be run when the current working directory is inside a git repo
 > 

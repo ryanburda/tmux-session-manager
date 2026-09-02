@@ -50,11 +50,16 @@ usage() {
 notify() {
   # Displays a message to the user.
   # Uses tmux display-message when running inside tmux, otherwise falls back to echo.
+  #
+  # The echo goes to stderr because several of the functions that report this
+  # way run inside a command substitution -- naming a session, mostly -- where
+  # stdout is the return value and a message written to it is read as the
+  # answer rather than shown to anyone. Nothing consumes a notify's output.
   local msg="$1"
   if [ -n "$TMUX" ]; then
     tmux display-message "$msg"
   else
-    echo "$msg"
+    echo "$msg" >&2
   fi
 }
 
@@ -261,17 +266,64 @@ git_brief(){
 
 default_session_name() {
   # Derives the suggested session name for a directory: repo/worktree for a
-  # worktree path, otherwise the sanitized basename. Echoes the name.
+  # linked worktree, otherwise the sanitized basename. Echoes the name.
+  #
+  # The worktree half is git's own internal name for the worktree -- the
+  # directory under .git/worktrees -- rather than the basename of the path.
+  # The two are usually identical, but git names a worktree after the last
+  # segment of its path and appends a counter when that segment is already
+  # taken, so ~/wt/feature and ~/feature become "feature" and "feature1".
+  # Deriving from the path instead collapses both onto one session name, and
+  # the second one picked silently switches to the first.
+  #
+  # TSM_SESSION_NAME_CMD replaces all of it when set, for a scheme this cannot
+  # know about -- the branch, a name kept in the repo, a hash of the path. The
+  # directory arrives both as $1 and as $TSM_DIR, so a command can be an inline
+  # snippet or a bare script path. Only the first line of its output is read.
+  #
+  # A command that prints nothing, or fails, falls back to the derivation
+  # below: a naming scheme that has no opinion about a particular directory is
+  # a normal thing to write, and wedging the pickers over it is not helpful.
+  # Output that cannot name a session is a different matter and is refused.
   #
   # Args:
   #   $1: path: directory to derive the session name from
   local path="$1"
 
-  local git_dir
-  git_dir=$(git -C "$path" rev-parse --git-dir 2>/dev/null)
+  if [ -n "$TSM_SESSION_NAME_CMD" ]; then
+    local custom
+    custom=$(
+      export TSM_DIR="$path"
+      set -- "$path"
+      eval "$TSM_SESSION_NAME_CMD" 2>/dev/null \
+        | head -n 1 \
+        | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//'
+    )
 
-  if [ -n "$git_dir" ] && [ "$git_dir" != ".git" ]; then
-    # Worktree: git_dir is absolute, e.g. /path/to/.bare/worktrees/wt_name
+    if [ -n "$custom" ]; then
+      # The same rule the name prompt enforces: tmux target syntax is
+      # session:window.pane, so a name holding either separator names a session
+      # that can be created and then never switched to or killed again.
+      case "$custom" in
+        *[.:]*)
+          notify "Error: TSM_SESSION_NAME_CMD produced '$custom'; a session name cannot contain '.' or ':'"
+          return 1
+          ;;
+      esac
+      echo "$custom"
+      return 0
+    fi
+  fi
+
+  local git_dir
+  git_dir=$(git -C "$path" rev-parse --absolute-git-dir 2>/dev/null)
+
+  # A linked worktree's git dir is <common dir>/worktrees/<internal name> and
+  # holds the gitdir file pointing back at the worktree. Both are tested
+  # rather than taking any absolute answer to mean "worktree": inside a
+  # subdirectory of an ordinary repo rev-parse also answers absolutely.
+  if [ -n "$git_dir" ] && [ -f "$git_dir/gitdir" ] &&
+    [ "$(basename "$(dirname "$git_dir")")" = "worktrees" ]; then
     local bare_repo_path
     bare_repo_path=$(dirname "$(dirname "$git_dir")")
     local bare_leaf
@@ -287,7 +339,8 @@ default_session_name() {
     # Both halves sanitized: a worktree directory named for a branch like
     # v1.2 would otherwise put a period in the session name, which tmux
     # reads as a pane separator in every target it is later named in.
-    echo "$(sanitize_directory_session_name "$repo_name")/$(sanitize_directory_session_name "$path")"
+    # Passing git_dir takes its basename, which is the internal name.
+    echo "$(sanitize_directory_session_name "$repo_name")/$(sanitize_directory_session_name "$git_dir")"
   else
     sanitize_directory_session_name "$path"
   fi
@@ -490,7 +543,7 @@ session_name_prompt() {
   #   $1: path: directory to derive the session name from
   local path="$1"
   local session_name
-  session_name=$(default_session_name "$path")
+  session_name=$(default_session_name "$path") || return 1
 
   printf "%s\n" "$(tput setaf 8)$path$(tput sgr0)" >&2
   while true; do
@@ -505,7 +558,7 @@ session_name_prompt() {
     if ! read -rp "$prompt: " user_input; then
       printf "\n" >&2
       notify "Error: no terminal to read a session name from"
-      exit 1
+      return 1
     fi
 
     local candidate="${user_input:-$session_name}"
@@ -1174,10 +1227,32 @@ dir_session() {
   # Create the session
   local session_name
   if [ -n "$prompt_name" ]; then
-    session_name=$(session_name_prompt "$selected")
+    # Both of these report their own reason for failing, and both fail inside a
+    # command substitution, where an exit would only end the subshell and leave
+    # the caller to carry on with an empty name.
+    session_name=$(session_name_prompt "$selected") || exit 1
   else
-    session_name=$(default_session_name "$selected")
+    session_name=$(default_session_name "$selected") || exit 1
     if tmux has-session -t "=$session_name" 2>/dev/null; then
+      # Landing back in the session already open at this path is the point:
+      # picking the same directory twice should return to it, not fail.
+      #
+      # A session of that name sitting at a *different* path is the opposite --
+      # two directories whose derived names collide -- and switching there
+      # silently takes you somewhere you did not pick. Worktrees are kept apart
+      # by git's internal name in default_session_name, but nothing can tell
+      # two ordinary directories sharing a basename apart, so say so and let
+      # -p name this one.
+      # Asked of list-sessions rather than display-message: the -t of a
+      # display-message is a pane, and a detached session has no client to
+      # resolve one through, so #{session_path} comes back empty there.
+      local existing_path
+      existing_path=$(tmux list-sessions -F '#{session_path}' \
+        -f "#{==:#{session_name},$session_name}" 2>/dev/null)
+      if [ -n "$existing_path" ] && [ "$existing_path" != "$selected" ]; then
+        notify "Error: session '$session_name' is already open at $existing_path. Use -p to name this one."
+        exit 1
+      fi
       switch_or_attach "$session_name"
       exit 0
     fi
