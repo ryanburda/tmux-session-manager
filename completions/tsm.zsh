@@ -49,7 +49,15 @@ _tsm_configured_sessions() {
     local config_dir="${XDG_CONFIG_HOME:-$HOME/.config}/tsm"
     local sessions
     if [[ -d "$config_dir" ]]; then
-        sessions=(${(f)"$(for f in "$config_dir"/*.sh; do [[ -f "$f" ]] && basename "$f" .sh; done 2>/dev/null)"})
+        # Same rule tsm uses: an executable file whose name does not start
+        # with a dot, named by its path under the config dir minus any final
+        # extension.
+        sessions=(${(f)"$(find -L "$config_dir" -type f ! -name '.*' -perm -u+x 2>/dev/null \
+            | while IFS= read -r f; do
+                  f="${f#"$config_dir/"}"
+                  case "${f##*/}" in *.*) f="${f%.*}" ;; esac
+                  printf '%s\n' "$f"
+              done | LC_ALL=C sort)"})
         _describe 'configured session' sessions
     fi
 }

@@ -153,7 +153,7 @@ bind-key L popup -E "tsm logs"
 This maps:
 - `prefix + s` - Active session switcher
 - `prefix + k` - Kill session selector
-- `prefix + X` - Kill the current session and run its kill() hook
+- `prefix + X` - Kill the current session and run its `kill` hook
 - `prefix + l` - Switch to the most recent session that is still open
 - `prefix + d` - Directory session launcher
 - `prefix + g` - Git repository session launcher
@@ -216,7 +216,7 @@ pane is in instead, pass it: `bind-key m run-shell -b "tsm bookmark-add '' '#{pa
 ```bash
 tsm                                  # Show help message
 tsm active [session]                 # Switch to session
-tsm kill [session]                   # Kill session (runs kill() hook if present)
+tsm kill [session]                   # Kill session (runs its kill hook if present)
 tsm last                             # Switch to the most recent session that is still open
 
 tsm dir [path] [-c] [-p]             # Create session at path
@@ -236,38 +236,63 @@ tsm bookmark-status [path]           # Bookmarks of the open sessions, for a tmu
 
 tsm configured [config]              # Start a configured session
 tsm logs [session]                   # Browse session logs
-tsm apply-matching-config            # Apply the matching configuration's start() (inside a configuration's start())
-tsm kill-matching-config             # Run the matching configuration's kill() (inside a configuration's kill())
+tsm apply-matching-config            # Apply the matching configuration's start (inside a configuration's start)
+tsm kill-matching-config             # Run the matching configuration's kill (inside a configuration's kill)
 
 tsm help                             # Show help message
 ```
 
 ## Session Configuration Setup
 
-`tsm` allows you to define configurations for your sessions. Session configurations are plain shell
-scripts in `${XDG_CONFIG_HOME:-~/.config}/tsm/`. There is no DSL or YAML abstraction over tmux
-to learn. `man tmux` is the reference for all of it. Anything that can be done in a script, can
-be done in a session configuration.
+`tsm` allows you to define configurations for your sessions. A session configuration is an
+executable program in `${XDG_CONFIG_HOME:-~/.config}/tsm/`. There is no DSL or YAML abstraction over
+tmux to learn. `man tmux` is the reference for all of it. Anything a program can do, a session
+configuration can do.
 
-- The file's name is the session's name
-- `ROOT` is the directory the session is rooted at
-- `start()` sets up the session
-- `kill()` cleans up the session when it is killed **(Optional)**
+`tsm` runs the program with a verb and reads its answer. That is the whole contract, so a
+configuration can be written in any language you like — bash, zsh, fish, Python, anything with a
+shebang:
+
+| Verb | Called when | Answer |
+|---|---|---|
+| `root` | resolving where the session lives | print the directory on stdout |
+| `pattern` | dot configurations only | print an ERE of directories claimed, on stdout |
+| `start` | after tmux has created the session | build the layout |
+| `kill` | when the session is killed **(Optional)** | tear down what `start` built |
+
+Two rules make it work in every language:
+
+- **Only `root` and `pattern` treat stdout as an answer.** For `start` and `kill`, stdout is the
+  session log (`tsm logs <session>`).
+- **A verb the program does not handle must exit 0.** That is how "no hook for this" is said — the
+  `case` simply falls through.
+
+`SESSION` is in the environment for every verb, and `ROOT` for `start` and `kill`.
+
+The file's name, minus any extension, is the session's name. The extension is for your editor's
+benefit, not `tsm`'s, so `myproject`, `myproject.sh` and `myproject.fish` all name the session
+`myproject`. **The file must be executable** — that is what makes it a configuration, and it is
+what keeps a stray README in the directory from being mistaken for one.
 
 ```bash
-# ~/.config/tsm/myproject.sh
+#!/bin/bash
+# ~/.config/tsm/myproject.sh   (chmod +x)
 #
 # a session named "myproject"
 # rooted at ~/code/myproject
 
-ROOT="$HOME/code/myproject"
+case "$1" in
+  root)
+    echo "$HOME/code/myproject"
+    ;;
 
-start() {
-  vim=$(tmux display-message -p -t "$SESSION" '#{pane_id}')
-  ai=$(tmux split-window -P -F '#{pane_id}' -h -l 35% -t "$vim" -c "$ROOT")
-  tmux send-keys -t "$vim" 'vim' Enter
-  tmux send-keys -t "$ai" 'ai' Enter
-}
+  start)
+    vim=$(tmux display-message -p -t "$SESSION" '#{pane_id}')
+    ai=$(tmux split-window -P -F '#{pane_id}' -h -l 35% -t "$vim" -c "$ROOT")
+    tmux send-keys -t "$vim" 'vim' Enter
+    tmux send-keys -t "$ai" 'ai' Enter
+    ;;
+esac
 ```
 
 The script above:
@@ -276,38 +301,45 @@ The script above:
 - puts your ai on the right
 
 See **[Building a Session](docs/building-a-session.md)** for the full guide: pane addressing,
-multi-window layouts, starting and stopping services, and worked examples.
+multi-window layouts, starting and stopping services, worked examples, and the same configuration
+written in fish and Python.
 
 A configuration whose file name starts with a dot covers a whole set of directories instead of one.
-It swaps `ROOT` for `ROOT_PATTERN`, a POSIX extended regular expression tested against the directory you
-picked, and is applied to any session started with one of the
+It answers `pattern` instead of `root`, with a POSIX extended regular expression tested against the
+directory you picked, and is applied to any session started with one of the
 [directory session pickers](#directory-sessions) when no configuration of its own is rooted there.
 It is how a layout is shared across every repository in a tree without a file per repository:
 
 ```bash
-# ~/.config/tsm/.work.sh
+#!/bin/bash
+# ~/.config/tsm/.work.sh   (chmod +x)
 #
 # the layout for every repository directly under ~/code/work
 
-ROOT_PATTERN="^$HOME/code/work/[^/]+$"
+case "$1" in
+  pattern)
+    printf '%s\n' "^$HOME/code/work/[^/]+$"
+    ;;
 
-start() {
-  vim=$(tmux display-message -p -t "$SESSION" '#{pane_id}')
-  ai=$(tmux split-window -P -F '#{pane_id}' -h -l 35% -t "$vim" -c "$ROOT")
-  tmux send-keys -t "$vim" 'vim' Enter
-  tmux send-keys -t "$ai" 'ai' Enter
-}
+  start)
+    vim=$(tmux display-message -p -t "$SESSION" '#{pane_id}')
+    ai=$(tmux split-window -P -F '#{pane_id}' -h -l 35% -t "$vim" -c "$ROOT")
+    tmux send-keys -t "$vim" 'vim' Enter
+    tmux send-keys -t "$ai" 'ai' Enter
+    ;;
+esac
 ```
 
+A leading dot marks the file; it is not an extension, so `.work.sh` is the configuration `.work`.
 Dot files are skipped by `tsm configured` and its picker, since they name no session of their own.
 Files are tried in sorted order and the first match wins, so the file name decides
-[precedence](docs/building-a-session.md#precedence). A directory that matches no `ROOT` and no
-`ROOT_PATTERN` gets a bare session. To get a default for everything back, add a file declaring
-`ROOT_PATTERN=".*"` under a name that sorts last, such as `.zz-default.sh`.
+[precedence](docs/building-a-session.md#precedence). A directory that no `root` and no `pattern`
+claims gets a bare session. To get a default for everything back, add a configuration answering
+`pattern` with `.*` under a name that sorts last, such as `.zz-default.sh`.
 
-Configurations of your own never inherit one. They opt in by calling `tsm apply-matching-config` in
-`start()` and `tsm kill-matching-config` in `kill()`, which leaves them free to run their own work
-before or after the shared setup.
+Configurations of your own never inherit one. They opt in by calling `tsm apply-matching-config`
+under `start` and `tsm kill-matching-config` under `kill`, which leaves them free to run their own
+work before or after the shared setup.
 
 # Overview
 
@@ -334,18 +366,18 @@ to the newly created session in the same way:
                    | picked directory |
                    --------------------
                             |
-      ---------------------------------------------------
-      | does a ~/.config/tsm/*.sh set a matching $ROOT? |
-      ---------------------------------------------------
+      -----------------------------------------------------
+      | does a configuration answer `root` with the path? |
+      -----------------------------------------------------
              /                                 \
          -------                             ------
          | yes |                             | no |
          -------                             ------
             |                                   |
-----------------------------   -------------------------------------
-| start that configuration |   | does a ~/.config/tsm/.*.sh set a  |
-----------------------------   | $ROOT_PATTERN matching the path?  |
-                               -------------------------------------
+----------------------------   -----------------------------------
+| start that configuration |   | does a dot configuration answer |
+----------------------------   | `pattern` matching the path?    |
+                               -----------------------------------
                                  /                          \
                               -------                     ------
                               | yes |                     | no |
@@ -362,7 +394,7 @@ All four pickers take the same flags. `-c` opts out of the resolution above enti
 
 - `-c`, `--no-config` - Skip both steps: ignore a [configuration](#configured-sessions) rooted at
   the picked directory and any [shared configuration](docs/building-a-session.md#defining-a-shared-configuration)
-  whose `ROOT_PATTERN` claims it, leaving a bare session at the directory.
+  whose `pattern` claims it, leaving a bare session at the directory.
 - `-p`, `--prompt-name` - Prompt for the session name instead of using the suggested one.
 
 Each picker also takes an argument (a path, a worktree name, a bookmark character) to skip the
@@ -461,7 +493,7 @@ See [Usage](#usage) for the exact arguments.
 > | `tsm bookmark [-c] [-p]` | Ask for a character, then start a session at its directory |
 >
 > The session that starts is a directory session like any other: a configuration rooted at the
-> bookmarked directory is what starts if one exists, a shared configuration whose `ROOT_PATTERN`
+> bookmarked directory is what starts if one exists, a shared configuration whose `pattern`
 > claims it applies if none does, and `-c` and `-p` mean what they mean for the other pickers.
 >
 > The bookmarks themselves are managed with three commands of their own:

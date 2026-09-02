@@ -16,10 +16,13 @@ function __tsm_configured_sessions
     set config_dir "$config_dir/tsm"
 
     if test -d "$config_dir"
-        for f in $config_dir/*.sh
-            if test -f "$f"
-                basename "$f" .sh
-            end
+        # Same rule tsm uses: an executable file whose name does not start
+        # with a dot, named by its path under the config dir minus any final
+        # extension. The regex only bites when the dot follows the last slash,
+        # so a directory with a dot in it leaves the name alone.
+        for f in (find -L "$config_dir" -type f ! -name '.*' -perm -u+x 2>/dev/null | env LC_ALL=C sort)
+            set -l rel (string replace -- "$config_dir/" "" "$f")
+            string replace -r -- '\.[^./]*$' '' "$rel"
         end
     end
 end

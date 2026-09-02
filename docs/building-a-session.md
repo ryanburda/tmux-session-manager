@@ -1,46 +1,74 @@
 # Building a Session
 
-Session configurations are plain shell scripts calling `tmux` commands directly. There is no DSL
-and no YAML abstraction over tmux, so anything tmux can do a configuration can do, and `man tmux`
-is the reference for all of it.
+A session configuration is an executable program that calls `tmux` commands directly. There is no
+DSL and no YAML abstraction over tmux, so anything tmux can do a configuration can do, and
+`man tmux` is the reference for all of it.
 
-Configurations are stored in `${XDG_CONFIG_HOME:-~/.config}/tsm/<config-name>.sh` and launched with
+Configurations are stored in `${XDG_CONFIG_HOME:-~/.config}/tsm/` and launched with
 [`tsm configured`](../README.md#configured-sessions), or by the
 [directory pickers](../README.md#directory-sessions) when one claims the directory you picked.
 
+## The contract
+
+tsm runs your program with a verb and reads its answer. It never looks inside the file, which is
+why a configuration can be written in any language with a shebang:
+
+| Verb | Called when | What it should do |
+| --- | --- | --- |
+| `root` | resolving where the session lives | print the session's root directory on stdout |
+| `pattern` | [dot configurations](#defining-a-shared-configuration) only | print an ERE of the directories it claims, on stdout |
+| `start` | after tmux has created the session | build the layout |
+| `kill` | asynchronously, when the session is killed | tear down what `start` built |
+
+Three rules make it work in every language:
+
+- **Only `root` and `pattern` treat stdout as an answer.** For `start` and `kill`, stdout is the
+  [session log](#logging). A stray `echo` under `root` corrupts the path; under `start` it is just
+  a log line.
+- **A verb the program does not handle must exit 0.** That is how "no hook for this" is said. A
+  `case` with no matching branch falls through and exits clean, which is exactly right.
+- **A non-zero exit from `root` fails the session.** tsm reports it and points you at the log.
+  `kill` is best-effort: tsm kills the tmux session either way.
+
+`SESSION`, the name of the session, is in the environment for every verb. `ROOT` is in the
+environment for `start` and `kill`.
+
 ## The configuration file
 
-**The file's name is the session's name** (`myproject.sh` starts a session called `myproject`).
+**The file must be executable.** `chmod +x` is what makes it a configuration; a file without the
+bit is ignored, which is what keeps a README or a half-written draft in the directory from being
+mistaken for one. `tsm configured <name>` will tell you if it found the file but not the bit.
+
+**The file's name, minus any extension, is the session's name.** The extension is for your
+editor's benefit rather than tsm's, so `myproject`, `myproject.sh`, `myproject.fish` and
+`myproject.py` all start a session called `myproject`.
 
 tsm owns the session's lifecycle:
-- it creates the session before your configuration runs,
+- it creates the session before your `start` runs,
 - and kills it when you kill the session.
 
-Everything the file defines is therefore optional, and describes what you want *beyond* a plain session:
-
-- `ROOT`: The session's root directory, used as the working directory for its windows and panes.
-  Defaults to `$HOME`.
-- `start()`: Function that defines how the session should be customized. The session already exists
-  by the time it runs. This is where you add windows, split panes, run services.
-- `kill()`: Runs asynchronously when the session is killed. Use this for cleanup tasks like stopping
-  services.
-
-Both functions run with `SESSION`, the name of the session, and `ROOT` already in the environment.
-
-A configuration that defines no `start()` gets exactly the plain session described above. A
+Everything the program answers is therefore optional, and describes what you want *beyond* a plain
+session. A configuration that handles no `start` gets exactly that plain session, rooted wherever
+`root` said (or `$HOME` if it said nothing). A
 [matching configuration](#defining-a-shared-configuration) is opted into, never inherited.
 
-**NOTE:** Configuration file names cannot contain `.` or `:`. tmux reads both as the window and
-pane separators of a target, so a session named `my.project` would be created and then be
-unreachable. tsm refuses such a name rather than quietly renaming the session out from under you.
+**NOTE:** Session names cannot contain `.` or `:`. tmux reads both as the window and pane
+separators of a target, so a session named `my.project` would be created and then be unreachable.
+tsm refuses such a name rather than quietly renaming the session out from under you. Since the
+final extension is stripped, `my.project.sh` still resolves to the rejected name `my.project`.
 
-An empty file is a valid configured session, launching a session at `$HOME` with a single window and
-pane. So is a file with nothing but a `ROOT`, which launches that session at `ROOT`:
+The smallest useful configuration answers `root` and nothing else:
 
 ```bash
+#!/bin/bash
 # ~/.config/tsm/notes.sh  ->  a session named "notes", rooted at ~/notes
-ROOT="$HOME/notes"
+case "$1" in
+  root) echo "$HOME/notes" ;;
+esac
 ```
+
+A program that answers nothing at all is still valid: it launches a session at `$HOME` with a
+single window and pane.
 
 Nesting works, and the whole path under the configuration directory is the session name. For
 example, a session can be called `myrepo/base`, matching the `repo/worktree` names
@@ -49,23 +77,31 @@ example, a session can be called `myrepo/base`, matching the `repo/worktree` nam
 ```
 ~/.config/tsm/
   notes.sh                ->  session "notes"
-  myrepo/base.sh          ->  session "myrepo/base"
-  myrepo/experiment.sh    ->  session "myrepo/experiment"
+  myrepo/base.fish        ->  session "myrepo/base"
+  myrepo/experiment.py    ->  session "myrepo/experiment"
 ```
+
+**NOTE:** The program runs once per verb, so its top level runs every time tsm asks it anything.
+The directory pickers ask every configuration for its `root`, so keep the top level cheap and put
+the work inside the branches. Anything expensive at the top level is paid on every `tsm dir`.
 
 ## Pane addressing
 
-The session already exists by the time `start()` runs, with one window holding one pane, rooted at
+The session already exists by the time `start` runs, with one window holding one pane, rooted at
 `ROOT`. Building a session means splitting off that pane, creating new windows, and sending
 commands into the panes that result:
 
 ```bash
-ROOT="$HOME/code/myproject"
-
-start() {
-  code=$(tmux display-message -p -t "$SESSION" '#{pane_id}')
-  ai=$(tmux split-window -P -F '#{pane_id}' -h -l 35% -t "$code" -c "$ROOT")
-}
+#!/bin/bash
+case "$1" in
+  root)
+    echo "$HOME/code/myproject"
+    ;;
+  start)
+    code=$(tmux display-message -p -t "$SESSION" '#{pane_id}')
+    ai=$(tmux split-window -P -F '#{pane_id}' -h -l 35% -t "$code" -c "$ROOT")
+    ;;
+esac
 ```
 
 Pane addressing is the thing that is easy to get wrong. `-P -F '#{pane_id}'` makes `split-window`
@@ -79,10 +115,10 @@ id. Naming its window is one more command, and only worth doing if you care what
 called:
 
 ```bash
-start() {
-  code=$(tmux display-message -p -t "$SESSION" '#{pane_id}')
-  tmux rename-window -t "$code" code
-}
+  start)
+    code=$(tmux display-message -p -t "$SESSION" '#{pane_id}')
+    tmux rename-window -t "$code" code
+    ;;
 ```
 
 A pane id is a valid `-t` target for `rename-window`: it names the window that pane is in, which
@@ -101,103 +137,193 @@ This config creates:
 - A window named `terminal` with nothing to run
 
 ```bash
-ROOT="$HOME/projects/myproject"
+#!/bin/bash
+# ~/.config/tsm/myproject.sh   (chmod +x)
 
-start() {
-  # code window with `nvim` on left and `ai` on right.
-  code_window='code'
-  nvim=$(tmux display-message -p -t "$SESSION" '#{pane_id}')
-  tmux rename-window -t "$nvim" "$code_window"
-  ai=$(tmux split-window -P -F '#{pane_id}' -h -l 35% -t "$nvim" -c "$ROOT")
-  tmux send-keys -t "$nvim" 'nvim' Enter
-  tmux send-keys -t "$ai" 'ai' Enter
-  
-  # terminal window
-  terminal_window='terminal'
-  tmux new-window -t "$SESSION" -n "$terminal_window" -c "$ROOT"
-  
-  # session starts focused on `nvim` in 'code' window
-  tmux select-window -t "$SESSION:$code_window"
-  tmux select-pane -t "$nvim"
-}
+case "$1" in
+  root)
+    echo "$HOME/projects/myproject"
+    ;;
+
+  start)
+    # code window with `nvim` on left and `ai` on right.
+    code_window='code'
+    nvim=$(tmux display-message -p -t "$SESSION" '#{pane_id}')
+    tmux rename-window -t "$nvim" "$code_window"
+    ai=$(tmux split-window -P -F '#{pane_id}' -h -l 35% -t "$nvim" -c "$ROOT")
+    tmux send-keys -t "$nvim" 'nvim' Enter
+    tmux send-keys -t "$ai" 'ai' Enter
+
+    # terminal window
+    terminal_window='terminal'
+    tmux new-window -t "$SESSION" -n "$terminal_window" -c "$ROOT"
+
+    # session starts focused on `nvim` in 'code' window
+    tmux select-window -t "$SESSION:$code_window"
+    tmux select-pane -t "$nvim"
+    ;;
+esac
 ```
 
 ## Example: starting and stopping services
 
-A configuration for a project at `~/.config/tsm/myproject.sh`, with a `kill()` hook that tears down
-what `start()` brought up:
+A configuration for a project at `~/.config/tsm/myproject.sh`, with a `kill` branch that tears down
+what `start` brought up:
 
 ```bash
-ROOT="$HOME/projects/myproject"
+#!/bin/bash
 
-start() {
-  # Take the pane the session starts with and name its window 'code'.
-  # This window will have two vertical splits:
-  #     - nvim on top 80%
-  #     - a terminal at the bottom 20%
-  code=$(tmux display-message -p -t "$SESSION" '#{pane_id}')
-  tmux rename-window -t "$code" code
-  tmux split-window -v -l 20% -t "$code" -c "$ROOT"   # a plain shell; no pane id needed
-  tmux send-keys -t "$code" 'nvim' Enter
+case "$1" in
+  root)
+    echo "$HOME/projects/myproject"
+    ;;
 
-  # Create a second window named 'docker'.
-  # This window will have an even-vertical layout with:
-  #     - a terminal that starts docker compose on top
-  #     - lazydocker on bottom
-  compose=$(tmux new-window -P -F '#{pane_id}' -t "$SESSION" -n docker -c "$ROOT")
-  lazydocker=$(tmux split-window -P -F '#{pane_id}' -v -l 50% -t "$compose" -c "$ROOT")
-  tmux send-keys -t "$compose" 'docker compose up --force-recreate --detach' Enter
-  tmux send-keys -t "$lazydocker" 'lazydocker' Enter
-  tmux select-layout -t "$SESSION:docker" even-vertical
+  start)
+    # Take the pane the session starts with and name its window 'code'.
+    # This window will have two vertical splits:
+    #     - nvim on top 80%
+    #     - a terminal at the bottom 20%
+    code=$(tmux display-message -p -t "$SESSION" '#{pane_id}')
+    tmux rename-window -t "$code" code
+    tmux split-window -v -l 20% -t "$code" -c "$ROOT"   # a plain shell; no pane id needed
+    tmux send-keys -t "$code" 'nvim' Enter
 
-  # Select first window
-  tmux select-window -t "$SESSION:code"
-}
+    # Create a second window named 'docker'.
+    # This window will have an even-vertical layout with:
+    #     - a terminal that starts docker compose on top
+    #     - lazydocker on bottom
+    compose=$(tmux new-window -P -F '#{pane_id}' -t "$SESSION" -n docker -c "$ROOT")
+    lazydocker=$(tmux split-window -P -F '#{pane_id}' -v -l 50% -t "$compose" -c "$ROOT")
+    tmux send-keys -t "$compose" 'docker compose up --force-recreate --detach' Enter
+    tmux send-keys -t "$lazydocker" 'lazydocker' Enter
+    tmux select-layout -t "$SESSION:docker" even-vertical
 
-# Optional: cleanup function runs in background when session is killed.
-# This allows the tmux session to be killed immediately without waiting for
-# cleanup tasks to complete, providing a snappier user experience especially
-# when cleanup involves slow operations like stopping services.
-kill() {
-  # Stop the docker compose service that was started earlier.
-  docker compose --project-directory "$ROOT" down
-}
+    # Select first window
+    tmux select-window -t "$SESSION:code"
+    ;;
+
+  # Optional: the kill branch runs in the background when the session is killed.
+  # This allows the tmux session to be killed immediately without waiting for
+  # cleanup tasks to complete, providing a snappier user experience especially
+  # when cleanup involves slow operations like stopping services.
+  kill)
+    # Stop the docker compose service that was started earlier.
+    docker compose --project-directory "$ROOT" down
+    ;;
+esac
 ```
+
+## Writing a configuration in another language
+
+The contract is argv in, stdout and exit status out, so the language is entirely your choice. The
+same `notes` configuration in fish and in Python:
+
+```fish
+#!/usr/bin/env fish
+# ~/.config/tsm/notes.fish   (chmod +x)
+
+# Quoted so that no verb at all expands to one empty argument rather than zero.
+set -l verb "$argv[1]"
+
+switch "$verb"
+    case root
+        printf '%s\n' "$HOME/notes"
+
+    case start
+        set -l code (tmux display-message -p -t "$SESSION" '#{pane_id}')
+        tmux rename-window -t "$code" notes
+        tmux send-keys -t "$code" 'nvim .' Enter
+
+    case '*'
+        exit 0
+end
+```
+
+```python
+#!/usr/bin/env python3
+# ~/.config/tsm/notes.py   (chmod +x)
+
+import os
+import subprocess
+import sys
+
+SESSION = os.environ.get("SESSION", "")
+ROOT = os.environ.get("ROOT", "")
+
+
+def tmux(*args):
+    """stderr is deliberately not captured, so tmux's own complaints reach the
+    session log. check=True makes any failure fail the verb."""
+    return subprocess.run(
+        ("tmux",) + args, check=True, stdout=subprocess.PIPE, text=True
+    ).stdout.strip()
+
+
+def root():
+    print(os.path.expanduser("~/notes"))
+
+
+def start():
+    code = tmux("display-message", "-p", "-t", SESSION, "#{pane_id}")
+    tmux("rename-window", "-t", code, "notes")
+    tmux("send-keys", "-t", code, "nvim .", "Enter")
+
+
+VERBS = {"root": root, "start": start}
+
+if __name__ == "__main__":
+    verb = sys.argv[1] if len(sys.argv) > 1 else ""
+    VERBS.get(verb, lambda: None)()
+```
+
+**NOTE:** A `pattern` is matched by tsm with `grep -E`, not by your program, so it must be a POSIX
+extended regular expression whatever language printed it. Python's `re`-only syntax (`\d`,
+lookahead, non-greedy `*?`) will not work.
 
 ## Defining a Shared Configuration
 
 Most configurations end up wanting the same layout. Rather than repeat it in every file, write it
-once in a file whose name starts with a dot and say which directories it covers with `ROOT_PATTERN`.
+once in a file whose name starts with a dot and say which directories it covers by answering
+`pattern`.
 
-Where a normal configuration names one directory with `ROOT`, a dot configuration describes a whole
-set of them with `ROOT_PATTERN`, a [POSIX extended regular expression](https://pubs.opengroup.org/onlinepubs/9699919799/basedefs/V1_chap09.html#tag_09_04)
+Where a normal configuration names one directory with `root`, a dot configuration describes a whole
+set of them with `pattern`, a [POSIX extended regular expression](https://pubs.opengroup.org/onlinepubs/9699919799/basedefs/V1_chap09.html#tag_09_04)
 tested against the directory you picked. It is how you say "every repository under `~/code/work`
 gets this layout" without writing a file per repository.
 
 ```bash
-# ~/.config/tsm/.work.sh
-ROOT_PATTERN="^$HOME/code/work/[^/]+$"
+#!/bin/bash
+# ~/.config/tsm/.work.sh   (chmod +x)
 
-start() {
-  code=$(tmux display-message -p -t "$SESSION" '#{pane_id}')
-  tmux rename-window -t "$code" code
-  ai=$(tmux split-window -P -F '#{pane_id}' -h -l 35% -t "$code" -c "$ROOT")
-  tmux send-keys -t "$code" 'nvim' Enter
-  tmux send-keys -t "$ai" 'ai' Enter
-  tmux select-pane -t "$code"
-}
+case "$1" in
+  pattern)
+    printf '%s\n' "^$HOME/code/work/[^/]+$"
+    ;;
 
-# kill() {
-#   # Implement kill if you need it
-# }
+  start)
+    code=$(tmux display-message -p -t "$SESSION" '#{pane_id}')
+    tmux rename-window -t "$code" code
+    ai=$(tmux split-window -P -F '#{pane_id}' -h -l 35% -t "$code" -c "$ROOT")
+    tmux send-keys -t "$code" 'nvim' Enter
+    tmux send-keys -t "$ai" 'ai' Enter
+    tmux select-pane -t "$code"
+    ;;
+
+  # kill)
+  #   Implement kill if you need it
+  #   ;;
+esac
 ```
 
-The match is unanchored, the same as any bash `=~` test, so anchor it yourself when you mean it.
-`^$HOME/code/work/[^/]+$` claims the repositories directly under `~/code/work` and nothing deeper;
-`^$HOME/code/work/` claims everything beneath it, at any depth.
+A leading dot marks the file rather than naming an extension, so `.work.sh` is the configuration
+`.work`.
 
-Being a regex rather than a glob is easy to forget. `ROOT_PATTERN="~/code/*"` matches nothing at
-all: `~` is not expanded inside quotes, and tsm tests against fully resolved absolute paths. Written
+The match is unanchored, so anchor it yourself when you mean it. `^$HOME/code/work/[^/]+$` claims
+the repositories directly under `~/code/work` and nothing deeper; `^$HOME/code/work/` claims
+everything beneath it, at any depth.
+
+Being a regex rather than a glob is easy to forget. A pattern of `~/code/*` matches nothing at all:
+`~` is not expanded inside quotes, and tsm tests against fully resolved absolute paths. Written
 unquoted the tilde does expand, but `*` is still a regex quantifier on the preceding `/`, so
 `~/code/*` reduces to "the path contains `/home/you/code`", which also claims `~/codegen`. Use
 `$HOME` and anchor with `^`.
@@ -207,11 +333,11 @@ start. A dot file is only ever reached by matching a directory.
 
 [Directory sessions](../README.md#directory-sessions) get both hooks without asking. Any session
 `tsm dir`, `tsm git` or `tsm worktree` creates that no configuration of its own claims runs the
-matching dot configuration's `start()` on the way in and its `kill()` on the way out. `SESSION` is
-the new session's name and `ROOT` is the directory you picked. The session is still named after the
+matching dot configuration's `start` on the way in and its `kill` on the way out. `SESSION` is the
+new session's name and `ROOT` is the directory you picked. The session is still named after the
 directory. A dot configuration describes a layout, not a session.
 
-A directory that matches no `ROOT` and no `ROOT_PATTERN` gets a bare session.
+A directory that no `root` and no `pattern` claims gets a bare session.
 
 ### Precedence
 
@@ -220,11 +346,14 @@ The sort is byte order (`LC_ALL=C`), on the path relative to the configuration d
 not change with your locale.
 
 This matters most when you want a fallback for everything. `.*` is a regex that matches every path,
-so a file declaring it claims any directory the more specific patterns did not:
+so a configuration answering it claims any directory the more specific patterns did not:
 
 ```bash
-# ~/.config/tsm/.zz-default.sh
-ROOT_PATTERN=".*"
+#!/bin/bash
+# ~/.config/tsm/.zz-default.sh   (chmod +x)
+case "$1" in
+  pattern) printf '%s\n' ".*" ;;
+esac
 ```
 
 Note the name. A catch-all is only a fallback if it sorts *last*, otherwise it wins first and
@@ -235,40 +364,43 @@ every other pattern becomes unreachable:
 | `.default_config.sh` | `.default_config.sh`, `.work.sh` | `.default_config.sh` -- `.work.sh` never runs |
 | `.zz-default.sh` | `.work.sh`, `.zz-default.sh` | `.work.sh` |
 
-**NOTE:** `ROOT_PATTERN=""` does not mean "match everything". An empty value reads as declaring no
-pattern at all, and the file is skipped. Write `".*"`.
+**NOTE:** Printing an empty `pattern` does not mean "match everything". Nothing printed reads as
+declaring no pattern at all, and the file is skipped. Print `.*`.
 
-Configurations of your own get neither hook. Opt in by calling `tsm apply-matching-config` in
-`start()` and `tsm kill-matching-config` in `kill()`:
+Configurations of your own get neither hook. Opt in by calling `tsm apply-matching-config` under
+`start` and `tsm kill-matching-config` under `kill`:
 
 ```bash
-# ~/.config/tsm/myproject.sh
-ROOT="$HOME/code/work/myproject"
+#!/bin/bash
+# ~/.config/tsm/myproject.sh   (chmod +x)
 
-start() {
-  tsm apply-matching-config
-  make -C "$ROOT" up &
-}
+case "$1" in
+  root)
+    echo "$HOME/code/work/myproject"
+    ;;
 
-kill() {
-  tsm kill-matching-config
-  make -C "$ROOT" down
-}
+  start)
+    tsm apply-matching-config
+    make -C "$ROOT" up &
+    ;;
+
+  kill)
+    tsm kill-matching-config
+    make -C "$ROOT" down
+    ;;
+esac
 ```
 
-`tsm apply-matching-config` finds the dot configuration whose `ROOT_PATTERN` matches `$ROOT`
-(`.work.sh` above) and runs its `start()`. `tsm kill-matching-config` does the same for its
-`kill()`. Both run at the point they are called, with `SESSION` and `ROOT` already in the
-environment, so a configuration is free to do its own work before or after the shared setup. If no
-dot configuration matches `$ROOT`, both are a no-op and say so in the session log.
-
-**NOTE:** Like every configuration, the file is sourced on the way in *and* on the way out, so
-top-level code runs on both. The layout belongs inside `start()`. Anything left at the top level
-runs a second time as the session is torn down.
+`tsm apply-matching-config` finds the dot configuration whose `pattern` matches `$ROOT` (`.work.sh`
+above) and runs its `start`. `tsm kill-matching-config` does the same for its `kill`. Both run at
+the point they are called, with `SESSION` and `ROOT` already in the environment, so a configuration
+is free to do its own work before or after the shared setup. If no dot configuration matches
+`$ROOT`, both are a no-op and say so in the session log. The two files need not be written in the
+same language: tsm runs each with its own shebang.
 
 ## Beyond tmux commands
 
-Since each session file is a full shell script, you're not limited to running commands inside tmux
+Since each configuration is a full program, you're not limited to running commands inside tmux
 panes and windows.
 
 You can kick off commands in the background with `&` so they don't block session startup. The
@@ -276,34 +408,40 @@ session attaches immediately while the command continues running, and its output
 [log file](#logging) for later review.
 
 ```bash
-ROOT="$HOME/projects/webapp"
+#!/bin/bash
 
-start() {
-  code=$(tmux display-message -p -t "$SESSION" '#{pane_id}')
-  tmux send-keys -t "$code" 'nvim' Enter
+case "$1" in
+  root)
+    echo "$HOME/projects/webapp"
+    ;;
 
-  # Start a service in the background so it doesn't block session startup.
-  # Build output and errors are captured in the tsm log file.
-  echo "$(date '+%Y-%m-%d %H:%M:%S'): Starting my webapp"
-  docker compose --project-directory "$ROOT" up --build --force-recreate --detach &
-}
+  start)
+    code=$(tmux display-message -p -t "$SESSION" '#{pane_id}')
+    tmux send-keys -t "$code" 'nvim' Enter
 
-kill() {
-  echo "$(date '+%Y-%m-%d %H:%M:%S'): Stopping my webapp"
-  docker compose --project-directory "$ROOT" down
-}
+    # Start a service in the background so it doesn't block session startup.
+    # Build output and errors are captured in the tsm log file.
+    echo "$(date '+%Y-%m-%d %H:%M:%S'): Starting my webapp"
+    docker compose --project-directory "$ROOT" up --build --force-recreate --detach &
+    ;;
+
+  kill)
+    echo "$(date '+%Y-%m-%d %H:%M:%S'): Stopping my webapp"
+    docker compose --project-directory "$ROOT" down
+    ;;
+esac
 ```
 
-**NOTE:** Background cleanup tasks in `kill()` with `&` so they run in parallel. Although `kill()`
-itself runs asynchronously, commands within it still run sequentially. If one hangs or is slow, it
-will block the rest.
+**NOTE:** Background cleanup tasks under `kill` with `&` so they run in parallel. Although the
+`kill` verb itself runs asynchronously, commands within it still run sequentially. If one hangs or
+is slow, it will block the rest.
 
 ## Logging
 
-Output from the `start()` and `kill()` hooks is redirected to a dedicated log file.
-Directory sessions are logged the same way when a dot configuration runs, so a `.work.sh` is as
-debuggable as a configuration of its own. A session that matched nothing, or one created with `-c`,
-runs no script and gets no log. Logs can be found in
+Output from the `start` and `kill` verbs is redirected to a dedicated log file, along with anything
+a failing `root` writes to stderr. Directory sessions are logged the same way when a dot
+configuration runs, so a `.work.sh` is as debuggable as a configuration of its own. A session that
+matched nothing, or one created with `-c`, runs no program and gets no log. Logs can be found in
 `${XDG_STATE_HOME:-~/.local/state}/tsm/logs/<session-name>/tsm.log`.
 
 Use `tsm logs` to browse all log files across sessions with fzf. The fzf preview pane shows the

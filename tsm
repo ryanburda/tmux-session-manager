@@ -36,8 +36,8 @@ usage() {
   echo "  "
   echo "  tsm configured [config]                  # Start a configured session"
   echo "  tsm logs [session]                       # Browse session logs"
-  echo "  tsm apply-matching-config                # Apply the matching configuration's start() (inside a configuration's start())"
-  echo "  tsm kill-matching-config                 # Run the matching configuration's kill() (inside a configuration's kill())"
+  echo "  tsm apply-matching-config                # Apply the matching configuration's start (inside a configuration's start)"
+  echo "  tsm kill-matching-config                 # Run the matching configuration's kill (inside a configuration's kill)"
   echo "  "
   echo "  tsm help                                 # Show help message"
   echo ""
@@ -293,101 +293,192 @@ default_session_name() {
   fi
 }
 
+config_files() {
+  # Emits the paths of the configuration files under $CONFIG_DIR,
+  # LC_ALL=C sorted, one per line.
+  #
+  # A configuration is an executable program: tsm runs it with a verb and reads
+  # its answer.
+  #
+  # `-L` because configurations are commonly symlinks into a project.
+  # `-perm -u+x` rather than `-executable` because the latter is GNU-only.
+  #
+  # Which file wins a contest is a matter of what it is called, so the sort is
+  # pinned to LC_ALL=C. A locale-aware sort collates on the full path with
+  # punctuation ignored in the first pass, which puts a nested `sub/.work`
+  # ahead of a top-level `.zz-default` in en_US.UTF-8 and behind it in C.
+  # Precedence should not depend on the environment tsm happens to be run from.
+  #
+  # Args:
+  #   $1: which: `plain` for configurations that name a session, `dot` for
+  #       those that claim a set of directories, anything else for both
+  local which="$1"
+
+  [ -d "$CONFIG_DIR" ] || return
+
+  case "$which" in
+    plain) find -L "$CONFIG_DIR" -type f ! -name '.*' -perm -u+x 2>/dev/null ;;
+    dot) find -L "$CONFIG_DIR" -type f -name '.*' -perm -u+x 2>/dev/null ;;
+    *) find -L "$CONFIG_DIR" -type f -perm -u+x 2>/dev/null ;;
+  esac | LC_ALL=C sort
+}
+
+config_name_for_file() {
+  # Echoes the configuration name a file path carries: its path under
+  # $CONFIG_DIR with any final extension removed. Nesting a configuration one
+  # directory deep is how a session gets a name like "myrepo/base", matching
+  # what a worktree session is called.
+  #
+  # The extension is the user's business rather than tsm's. It is there so an
+  # editor knows what to highlight. This means `work`, `work.sh` and `work.fish` all
+  # name the session `work`.
+  #
+  # A leading dot is what marks a configuration as claiming a set of directories
+  # instead of naming a session, so `.work.fish` is the configuration `.work`.
+  #
+  # Args:
+  #   $1: file: path to a configuration file under $CONFIG_DIR
+  local rel base dir="" dot=""
+  rel="${1#"$CONFIG_DIR/"}"
+
+  base="${rel##*/}"
+  [ "$base" = "$rel" ] || dir="${rel%/*}/"
+
+  case "$base" in .*) dot="."; base="${base#.}" ;; esac
+  case "$base" in *.*) base="${base%.*}" ;; esac
+
+  printf '%s%s%s\n' "$dir" "$dot" "$base"
+}
+
+config_file_for_name() {
+  # Echoes the path of the configuration called $1, or nothing with a non-zero
+  # status if no executable file under $CONFIG_DIR carries that name.
+  #
+  # The reverse of config_name_for_file, and a search rather than a
+  # substitution because the extension is not knowable from the name: `work`
+  # could be work, work.sh or work.fish. First match in LC_ALL=C order wins,
+  # the same rule everything else here uses.
+  #
+  # Args:
+  #   $1: name: a configuration name, as config_name_for_file produces
+  local want="$1" file
+  while IFS= read -r file; do
+    if [ "$(config_name_for_file "$file")" = "$want" ]; then
+      printf '%s\n' "$file"
+      return 0
+    fi
+  done < <(config_files any)
+  return 1
+}
+
+run_config() {
+  # Runs a configuration with a verb.
+  #
+  # The contract is argv in, stdout and exit status out, which is what lets a
+  # configuration be written in any language: tsm never looks inside it.
+  #
+  #   root     print the directory the session is rooted at
+  #   pattern  print the ERE of directories this configuration claims
+  #   start    build the layout; the session already exists
+  #   kill     tear down whatever start built
+  #
+  # A verb a configuration does not handle must leave a zero status. That is
+  # how "no hook for this" is said, in place of the absent shell function the
+  # sourced contract used to look for.
+  #
+  # Only `root` and `pattern` treat stdout as a return channel. For `start` and
+  # `kill` it is the session log, and callers redirect it there.
+  #
+  # SESSION, and for `start` and `kill` also ROOT, are expected in the
+  # environment already; callers export them on the way in.
+  #
+  # set -m gives background jobs the configuration starts their own process
+  # group, and the subshell keeps a configuration that exits from taking tsm
+  # with it.
+  #
+  # Args:
+  #   $1: file: path to the configuration
+  #   $2: verb: one of root, pattern, start, kill
+  ( set -m; exec "$1" "$2" )
+}
+
 configured_session_for_root() {
-  # Echoes the name of the configuration whose $ROOT is the given directory, or
+  # Echoes the name of the configuration whose root is the given directory, or
   # nothing if no configuration claims it. The first match wins.
   #
   # Only configurations whose file name does not start with a dot are
   # considered. A dot file is not a session of its own: it claims a whole set
-  # of directories through $ROOT_PATTERN, and matching_config_for_root is what
-  # resolves those.
+  # of directories, and matching_config_for_root is what resolves those.
   #
-  # A configuration is a shell file, so its $ROOT is only knowable by running
-  # it: each one is sourced in a bash of its own -- the same way
-  # configured_session runs it, and with the same SESSION/ROOT contract -- and
-  # the ROOT it leaves behind is compared against the path. Output and failures
-  # are discarded: a configuration that is broken, or that has something to say
-  # while being sourced, is simply one that does not match.
+  # A configuration's root is only knowable by asking it, so each one is run
+  # with the `root` verb.
   #
-  # The path is resolved with `cd`/`pwd -P` on the far side so that a $ROOT
-  # written with a symlink, a trailing slash, or a `..` still matches the
-  # already-resolved path the picker produced.
+  # The answer is resolved with `cd`/`pwd -P` so that a root printed with a
+  # symlink, a trailing slash, or a `..` still matches the already-resolved
+  # path the picker produced.
   #
   # Args:
   #   $1: path: the resolved directory a directory session would be rooted at
   local path="$1"
-
-  [ -d "$CONFIG_DIR" ] || return
 
   local file config root
   while IFS= read -r file; do
-    config="${file#"$CONFIG_DIR/"}"
-    config="${config%.sh}"
+    config=$(config_name_for_file "$file")
 
-    root=$(bash -c '
-      export SESSION="$2"
+    root=$(
+      export SESSION="$config"
       unset ROOT
-      source "$1" >/dev/null 2>&1
-      [ -n "$ROOT" ] || exit 1
-      cd "$ROOT" && pwd -P
-    ' tsm "$file" "$config" 2>/dev/null)
+      run_config "$file" root 2>/dev/null
+    ) || continue
 
-    if [ -n "$root" ] && [ "$root" = "$path" ]; then
+    [ -n "$root" ] || continue
+    root=$(cd "$root" 2>/dev/null && pwd -P) || continue
+
+    if [ "$root" = "$path" ]; then
       echo "$config"
       return
     fi
-  done < <(find -L "$CONFIG_DIR" -type f -name '*.sh' ! -name '.*' 2>/dev/null | LC_ALL=C sort)
+  done < <(config_files plain)
 }
 
 matching_config_for_root() {
-  # Echoes the name of the dot configuration whose $ROOT_PATTERN matches the
-  # given directory, or nothing if none does. Files are tried in sorted order
-  # and the first match wins.
+  # Echoes the name of the dot configuration whose pattern matches the given
+  # directory, or nothing if none does. Files are tried in sorted order and the
+  # first match wins.
   #
-  # Where a plain configuration names one directory with $ROOT, a dot
-  # configuration describes a set of them with $ROOT_PATTERN, a POSIX extended
+  # Where a plain configuration names one directory with its `root` verb, a dot
+  # configuration describes a set of them with `pattern`, a POSIX extended
   # regular expression tested against the resolved path. It is the way to say
   # "every repository under ~/code/work gets this layout" without a file per
-  # repository. Nothing claims a directory by default: a path no $ROOT and no
-  # $ROOT_PATTERN matches gets a bare session.
+  # repository. Nothing claims a directory by default: a path that no root and
+  # no pattern matches gets a bare session.
   #
-  # Which file wins is a matter of what it is called, so the sort is pinned to
-  # LC_ALL=C. A locale-aware sort collates on the full path with punctuation
-  # ignored in the first pass, which puts a nested `sub/.work.sh` ahead of a
-  # top-level `.zz-default.sh` in en_US.UTF-8 and behind it in C. Precedence
-  # should not depend on the environment tsm happens to be run from.
-  #
-  # The match is made inside the same shell that sourced the file, so the regex
-  # never reaches this shell: a file that fails to source, sets no
-  # $ROOT_PATTERN, or sets one that is not a valid regex all leave a non-zero
+  # `grep -Eq` rather than bash's `[[ =~ ]]` so that a pattern means the same
+  # thing whatever language printed it. The `--` keeps a pattern beginning with
+  # `-` from being read as an option, and printf rather than echo keeps the
+  # path from being eaten the same way. A configuration that fails, prints
+  # nothing, or prints something that is not a valid regex all leave a non-zero
   # status, which is to say they simply do not match.
-  #
-  # `grep -Eq` rather than bash's `[[ =~ ]]` so that the pattern means the same
-  # thing no matter what sources the file. Both are unanchored POSIX extended
-  # regular expressions, so patterns carry over unchanged. The `--` keeps a
-  # pattern that starts with `-` from being read as an option, and printf
-  # rather than echo keeps one that starts with `-` from being eaten there too.
   #
   # Args:
   #   $1: path: the resolved directory a directory session would be rooted at
   local path="$1"
 
-  [ -d "$CONFIG_DIR" ] || return
-
-  local file config
+  local file pattern
   while IFS= read -r file; do
-    if bash -c '
+    pattern=$(
       export SESSION=""
-      unset ROOT ROOT_PATTERN
-      source "$1" >/dev/null 2>&1
-      [ -n "$ROOT_PATTERN" ] || exit 1
-      printf '%s' "$2" | grep -Eq -- "$ROOT_PATTERN"
-    ' tsm "$file" "$path" 2>/dev/null; then
-      config="${file#"$CONFIG_DIR/"}"
-      echo "${config%.sh}"
+      unset ROOT
+      run_config "$file" pattern 2>/dev/null
+    ) || continue
+
+    [ -n "$pattern" ] || continue
+
+    if printf '%s' "$path" | grep -Eq -- "$pattern" 2>/dev/null; then
+      config_name_for_file "$file"
       return
     fi
-  done < <(find -L "$CONFIG_DIR" -type f -name '.*.sh' 2>/dev/null | LC_ALL=C sort)
+  done < <(config_files dot)
 }
 
 session_name_prompt() {
@@ -442,7 +533,7 @@ session_name_prompt() {
 check_bookmark_char() {
   # Exits unless the argument can key a bookmark: a single printable ASCII
   # character, the same range vim marks accept. One character is the whole
-  # point -- a bookmark is meant to be recalled from memory, and anything
+  # point. A bookmark is meant to be recalled from memory, and anything
   # longer would be a name rather than a mark.
   #
   # Checked by code point rather than against a pattern like [!-~]: outside the
@@ -771,37 +862,45 @@ kill_session() {
   matching_config_root=$(tmux show-environment -t "=$session" TSM_MATCHING_CONFIG_ROOT 2>/dev/null | sed 's/^TSM_MATCHING_CONFIG_ROOT=//')
 
   # A session a configuration of its own claimed runs that configuration's
-  # kill(), and only that one: a dot configuration's cleanup is opted into with
+  # `kill`, and only that one: a dot configuration's cleanup is opted into with
   # `tsm kill-matching-config`, the same way its layout is. A session that came
-  # up under a dot configuration runs that file's kill(), with ROOT set to the
-  # directory it was created at rather than whatever the file happens to set.
+  # up under a dot configuration runs that file's `kill`, with ROOT set to the
+  # directory it was created at rather than whatever the file would answer.
   #
-  # The file is read back from the marker rather than resolved again, so the
-  # session is torn down by the configuration that built it even if the
-  # patterns have since been edited to claim its directory differently.
-  local session_file session_root=""
+  # The configuration is read back from the marker rather than resolved again,
+  # so the session is torn down by the one that built it even if the patterns
+  # have since been edited to claim its directory differently.
+  local session_file="" session_root=""
   if [ -n "$configured_session" ]; then
-    session_file="$CONFIG_DIR/$configured_session.sh"
+    session_file=$(config_file_for_name "$configured_session") || session_file=""
   elif [ -n "$matching_config" ]; then
-    session_file="$CONFIG_DIR/$matching_config.sh"
+    session_file=$(config_file_for_name "$matching_config") || session_file=""
     session_root="$matching_config_root"
   else
-    session_file="$CONFIG_DIR/$session.sh"
+    session_file=$(config_file_for_name "$session") || session_file=""
   fi
 
-  # Run the kill hook in the background if the configuration defines one, so
-  # the session goes away immediately rather than waiting on cleanup. tsm kills
-  # the session itself either way. kill() is for everything around it.
-  if [ -f "$session_file" ]; then
+  # Run the kill hook in the background, so the session goes away immediately
+  # rather than waiting on cleanup. tsm kills the session itself either way.
+  # `kill` is for everything around it, and a configuration that has no
+  # teardown to do simply exits zero.
+  if [ -n "$session_file" ]; then
     echo "[$(date '+%Y-%m-%d %H:%M:%S')] Killing session '$session'" > "$log_file"
-    nohup bash -c '
-      export SESSION="$2"
-      unset ROOT
-      source "$1"
-      [ $? -eq 0 ] || exit 1
-      export ROOT="${ROOT:-${3:-$HOME}}"
-      if declare -F kill >/dev/null; then kill; fi
-    ' tsm "$session_file" "$session" "$session_root" >> "$log_file" 2>&1 &
+
+    # A dot configuration does not carry the root it was applied at, so the
+    # marker supplies it. One of its own is asked, the same way it was asked on
+    # the way in, so that `kill` sees the ROOT that `start` saw.
+    local session_kill_root="$session_root"
+    if [ -z "$session_kill_root" ]; then
+      session_kill_root=$(
+        export SESSION="$session"
+        unset ROOT
+        run_config "$session_file" root 2>/dev/null
+      )
+    fi
+
+    nohup env SESSION="$session" ROOT="${session_kill_root:-$HOME}" \
+      "$session_file" kill >> "$log_file" 2>&1 &
   fi
 
   tmux kill-session -t "=$session"
@@ -817,16 +916,14 @@ configured_session() {
 
   # If no config provided, use fzf to select from configured sessions
   if [ -z "$config" ]; then
-    # A configuration's path under $CONFIG_DIR, minus the .sh, is the session
-    # name. Nesting a configuration one directory deep is how a session
-    # gets a name like "myrepo/base", matching what a worktree session is
-    # called. -L because configurations are commonly symlinks into a project.
+    # A configuration's path under $CONFIG_DIR, minus any extension, is the
+    # session name -- see config_name_for_file.
     #
     # Dot files are left out: they describe a set of directories rather than a
     # session, so there is no name here to start.
     local configured_sessions
-    configured_sessions=$(find -L "$CONFIG_DIR" -type f -name '*.sh' ! -name '.*' 2>/dev/null \
-      | while read -r f; do f="${f#"$CONFIG_DIR/"}"; echo "${f%.sh}"; done \
+    configured_sessions=$(config_files plain \
+      | while IFS= read -r f; do config_name_for_file "$f"; done \
       | sort)
 
     if [ -z "$configured_sessions" ]; then
@@ -841,10 +938,21 @@ configured_session() {
     fi
   fi
 
-  local session_file="$CONFIG_DIR/$config.sh"
+  local session_file
+  if ! session_file=$(config_file_for_name "$config"); then
+    # A configuration that is there but not executable is the likelier mistake,
+    # and saying so beats claiming the file is missing when it plainly is not.
+    local unmarked
+    unmarked=$(find -L "$CONFIG_DIR" -type f ! -perm -u+x 2>/dev/null | LC_ALL=C sort \
+      | while IFS= read -r f; do
+          [ "$(config_name_for_file "$f")" = "$config" ] && { printf '%s\n' "$f"; break; }
+        done)
 
-  if [ ! -f "$session_file" ]; then
-    notify "Error: '$config' not found in $CONFIG_DIR"
+    if [ -n "$unmarked" ]; then
+      notify "Error: '$config' is not executable. Run: chmod +x $unmarked"
+    else
+      notify "Error: '$config' not found in $CONFIG_DIR"
+    fi
     exit 1
   fi
 
@@ -876,40 +984,46 @@ configured_session() {
   read -r width height < <(client_size)
 
   # tsm owns the session's lifecycle: it creates the session here and kills it
-  # in kill_session. start() is an optional hook that customizes the session
+  # in kill_session. `start` is an optional hook that customizes the session
   # that already exists, so a configuration only has to describe what it wants
-  # beyond a plain session rooted at $ROOT. A configuration that defines no
-  # start() is asking for exactly that plain session; a dot configuration whose
-  # $ROOT_PATTERN covers this $ROOT is opted into, by calling
+  # beyond a plain session rooted at its root. A configuration that handles no
+  # `start` is asking for exactly that plain session; a dot configuration whose
+  # pattern covers this root is opted into, by calling
   # `tsm apply-matching-config`, never inherited.
   #
-  # SESSION is exported before the file is sourced so that top-level code can
-  # use it, and ROOT afterwards so the configuration gets to set it first.
-  # Exported rather than plain shell variables so that commands the
-  # configuration runs inherit them across the fork.
+  # The root is asked for first, in a process of its own, so the session can be
+  # created at it before `start` runs. ROOT is unset for that question: it is a
+  # common enough name that the shell tsm was invoked from may well have one of
+  # its own, and a configuration that answers nothing should get $HOME rather
+  # than whatever happened to be in the environment.
   #
-  # ROOT is cleared first: it is a common enough name that the shell tsm was
-  # invoked from may well have one of its own, and a configuration that sets no
-  # ROOT should get $HOME rather than whatever happened to be in the
-  # environment.
-  #
-  # set -m gives background jobs started by the configuration their own
-  # process group.
-  #
-  # The source is a statement of its own, with its status checked after, rather
-  # than `source ... || exit`. errexit does not apply inside a && / || list, so
-  # sourcing that way would silently disable a configuration's own `set -e` for
-  # the whole file.
-  bash -c '
-    set -m
-    export SESSION="$2"
+  # Only stdout is the answer; stderr goes to the log, so a configuration that
+  # fails to report a root leaves the reason behind.
+  local root
+  root=$(
+    export SESSION="$session"
     unset ROOT
-    source "$1"
-    [ $? -eq 0 ] || exit 1
-    export ROOT="${ROOT:-$HOME}"
-    tmux new-session -d -s "$SESSION" -c "$ROOT" ${3:+-x "$3"} ${4:+-y "$4"} || exit 1
-    if declare -F start >/dev/null; then start; fi
-  ' tsm "$session_file" "$session" "$width" "$height" >> "$log_file" 2>&1
+    run_config "$session_file" root 2>> "$log_file"
+  )
+
+  if [ $? -ne 0 ]; then
+    notify "Error: '$config' failed to report its root (see: tsm logs $session)"
+    exit 1
+  fi
+
+  root="${root:-$HOME}"
+
+  # A subshell so that a configuration exiting non-zero does not take tsm with
+  # it: whether the session came up is decided by the check below, not here.
+  #
+  # SESSION and ROOT are exported rather than set so that commands the
+  # configuration runs inherit them across the fork.
+  (
+    tmux new-session -d -s "$session" -c "$root" ${width:+-x "$width"} ${height:+-y "$height"} || exit 1
+
+    export SESSION="$session" ROOT="$root"
+    run_config "$session_file" start
+  ) >> "$log_file" 2>&1
 
   # The session is missing only if it was never created. A configuration that
   # aborted under `set -e` before tsm got to it, or a tmux failure. Either way
@@ -923,22 +1037,6 @@ configured_session() {
   switch_or_attach "$session"
 }
 
-run_config_start() {
-  # Sources a configuration file and runs its start() hook. SESSION and ROOT
-  # are expected to be in the environment already, so the file sees the same
-  # contract whether it was reached as a session of its own or as the dot
-  # configuration claiming a picked directory.
-  #
-  # A configuration is a configuration like any other: its top level runs on
-  # the way in and on the way out, so the layout belongs in start().
-  #
-  # Args:
-  #   $1: file: the configuration file to source
-  source "$1"
-
-  if declare -F start >/dev/null; then start; fi
-}
-
 matching_config_file() {
   # Echoes the path of the dot configuration claiming $ROOT, for the two
   # commands a configuration uses to opt into one. Both run inside a hook, so
@@ -946,7 +1044,7 @@ matching_config_file() {
   # the directory they hand to matching_config_for_root, so a $ROOT written
   # with a symlink or a `..` is tested as the same path either way.
   if [ -z "$ROOT" ]; then
-    notify "Error: ROOT is not set. Run this inside a configuration's start() or kill()"
+    notify "Error: ROOT is not set. Run this inside a configuration's start or kill"
     exit 1
   fi
 
@@ -956,7 +1054,7 @@ matching_config_file() {
   config=$(matching_config_for_root "$resolved")
   [ -n "$config" ] || return 1
 
-  echo "$CONFIG_DIR/$config.sh"
+  config_file_for_name "$config"
 }
 
 apply_matching_config() {
@@ -975,7 +1073,10 @@ apply_matching_config() {
     return
   }
 
-  run_config_start "$file"
+  # SESSION and ROOT are already exported: this runs inside a hook, which tsm
+  # gave them to. The dot configuration therefore sees the same environment
+  # whether it was reached this way or by claiming a picked directory itself.
+  run_config "$file" start
 }
 
 kill_matching_config() {
@@ -986,17 +1087,13 @@ kill_matching_config() {
   # configuration of their own claimed get it without asking, from
   # kill_session.
   #
-  # Sourcing defines a kill() that shadows the builtin for the rest of this
-  # process. Nothing here runs after the hook, and tsm exits when it returns.
   local file
   file=$(matching_config_file) || {
     echo "No configuration matches ROOT '$ROOT'; nothing to clean up"
     return
   }
 
-  source "$file"
-
-  if declare -F kill >/dev/null; then kill; fi
+  run_config "$file" kill
 }
 
 dir_session() {
@@ -1059,7 +1156,7 @@ dir_session() {
   # $ROOT_PATTERN. That one does not name the session -- the directory does,
   # the same as if nothing had matched -- so it is resolved here and applied
   # below, once the session exists.
-  local matching_config=""
+  local matching_config="" matching_file=""
   if [ -z "$no_config" ]; then
     local config
     config=$(configured_session_for_root "$selected")
@@ -1069,6 +1166,9 @@ dir_session() {
     fi
 
     matching_config=$(matching_config_for_root "$selected")
+    if [ -n "$matching_config" ]; then
+      matching_file=$(config_file_for_name "$matching_config") || matching_config=""
+    fi
   fi
 
   # Create the session
@@ -1113,7 +1213,8 @@ dir_session() {
       # itself. A session created with -c records nothing: cleaning up a layout
       # it never got is worse than not cleaning up at all.
       (
-        SESSION="$session_name" ROOT="$selected" run_config_start "$CONFIG_DIR/$matching_config.sh"
+        export SESSION="$session_name" ROOT="$selected"
+        run_config "$matching_file" start
         tmux set-environment -t "=$session_name" TSM_MATCHING_CONFIG "$matching_config"
         tmux set-environment -t "=$session_name" TSM_MATCHING_CONFIG_ROOT "$selected"
       )
