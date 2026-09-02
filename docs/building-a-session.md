@@ -170,7 +170,7 @@ Most configurations end up wanting the same layout. Rather than repeat it in eve
 once in a file whose name starts with a dot and say which directories it covers with `ROOT_PATTERN`.
 
 Where a normal configuration names one directory with `ROOT`, a dot configuration describes a whole
-set of them with `ROOT_PATTERN`, a [bash regular expression](https://www.gnu.org/software/bash/manual/bash.html#Conditional-Constructs)
+set of them with `ROOT_PATTERN`, a [POSIX extended regular expression](https://pubs.opengroup.org/onlinepubs/9699919799/basedefs/V1_chap09.html#tag_09_04)
 tested against the directory you picked. It is how you say "every repository under `~/code/work`
 gets this layout" without writing a file per repository.
 

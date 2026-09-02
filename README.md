@@ -279,7 +279,7 @@ See **[Building a Session](docs/building-a-session.md)** for the full guide: pan
 multi-window layouts, starting and stopping services, and worked examples.
 
 A configuration whose file name starts with a dot covers a whole set of directories instead of one.
-It swaps `ROOT` for `ROOT_PATTERN`, a bash regular expression tested against the directory you
+It swaps `ROOT` for `ROOT_PATTERN`, a POSIX extended regular expression tested against the directory you
 picked, and is applied to any session started with one of the
 [directory session pickers](#directory-sessions) when no configuration of its own is rooted there.
 It is how a layout is shared across every repository in a tree without a file per repository:

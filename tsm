@@ -345,9 +345,9 @@ matching_config_for_root() {
   # and the first match wins.
   #
   # Where a plain configuration names one directory with $ROOT, a dot
-  # configuration describes a set of them with $ROOT_PATTERN, a bash regular
-  # expression tested against the resolved path. It is the way to say "every
-  # repository under ~/code/work gets this layout" without a file per
+  # configuration describes a set of them with $ROOT_PATTERN, a POSIX extended
+  # regular expression tested against the resolved path. It is the way to say
+  # "every repository under ~/code/work gets this layout" without a file per
   # repository. Nothing claims a directory by default: a path no $ROOT and no
   # $ROOT_PATTERN matches gets a bare session.
   #
@@ -357,10 +357,16 @@ matching_config_for_root() {
   # top-level `.zz-default.sh` in en_US.UTF-8 and behind it in C. Precedence
   # should not depend on the environment tsm happens to be run from.
   #
-  # The match is made inside the same bash that sourced the file, so the regex
+  # The match is made inside the same shell that sourced the file, so the regex
   # never reaches this shell: a file that fails to source, sets no
   # $ROOT_PATTERN, or sets one that is not a valid regex all leave a non-zero
   # status, which is to say they simply do not match.
+  #
+  # `grep -Eq` rather than bash's `[[ =~ ]]` so that the pattern means the same
+  # thing no matter what sources the file. Both are unanchored POSIX extended
+  # regular expressions, so patterns carry over unchanged. The `--` keeps a
+  # pattern that starts with `-` from being read as an option, and printf
+  # rather than echo keeps one that starts with `-` from being eaten there too.
   #
   # Args:
   #   $1: path: the resolved directory a directory session would be rooted at
@@ -375,7 +381,7 @@ matching_config_for_root() {
       unset ROOT ROOT_PATTERN
       source "$1" >/dev/null 2>&1
       [ -n "$ROOT_PATTERN" ] || exit 1
-      [[ "$2" =~ $ROOT_PATTERN ]]
+      printf '%s' "$2" | grep -Eq -- "$ROOT_PATTERN"
     ' tsm "$file" "$path" 2>/dev/null; then
       config="${file#"$CONFIG_DIR/"}"
       echo "${config%.sh}"
