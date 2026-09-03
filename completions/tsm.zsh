@@ -58,6 +58,7 @@ _tsm_commands() {
         'bookmark-remove:Remove a bookmark'
         'bookmark-list:List all bookmarks, or browse them with fzf'
         'bookmark-status:The open sessions bookmarks, for a tmux status line'
+        'match:Configurations claiming a path, best first'
         'logs:Browse session logs'
         'apply-matching-config:Apply the matching configuration start hook'
         'kill-matching-config:Run the matching configuration kill hook'
@@ -112,6 +113,9 @@ _tsm() {
             if (( CURRENT > 2 )); then
                 _files -/
             fi
+            ;;
+        match)
+            _files -/
             ;;
         logs)
             _tsm_log_sessions

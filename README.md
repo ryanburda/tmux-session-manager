@@ -233,6 +233,7 @@ tsm bookmark-remove [char]           # Remove a bookmark (prompts for char)
 tsm bookmark-list [-f]               # List bookmarks (-f, --fzf browses them with fzf and starts a session)
 tsm bookmark-status [path]           # Bookmarks of the open sessions, for a tmux status line
 
+tsm match [path]                     # Configurations claiming a path, best first (defaults to the current directory)
 tsm logs [session]                   # Browse session logs
 tsm apply-matching-config            # Apply the matching configuration's start (inside a configuration's start)
 tsm kill-matching-config             # Run the matching configuration's kill (inside a configuration's kill)
@@ -311,10 +312,11 @@ single directory, anchor both ends:
     ;;
 ```
 
-Files are tried in sorted order and the first match wins, so the file name decides
-[precedence](docs/building-a-session.md#precedence). A directory no `pattern` claims gets a bare
-session. To get a default for everything, add a configuration answering `pattern` with `.*` under a
-name that sorts last, such as `zz-default.sh`.
+When more than one `pattern` claims a directory, **the longest pattern wins** — see
+[precedence](docs/building-a-session.md#precedence), and `tsm match <path>` to see the ranking for
+any directory. A directory no `pattern` claims gets a bare session. To get a default for everything,
+add a configuration answering `pattern` with `.*`; at two characters it is the shortest pattern
+there is, so it only ever wins where nothing else matched.
 
 A configuration that matches first does not inherit the one behind it. It opts in by calling
 `tsm apply-matching-config` under `start` and `tsm kill-matching-config` under `kill`, which run the

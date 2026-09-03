@@ -63,6 +63,7 @@ complete -c tsm -n '__fish_use_subcommand' -a bookmark-add -d 'Bookmark a direct
 complete -c tsm -n '__fish_use_subcommand' -a bookmark-remove -d 'Remove a bookmark'
 complete -c tsm -n '__fish_use_subcommand' -a bookmark-list -d 'List all bookmarks, or browse them with fzf'
 complete -c tsm -n '__fish_use_subcommand' -a bookmark-status -d 'The open sessions bookmarks, for a tmux status line'
+complete -c tsm -n '__fish_use_subcommand' -a match -d 'Configurations claiming a path, best first'
 complete -c tsm -n '__fish_use_subcommand' -a logs -d 'Browse session logs'
 complete -c tsm -n '__fish_use_subcommand' -a apply-matching-config -d 'Apply the matching configuration start hook'
 complete -c tsm -n '__fish_use_subcommand' -a kill-matching-config -d 'Run the matching configuration kill hook'
@@ -81,4 +82,5 @@ complete -c tsm -n '__fish_seen_subcommand_from bookmark-remove' -xa '(__tsm_boo
 complete -c tsm -n '__fish_seen_subcommand_from bookmark-list' -xa '-f --fzf'
 complete -c tsm -n '__fish_seen_subcommand_from bookmark-status' -xa '-s --style -c --current-style'
 complete -c tsm -n '__fish_seen_subcommand_from bookmark-add' -ra '(__fish_complete_directories)'
+complete -c tsm -n '__fish_seen_subcommand_from match' -ra '(__fish_complete_directories)'
 complete -c tsm -n '__fish_seen_subcommand_from logs' -xa '(__tsm_log_sessions)'

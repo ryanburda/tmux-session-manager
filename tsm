@@ -34,6 +34,7 @@ usage() {
   echo "  tsm bookmark-list [-f]                   # List bookmarks (-f, --fzf: browse them with fzf and start a session)"
   echo "  tsm bookmark-status [path]               # Bookmarks of the open sessions, for a tmux status line (-s, -c set its styles)"
   echo "  "
+  echo "  tsm match [path]                         # Configurations claiming a path, best first (defaults to the current directory)"
   echo "  tsm logs [session]                       # Browse session logs"
   echo "  tsm apply-matching-config                # Apply the matching configuration's start (inside a configuration's start)"
   echo "  tsm kill-matching-config                 # Run the matching configuration's kill (inside a configuration's kill)"
@@ -473,16 +474,30 @@ run_config() {
   ( set -m; exec "$file" "$verb" "$@" )
 }
 
-matching_config_for_root() {
-  # Echoes the path of the configuration whose pattern matches the given
-  # directory, or nothing if none does. Files are tried in sorted order and the
-  # first match wins.
+rank_configs_for_root() {
+  # Emits "<score>\t<file>" for every configuration whose pattern claims the
+  # given directory, best first. Nothing at all if none does.
   #
   # A configuration describes a set of directories with `pattern`, a POSIX
   # extended regular expression tested against the resolved path. It is the way
   # to say "every repository under ~/code/work gets this layout" without a file
   # per repository. Nothing claims a directory by default: a path no pattern
   # matches gets a bare session.
+  #
+  # The score is the length of the pattern, and the longest one wins. It is a
+  # proxy for how specific a pattern is, and it is the length of the *pattern*
+  # rather than of the text it matched for a reason: `.*` matches the whole path
+  # and would beat everything, when a catch-all is the one thing that should
+  # always lose. Two characters is the shortest a useful pattern gets, so `.*`
+  # ends up last by construction and needs no naming convention to hold it
+  # there.
+  #
+  # Every configuration is asked, rather than stopping at the first match, since
+  # the winner is not known until the longest pattern has been seen.
+  #
+  # Ties fall back to LC_ALL=C order on the file path, which is the rule this
+  # replaced -- two patterns of the same length are equally specific as far as
+  # this can tell, and the answer still has to be the same every time.
   #
   # `grep -Eq` rather than bash's `[[ =~ ]]` so that a pattern means the same
   # thing whatever language printed it. The `--` keeps a pattern beginning with
@@ -491,28 +506,12 @@ matching_config_for_root() {
   # nothing, or prints something that is not a valid regex all leave a non-zero
   # status, which is to say they simply do not match.
   #
-  # $2 resumes the search after a file instead of starting at the top, which is
-  # what `tsm apply-matching-config` is: a configuration asking for the next one
-  # along that also claims this directory. Without it a configuration calling
-  # that command would match itself and recurse forever, since it is in the same
-  # list as everything else. Skipping to just past itself also makes the answer
-  # the one precedence already implies -- the specific file falls through to the
-  # general one behind it, and a chain of them keeps falling through.
-  #
   # Args:
   #   $1: path: the resolved directory a session would be rooted at
-  #   $2: after: optional; skip every file up to and including this one
-  local path="$1" after="$2"
+  local path="$1"
 
-  local file pattern skipping=""
-  [ -n "$after" ] && skipping=1
-
+  local file pattern
   while IFS= read -r file; do
-    if [ -n "$skipping" ]; then
-      [ "$file" = "$after" ] && skipping=""
-      continue
-    fi
-
     pattern=$(
       export SESSION=""
       unset ROOT
@@ -522,10 +521,42 @@ matching_config_for_root() {
     [ -n "$pattern" ] || continue
 
     if printf '%s' "$path" | grep -Eq -- "$pattern" 2>/dev/null; then
-      printf '%s\n' "$file"
-      return 0
+      printf '%s\t%s\n' "${#pattern}" "$file"
     fi
-  done < <(config_files)
+  done < <(config_files) | LC_ALL=C sort -t$'\t' -k1,1nr -k2,2
+}
+
+matching_config_for_root() {
+  # Echoes the path of the configuration that claims the given directory, or
+  # nothing with a non-zero status if none does. The ranking is
+  # rank_configs_for_root's; this takes the top of it.
+  #
+  # $2 resumes after a file instead of starting at the top, which is what
+  # `tsm apply-matching-config` is: a configuration asking for the next one
+  # along that also claims this directory. Without it a configuration calling
+  # that command would match itself and recurse forever, since it is in the same
+  # list as everything else. Skipping to just past itself also makes the answer
+  # the one precedence already implies -- the specific file falls through to the
+  # more general one below it in the ranking, and a chain of them keeps falling
+  # through.
+  #
+  # Args:
+  #   $1: path: the resolved directory a session would be rooted at
+  #   $2: after: optional; skip every file up to and including this one
+  local path="$1" after="$2"
+
+  local score file skipping=""
+  [ -n "$after" ] && skipping=1
+
+  while IFS=$'\t' read -r score file; do
+    if [ -n "$skipping" ]; then
+      [ "$file" = "$after" ] && skipping=""
+      continue
+    fi
+
+    printf '%s\n' "$file"
+    return 0
+  done < <(rank_configs_for_root "$path")
 
   return 1
 }
@@ -1007,6 +1038,42 @@ kill_session() {
   fi
 
   tmux kill-session -t "=$session"
+}
+
+match_configs() {
+  # Prints how a directory ranks against every configuration that claims it,
+  # one "<score>\t<file>" per line, best first. The first line is the
+  # configuration that would name and build a session at that path.
+  #
+  # This is the ranking dir_session uses, run on demand and printed instead of
+  # acted on. Precedence is the one thing about a configuration that cannot be
+  # read off the file, because it depends on every *other* file too, so being
+  # able to ask is the difference between reasoning about it and guessing.
+  #
+  # Args:
+  #   $1: path: directory to test; defaults to the current directory
+  local path="${1:-$PWD}"
+
+  path="${path/#\~/$HOME}"
+
+  local resolved
+  if ! resolved=$(cd "$path" 2>/dev/null && pwd -P); then
+    notify "Error: Directory '$path' does not exist"
+    exit 1
+  fi
+
+  local ranked
+  ranked=$(rank_configs_for_root "$resolved")
+
+  # To stderr, so that a caller reading stdout gets the matches and nothing
+  # else. No match is an answer, not a failure of the command, but the non-zero
+  # status makes it testable.
+  if [ -z "$ranked" ]; then
+    notify "No configuration claims $resolved"
+    exit 1
+  fi
+
+  printf '%s\n' "$ranked"
 }
 
 matching_config_file() {
@@ -1777,6 +1844,9 @@ case "$command" in
     ;;
   bookmark-status)
     bookmark_status "$@"
+    ;;
+  match)
+    match_configs "$1"
     ;;
   logs)
     browse_logs "$1"

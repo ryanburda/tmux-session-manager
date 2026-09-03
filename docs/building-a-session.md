@@ -372,31 +372,72 @@ claims gets a bare session and runs nothing.
 
 ### Precedence
 
-Files are tried in sorted order and the first match wins, so **the file name decides precedence**.
-The sort is byte order (`LC_ALL=C`), on the path relative to the configuration directory, and does
-not change with your locale.
+Two patterns can claim the same directory. `^$HOME/code/work/` and `^$HOME/code/` both cover
+`~/code/work/repo`, and only one configuration can name and build the session. **The longest pattern
+wins.**
 
-This matters most when you want a fallback for everything. `.*` is a regex that matches every path,
-so a configuration answering it claims any directory the more specific patterns did not:
+Length is a rough proxy for specificity, and it is the length of the *pattern* rather than of the
+text it matched. That distinction is the whole design: `.*` matches an entire path and would beat
+every pattern in the directory if matched text were the measure, when a catch-all is the one thing
+that should always lose. At two characters it is the shortest useful pattern there is, so it sorts
+last by construction:
 
 ```bash
 #!/bin/bash
-# ~/.config/tsm/zz-default.sh   (chmod +x)
+# ~/.config/tsm/default.sh   (chmod +x)
 case "$1" in
   pattern) printf '%s\n' ".*" ;;
 esac
 ```
 
-Note the name. A catch-all is only a fallback if it sorts *last*, otherwise it wins first and
-every other pattern becomes unreachable:
+Call it whatever you like. The file name no longer decides anything, so a catch-all needs no
+`zz-` prefix to keep it out of the way.
 
-| Catch-all named | Order | `~/code/work/repo` gets |
-| --- | --- | --- |
-| `default_config.sh` | `default_config.sh`, `work.sh` | `default_config.sh` -- `work.sh` never runs |
-| `zz-default.sh` | `work.sh`, `zz-default.sh` | `work.sh` |
+| Path | `^$HOME/code/work/[^/]+$` | `^$HOME/code/` | `.*` | Winner |
+| --- | --- | --- | --- | --- |
+| `~/code/work/repo` | 26 | 16 | 2 | `^$HOME/code/work/[^/]+$` |
+| `~/code/scratch` | — | 16 | 2 | `^$HOME/code/` |
+| `~/notes` | — | — | 2 | `.*` |
+
+(Scores are shown against a `$HOME` of `/home/you`; the pattern is measured after your shell expands
+it, so the real numbers depend on the length of your home directory. Only the ordering matters.)
+
+Two patterns of the same length are equally specific as far as this can tell, so the tie is broken
+by byte order (`LC_ALL=C`) on the file path, first wins. That is deterministic, and it does not
+change with your locale.
 
 **NOTE:** Printing an empty `pattern` does not mean "match everything". Nothing printed reads as
 declaring no pattern at all, and the file is skipped. Print `.*`.
+
+### Seeing the ranking (`tsm match`)
+
+Precedence is the one thing about a configuration you cannot read off the file, because it depends
+on every *other* file too. `tsm match` answers it for a given directory:
+
+```
+$ tsm match ~/code/work/repo
+26	/home/you/.config/tsm/work.sh
+16	/home/you/.config/tsm/code.sh
+2	/home/you/.config/tsm/default.sh
+```
+
+One tab-separated `<score>\t<file>` per claiming configuration, best first. **The first line is the
+configuration that would name and build a session at that path**, and the rest are what
+`tsm apply-matching-config` would fall through to, in order. With no argument it tests the current
+directory.
+
+Nothing on stdout means nothing claims the directory — it would get a bare session. That case says
+so on stderr and exits non-zero, so `tsm match "$dir" >/dev/null` is a usable test.
+
+It is also the fastest way to find a pattern that is not claiming what you think. A pattern of
+`^$HOME/code/project/` has a trailing slash, so it claims everything *under* `~/code/project` but
+not that directory itself:
+
+```
+$ tsm match ~/code/project          # nothing: the trailing / is not there to match
+$ tsm match ~/code/project/feature  # claimed
+35	/home/you/.config/tsm/project.sh
+```
 
 ### Falling through to the next configuration
 
@@ -405,7 +446,7 @@ A configuration that matches first does not inherit the one behind it. It opts i
 
 ```bash
 #!/bin/bash
-# ~/.config/tsm/aa-myproject.sh   (chmod +x)
+# ~/.config/tsm/myproject.sh   (chmod +x)
 
 case "$1" in
   pattern)
@@ -424,9 +465,11 @@ case "$1" in
 esac
 ```
 
-`tsm apply-matching-config` finds the **next** configuration whose `pattern` also matches `$ROOT` --
-`work.sh` above, since `aa-myproject.sh` sorts ahead of it -- and runs its `start`.
-`tsm kill-matching-config` does the same for its `kill`. Both run at the point they are called, with
+`tsm apply-matching-config` finds the **next** configuration down the
+[ranking](#precedence) whose `pattern` also matches `$ROOT` -- `work.sh` above, whose
+`^$HOME/code/work/[^/]+$` is shorter than the `^$HOME/code/work/myproject$` here -- and runs its
+`start`. `tsm kill-matching-config` does the same for its `kill`. `tsm match "$ROOT"` prints that
+chain in the order it will run. Both run at the point they are called, with
 `SESSION` and `ROOT` already in the environment, so a configuration is free to do its own work
 before or after the shared setup. A configuration reached this way can fall through in turn, so a
 chain of them composes. If nothing further matches `$ROOT`, both are a no-op and say so in the
