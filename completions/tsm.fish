@@ -7,26 +7,6 @@ function __tsm_active_sessions
     tmux ls 2>/dev/null | awk -F: '{print $1}'
 end
 
-# Helper function: get configured session names
-function __tsm_configured_sessions
-    set -l config_dir "$XDG_CONFIG_HOME"
-    if test -z "$config_dir"
-        set config_dir "$HOME/.config"
-    end
-    set config_dir "$config_dir/tsm"
-
-    if test -d "$config_dir"
-        # Same rule tsm uses: an executable file whose name does not start
-        # with a dot, named by its path under the config dir minus any final
-        # extension. The regex only bites when the dot follows the last slash,
-        # so a directory with a dot in it leaves the name alone.
-        for f in (find -L "$config_dir" -type f ! -name '.*' -perm -u+x 2>/dev/null | env LC_ALL=C sort)
-            set -l rel (string replace -- "$config_dir/" "" "$f")
-            string replace -r -- '\.[^./]*$' '' "$rel"
-        end
-    end
-end
-
 # Helper function: get session names with log directories
 function __tsm_log_sessions
     set -l state_dir "$XDG_STATE_HOME"
@@ -83,7 +63,6 @@ complete -c tsm -n '__fish_use_subcommand' -a bookmark-add -d 'Bookmark a direct
 complete -c tsm -n '__fish_use_subcommand' -a bookmark-remove -d 'Remove a bookmark'
 complete -c tsm -n '__fish_use_subcommand' -a bookmark-list -d 'List all bookmarks, or browse them with fzf'
 complete -c tsm -n '__fish_use_subcommand' -a bookmark-status -d 'The open sessions bookmarks, for a tmux status line'
-complete -c tsm -n '__fish_use_subcommand' -a configured -d 'Browse/start configured sessions'
 complete -c tsm -n '__fish_use_subcommand' -a logs -d 'Browse session logs'
 complete -c tsm -n '__fish_use_subcommand' -a apply-matching-config -d 'Apply the matching configuration start hook'
 complete -c tsm -n '__fish_use_subcommand' -a kill-matching-config -d 'Run the matching configuration kill hook'
@@ -102,5 +81,4 @@ complete -c tsm -n '__fish_seen_subcommand_from bookmark-remove' -xa '(__tsm_boo
 complete -c tsm -n '__fish_seen_subcommand_from bookmark-list' -xa '-f --fzf'
 complete -c tsm -n '__fish_seen_subcommand_from bookmark-status' -xa '-s --style -c --current-style'
 complete -c tsm -n '__fish_seen_subcommand_from bookmark-add' -ra '(__fish_complete_directories)'
-complete -c tsm -n '__fish_seen_subcommand_from configured' -xa '(__tsm_configured_sessions)'
 complete -c tsm -n '__fish_seen_subcommand_from logs' -xa '(__tsm_log_sessions)'

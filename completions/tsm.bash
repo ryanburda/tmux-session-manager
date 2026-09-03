@@ -11,7 +11,7 @@ _tsm_completions() {
     cmd="${COMP_WORDS[1]}"
 
     # Available subcommands
-    subcmds="active last kill dir git worktree bookmark bookmark-add bookmark-remove bookmark-list bookmark-status configured logs apply-matching-config kill-matching-config help"
+    subcmds="active last kill dir git worktree bookmark bookmark-add bookmark-remove bookmark-list bookmark-status logs apply-matching-config kill-matching-config help"
 
     # Completing the subcommand itself
     if [ "$COMP_CWORD" -eq 1 ]; then
@@ -72,22 +72,6 @@ _tsm_completions() {
             # directory after it is the one being bookmarked.
             if [ "$COMP_CWORD" -gt 2 ]; then
                 COMPREPLY=($(compgen -d -- "$cur"))
-            fi
-            return 0
-            ;;
-        configured)
-            local config_dir="${XDG_CONFIG_HOME:-$HOME/.config}/tsm"
-            if [ -d "$config_dir" ]; then
-                # Same rule tsm uses: an executable file whose name does not
-                # start with a dot, named by its path under the config dir
-                # minus any final extension.
-                local sessions=$(find -L "$config_dir" -type f ! -name '.*' -perm -u+x 2>/dev/null \
-                    | while IFS= read -r f; do
-                          f="${f#"$config_dir/"}"
-                          case "${f##*/}" in *.*) f="${f%.*}" ;; esac
-                          printf '%s\n' "$f"
-                      done | LC_ALL=C sort)
-                COMPREPLY=($(compgen -W "$sessions" -- "$cur"))
             fi
             return 0
             ;;

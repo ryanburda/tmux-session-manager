@@ -45,23 +45,6 @@ _tsm_bookmarks() {
     fi
 }
 
-_tsm_configured_sessions() {
-    local config_dir="${XDG_CONFIG_HOME:-$HOME/.config}/tsm"
-    local sessions
-    if [[ -d "$config_dir" ]]; then
-        # Same rule tsm uses: an executable file whose name does not start
-        # with a dot, named by its path under the config dir minus any final
-        # extension.
-        sessions=(${(f)"$(find -L "$config_dir" -type f ! -name '.*' -perm -u+x 2>/dev/null \
-            | while IFS= read -r f; do
-                  f="${f#"$config_dir/"}"
-                  case "${f##*/}" in *.*) f="${f%.*}" ;; esac
-                  printf '%s\n' "$f"
-              done | LC_ALL=C sort)"})
-        _describe 'configured session' sessions
-    fi
-}
-
 _tsm_commands() {
     local commands=(
         'active:Switch to session'
@@ -75,7 +58,6 @@ _tsm_commands() {
         'bookmark-remove:Remove a bookmark'
         'bookmark-list:List all bookmarks, or browse them with fzf'
         'bookmark-status:The open sessions bookmarks, for a tmux status line'
-        'configured:Browse/start configured sessions'
         'logs:Browse session logs'
         'apply-matching-config:Apply the matching configuration start hook'
         'kill-matching-config:Run the matching configuration kill hook'
@@ -130,9 +112,6 @@ _tsm() {
             if (( CURRENT > 2 )); then
                 _files -/
             fi
-            ;;
-        configured)
-            _tsm_configured_sessions
             ;;
         logs)
             _tsm_log_sessions

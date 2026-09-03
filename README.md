@@ -7,14 +7,16 @@ Directory-based tmux sessions, configured on creation
 - **Switch** between sessions
 - **Kill** sessions with background cleanup hooks
 
-Session configurations are plain shell scripts. No YAML, no DSL.
+Session configurations are executable programs. A shell script, a Python script,
+a compiled binary. No YAML, no DSL, no abstraction of any kind.
 
 Write a shared configuration for a familiar setup across a whole tree of projects.
 
 Write custom configurations for projects that need something a bit different.
 
 You just define:
-- which directory that configuration is associated with
+- which directories that configuration claims
+- what the session is called
 - what to run on startup
 - and what to clean up on the way out
 
@@ -81,7 +83,6 @@ curl -fsSL https://raw.githubusercontent.com/ryanburda/tmux-session-manager/main
 Completions provide:
 - Active session names for `tsm active` and `tsm kill`
 - Directory completion for `tsm dir`
-- Config names for `tsm configured`
 - Session names with logs for `tsm logs`
 
 The paths below are the install script's checkout location. If you overrode `TSM_HOME`, or cloned
@@ -145,8 +146,7 @@ bind-key B popup -E "tsm bookmark-list -f"
 bind-key m run-shell -b "tsm bookmark-add"
 bind-key M run-shell -b "tsm bookmark-remove"
 
-# Configuration based sessions
-bind-key c popup -E "tsm configured"
+# Session logs
 bind-key L popup -E "tsm logs"
 ```
 
@@ -163,8 +163,7 @@ This maps:
 - `prefix + B` - Bookmarked directory session launcher, browsing with fzf
 - `prefix + m` - Bookmark the session's directory, asking for the character in the status line
 - `prefix + M` - Remove a bookmark, asking for the character in the status line
-- `prefix + c` - Configured session launcher
-- `prefix + L` - Browse configured session logs
+- `prefix + L` - Browse session logs
 
 The three bindings that ask for a character use `run-shell` rather than `popup -E`: the prompt is
 tmux's own, shown in the status line, so there is no popup to put it in. `tsm bookmark-add` bound
@@ -234,7 +233,6 @@ tsm bookmark-remove [char]           # Remove a bookmark (prompts for char)
 tsm bookmark-list [-f]               # List bookmarks (-f, --fzf browses them with fzf and starts a session)
 tsm bookmark-status [path]           # Bookmarks of the open sessions, for a tmux status line
 
-tsm configured [config]              # Start a configured session
 tsm logs [session]                   # Browse session logs
 tsm apply-matching-config            # Apply the matching configuration's start (inside a configuration's start)
 tsm kill-matching-config             # Run the matching configuration's kill (inside a configuration's kill)
@@ -250,69 +248,36 @@ tmux to learn. `man tmux` is the reference for all of it. Anything a program can
 configuration can do.
 
 `tsm` runs the program with a verb and reads its answer. That is the whole contract, so a
-configuration can be written in any language you like — bash, zsh, fish, Python, anything with a
-shebang:
+configuration can be written in any language you like — bash, zsh, fish, Python, or a compiled
+binary:
 
 | Verb | Called when | Answer |
 |---|---|---|
-| `root` | resolving where the session lives | print the directory on stdout |
-| `pattern` | dot configurations only | print an ERE of directories claimed, on stdout |
+| `pattern` | resolving which configuration claims a directory | print an ERE of the directories claimed, on stdout |
+| `name` | naming the session **(Optional)** | print the session name for the directory given as `$2`, on stdout |
 | `start` | after tmux has created the session | build the layout |
 | `kill` | when the session is killed **(Optional)** | tear down what `start` built |
 
 Two rules make it work in every language:
 
-- **Only `root` and `pattern` treat stdout as an answer.** For `start` and `kill`, stdout is the
+- **Only `pattern` and `name` treat stdout as an answer.** For `start` and `kill`, stdout is the
   session log (`tsm logs <session>`).
 - **A verb the program does not handle must exit 0.** That is how "no hook for this" is said — the
-  `case` simply falls through.
+  `case` simply falls through, and the default applies.
 
-`SESSION` is in the environment for every verb, and `ROOT` for `start` and `kill`.
+`SESSION` is in the environment for every verb but `name`, which is the verb that decides it. `ROOT`
+is the claimed directory, and is there for every verb but `pattern`, which is asked before any
+particular directory has been settled on.
 
-The file's name, minus any extension, is the session's name. The extension is for your editor's
-benefit, not `tsm`'s, so `myproject`, `myproject.sh` and `myproject.fish` all name the session
-`myproject`. **The file must be executable** — that is what makes it a configuration, and it is
-what keeps a stray README in the directory from being mistaken for one.
-
-```bash
-#!/bin/bash
-# ~/.config/tsm/myproject.sh   (chmod +x)
-#
-# a session named "myproject"
-# rooted at ~/code/myproject
-
-case "$1" in
-  root)
-    echo "$HOME/code/myproject"
-    ;;
-
-  start)
-    vim=$(tmux display-message -p -t "$SESSION" '#{pane_id}')
-    ai=$(tmux split-window -P -F '#{pane_id}' -h -l 35% -t "$vim" -c "$ROOT")
-    tmux send-keys -t "$vim" 'vim' Enter
-    tmux send-keys -t "$ai" 'ai' Enter
-    ;;
-esac
-```
-
-The script above:
-- splits the pane the session starts with into two
-- puts your editor on the left
-- puts your ai on the right
-
-See **[Building a Session](docs/building-a-session.md)** for the full guide: pane addressing,
-multi-window layouts, starting and stopping services, worked examples, and the same configuration
-written in fish and Python.
-
-A configuration whose file name starts with a dot covers a whole set of directories instead of one.
-It answers `pattern` instead of `root`, with a POSIX extended regular expression tested against the
-directory you picked, and is applied to any session started with one of the
-[directory session pickers](#directory-sessions) when no configuration of its own is rooted there.
-It is how a layout is shared across every repository in a tree without a file per repository:
+The file's name, minus any extension, identifies the configuration in logs and in error messages.
+The extension is for your editor's benefit, not `tsm`'s, so `myproject`, `myproject.sh` and
+`myproject.fish` are all the configuration `myproject`. **The file must be executable** — that is
+what makes it a configuration, and it is what keeps a stray README in the directory from being
+mistaken for one.
 
 ```bash
 #!/bin/bash
-# ~/.config/tsm/.work.sh   (chmod +x)
+# ~/.config/tsm/work.sh   (chmod +x)
 #
 # the layout for every repository directly under ~/code/work
 
@@ -330,16 +295,35 @@ case "$1" in
 esac
 ```
 
-A leading dot marks the file; it is not an extension, so `.work.sh` is the configuration `.work`.
-Dot files are skipped by `tsm configured` and its picker, since they name no session of their own.
-Files are tried in sorted order and the first match wins, so the file name decides
-[precedence](docs/building-a-session.md#precedence). A directory that no `root` and no `pattern`
-claims gets a bare session. To get a default for everything back, add a configuration answering
-`pattern` with `.*` under a name that sorts last, such as `.zz-default.sh`.
+The script above:
+- claims every repository directly under `~/code/work`
+- splits the pane the session starts with into two
+- puts your editor on the left
+- puts your ai on the right
 
-Configurations of your own never inherit one. They opt in by calling `tsm apply-matching-config`
-under `start` and `tsm kill-matching-config` under `kill`, which leaves them free to run their own
-work before or after the shared setup.
+`pattern` is a POSIX extended regular expression tested against the resolved directory you picked,
+not a glob. It is how one file describes a whole tree without a file per repository. To claim a
+single directory, anchor both ends:
+
+```bash
+  pattern)
+    printf '%s\n' "^$HOME/code/myproject$"
+    ;;
+```
+
+Files are tried in sorted order and the first match wins, so the file name decides
+[precedence](docs/building-a-session.md#precedence). A directory no `pattern` claims gets a bare
+session. To get a default for everything, add a configuration answering `pattern` with `.*` under a
+name that sorts last, such as `zz-default.sh`.
+
+A configuration that matches first does not inherit the one behind it. It opts in by calling
+`tsm apply-matching-config` under `start` and `tsm kill-matching-config` under `kill`, which run the
+*next* configuration that also claims the directory. That leaves it free to run its own work before
+or after the shared setup, and a chain of them keeps falling through.
+
+See **[Building a Session](docs/building-a-session.md)** for the full guide: pane addressing,
+multi-window layouts, naming, starting and stopping services, worked examples, and the same
+configuration written in fish and Python.
 
 # Overview
 
@@ -354,8 +338,7 @@ help you find the directory:
 - `tsm worktree` - a worktree of the current repository
 - `tsm bookmark` - a directory you have bookmarked to a single character
 
-Once a directory is picked, all pickers resolve which session configuration to apply
-to the newly created session in the same way:
+Once a directory is picked, every picker resolves it the same way:
 
 ```
           ----------------------------------------
@@ -366,35 +349,39 @@ to the newly created session in the same way:
                    | picked directory |
                    --------------------
                             |
-      -----------------------------------------------------
-      | does a configuration answer `root` with the path? |
-      -----------------------------------------------------
-             /                                 \
-         -------                             ------
-         | yes |                             | no |
-         -------                             ------
-            |                                   |
-----------------------------   -----------------------------------
-| start that configuration |   | does a dot configuration answer |
-----------------------------   | `pattern` matching the path?    |
-                               -----------------------------------
-                                 /                          \
-                              -------                     ------
-                              | yes |                     | no |
-                              -------                     ------
-                                |                            |
-                ---------------------------    -------------------------
-                | create a session at the |    | create a bare session |
-                | directory, then apply   |    |   at the directory    |
-                | that configuration      |    -------------------------
-                ---------------------------
+        ------------------------------------------
+        | is a session already open at the path? |
+        ------------------------------------------
+             /                                \
+         -------                            ------
+         | yes |                            | no |
+         -------                            ------
+            |                                  |
+    ------------------      ------------------------------------
+    | switch to it   |      | does a configuration answer      |
+    ------------------      | `pattern` matching the path?     |
+                            ------------------------------------
+                              /                          \
+                           -------                     ------
+                           | yes |                     | no |
+                           -------                     ------
+                             |                            |
+             ---------------------------    -------------------------
+             | name the session with   |    | name the session from |
+             | that configuration's    |    | the directory, create |
+             | `name`, create it, then |    |    a bare session     |
+             | run its `start`         |    -------------------------
+             ---------------------------
 ```
 
-All four pickers take the same flags. `-c` opts out of the resolution above entirely:
+The first question is about the path, not the name. A session is identified by the directory it was
+started at, recorded on the session itself, so picking a directory you already have open returns to
+that session however it has since been renamed.
 
-- `-c`, `--no-config` - Skip both steps: ignore a [configuration](#configured-sessions) rooted at
-  the picked directory and any [shared configuration](docs/building-a-session.md#defining-a-shared-configuration)
-  whose `pattern` claims it, leaving a bare session at the directory.
+All four pickers take the same flags:
+
+- `-c`, `--no-config` - Ignore the configuration claiming the picked directory entirely — both its
+  `name` and its `start` — leaving a bare session named after the directory.
 - `-p`, `--prompt-name` - Prompt for the session name instead of using the suggested one. See
   [Session names](#session-names).
 
@@ -406,103 +393,93 @@ See [Usage](#usage) for the exact arguments.
 ### Session names
 
 A picker names the session after the directory it starts at: the sanitized basename, or
-`repo/worktree` inside a git worktree. Two directories can share that name -- `~/code/api` and
-`~/work/api` are both `api` -- and the name is the only handle tmux has for telling sessions
-apart.
-
-For worktrees the name is disambiguated for you. git gives every worktree an internal name, kept
-as a directory under the repository's `.git/worktrees/` and derived from the last segment of the
-worktree's path. When two worktrees end in the same segment, git appends a counter rather than
-letting them collide:
+`repo/worktree` inside a git worktree, where `repo` is the directory the repository lives in and
+`worktree` is the basename of the worktree's own path.
 
 ```
-.git/worktrees/
-├── feature/      <- ~/code/project/a/feature
-└── feature1/     <- ~/code/project/b/feature
+~/code/api                        ->  api
+~/code/project/.bare              ->  (the repository)
+~/code/project/feature            ->  project/feature
 ```
 
-`tsm` names sessions from that internal name rather than from the path's basename, so those two
-worktrees are `project/feature` and `project/feature1` and both can be open at once.
+Sanitizing replaces every character outside `[A-Za-z0-9_-/]` with `_`, so a worktree on a branch
+like `v1.2` becomes `project/v1_2`. `/` survives, because that is what joins the two halves of a
+worktree name. `.` and `:` do not: tmux target syntax is `session:window.pane`, so a session holding
+either could be created and then never switched to or killed again.
 
-One caveat comes with borrowing git's name: **`git worktree move` does not rename it.** Move
-`a/feature` to `a/renamed` and git's internal name stays `feature`, so the session is still
-called `project/feature` while the directory on disk is `renamed`:
+#### A session is its directory, not its name
 
-```
-$ git worktree move ../a/feature ../a/renamed
-$ basename "$(git -C ../a/renamed rev-parse --absolute-git-dir)"
-feature
-```
+`tsm` records the directory a session was started at on the session itself, in a `@tsm_path` tmux
+option. That record, rather than the name, is what identifies the session:
 
-git offers no way to rename a worktree's internal directory, so nothing here can follow the move.
-The name stays unique and stays pointed at the right directory -- it just stops matching what the
-directory is called. `-p`, or `TSM_SESSION_NAME_CMD` below, is the way out if that bothers you.
-
-### Conventions beat fallbacks
-
-All of the above is a safety net, and the best thing you can do is not need it. A layout that
-keeps every worktree at the same level -- all siblings of the bare repository, or all under a
-single `worktrees/` directory -- makes the leaf of every worktree path unique by construction,
-because one directory cannot hold two entries with the same name. Nested worktrees at differing
-depths are the only way to produce a counter, and a flat layout cannot produce them, so no
-counter is ever assigned and every session is named after a directory you actually named.
-[git-ext](https://github.com/ryanburda/git-ext)'s `git worktree-add` enforces exactly this by
-refusing a worktree name containing `/`, though the convention is what matters, not the tool.
-Any layout with the same property works, and `tsm` requires none of them.
-
-The habit worth keeping is the naming one. A worktree is a directory you name yourself, and a
-name you chose (`api-v2`, `hotfix`, `review`) is easier to recognise on a status line than
-`feature1`, a path hash, or anything else a program can derive for you. Reusing one generic name
-like `wt` or `feature` under several parents is what makes derived names collide in the first
-place; distinct names never collide, so no fallback ever has to fire. The `git worktree move`
-caveat above is the one exception -- it follows from renaming a directory, not from where the
-directory sits, so no layout prevents it.
-
-Outside a worktree there is no internal name to lean on, so a genuine collision is reported
-rather than papered over:
+- Picking a directory that already has a session open **switches to it** — that is the point of
+  picking it again — and keeps doing so after `tmux rename-session`, or after a configuration starts
+  naming things differently.
+- Two *different* directories whose names land on the same string is the opposite problem.
+  `~/code/api` and `~/work/api` are both `api`, and switching to the first when you picked the
+  second would silently take you somewhere you did not ask for. So it is reported and you are asked
+  for a name:
 
 ```
 $ tsm dir ~/work/api
-Error: session 'api' is already open at /home/you/code/api. Use -p to name this one.
+Session name collision
+  name              api
+  new session at    /home/you/work/api
+  'api' is open at  /home/you/code/api
+Enter session name:
 ```
 
-Picking a directory that already has a session open still switches to it -- that is the point of
-picking it again. The error is only for a *different* directory whose derived name would land on
-top of it.
+Anything you type there is used as-is, minus the `.` and `:` refusal above. `/` is fine.
 
-`-p` takes the name into your own hands, in any of the four pickers:
+Sessions started outside `tsm`, or before `@tsm_path` existed, fall back to tmux's own
+`#{session_path}`, so picking their directory still finds them.
+
+#### Naming a session yourself
+
+`-p` takes the name into your own hands for one session, in any of the four pickers:
 
 ```sh
 tsm dir -p ~/work/api    # suggests "api"; enter accepts it, anything else replaces it
 ```
 
-The prompt refuses `.` and `:`. tmux reads both as the window and pane separators of a target, so
-a session holding either can be created and then never switched to or killed again.
+The suggestion is whatever the rules produced — a configuration's `name` if one had an opinion,
+the directory otherwise — so pressing enter accepts it and anything typed replaces it. `-p` is the
+last word either way.
 
-### Naming sessions yourself (`TSM_SESSION_NAME_CMD`)
+It has nothing to do when the path already has a session, though: there is no session being created
+to name, so `-p` switches to the existing one like any other pick.
 
-`-p` renames one session. `TSM_SESSION_NAME_CMD` replaces the derivation altogether, for a naming
-scheme of your own:
+### Naming sessions from a configuration (`name`)
+
+`-p` renames one session by hand. The `name` verb replaces the derivation for every directory a
+configuration claims:
 
 ```bash
-export TSM_SESSION_NAME_CMD='basename "$1"'
+#!/bin/bash
+# ~/.config/tsm/work.sh   (chmod +x)
+
+case "$1" in
+  pattern)
+    printf '%s\n' "^$HOME/code/work/"
+    ;;
+
+  name)
+    echo "work/$(basename "$2")"
+    ;;
+esac
 ```
 
-The directory arrives both as `$1` and as `$TSM_DIR`, so the command can be an inline snippet or
-the bare path of a script. Only the first line of its output is used, with surrounding whitespace
-trimmed.
+The directory arrives both as `$2` and as `$ROOT`. Only the first line of output is used, with
+surrounding whitespace trimmed.
 
-A command that prints nothing, or that fails, falls back to the built-in derivation. A scheme
-with no opinion about a particular directory is a normal thing to write, and it should not wedge
-the pickers. Output containing `.` or `:` is refused rather than rewritten -- the same rule the
-`-p` prompt enforces, for the same reason.
+A configuration that does not handle `name` at all, or that prints nothing, or that fails, gets the
+default derivation. A naming scheme with no opinion about a particular directory is a normal thing
+to write, and it should not wedge the pickers. Whatever it does print is **sanitized** rather than
+refused — a name is usually derived from a branch or a directory, neither of which the configuration
+controls, and `feature/v1.2` is a reasonable thing to hand back.
 
-The name it returns is what `-p` offers as its suggestion, so the two compose: the hook sets the
-default, `-p` still overrides it for one session.
-
-Like `TSM_DIRS_CMD`, set this in the file that configures your PATH (`~/.zshenv` for zsh), or
-tmux keybindings will derive names differently from your interactive shell. See the PATH note
-under [Installation](#installation).
+Because the name comes from the configuration that claimed the directory, it only applies where that
+configuration's `pattern` reaches. Directories claimed by nothing keep the default derivation.
 
 <details>
 <summary><strong style="font-size: 1.25em;">Examples</strong></summary>
@@ -512,55 +489,39 @@ under [Installation](#installation).
 > construction:
 >
 > ```bash
-> export TSM_SESSION_NAME_CMD='git -C "$1" branch --show-current 2>/dev/null | tr "/." "__"'
+>   name)
+>     git -C "$2" branch --show-current 2>/dev/null
+>     ;;
 > ```
 >
-> The `tr` is not optional: branch names routinely contain both of the characters a session name
-> cannot. Note that this trades one kind of staleness for another -- the session keeps the name of
-> whatever branch was checked out when it started, and a worktree you re-branch keeps the old name
-> until you kill the session. It suits a worktree-per-branch workflow, not a durable
-> worktree you move between branches.
+> No `tr` is needed: a branch name routinely contains `/` and `.`, and sanitizing turns the `.` into
+> `_` while leaving the `/` alone. Note that this trades one kind of staleness for another — the
+> session keeps the name of whatever branch was checked out when it started, and a worktree you
+> re-branch keeps the old name until you kill the session. It suits a worktree-per-branch workflow,
+> not a durable worktree you move between branches.
 >
 > Let a directory name itself, falling back to the default when it does not:
 >
 > ```bash
-> export TSM_SESSION_NAME_CMD='cat "$1/.tsm-name" 2>/dev/null'
+>   name)
+>     cat "$2/.tsm-name" 2>/dev/null
+>     ;;
 > ```
 >
-> `cat` fails on a directory with no `.tsm-name`, which is exactly the fallback contract: the
-> named directories get their names, everything else is derived as usual.
+> `cat` fails on a directory with no `.tsm-name`, which is exactly the fallback contract: the named
+> directories get their names, everything else is derived as usual.
 >
-> Hash the path. This is the uniqueness argument taken to its limit -- every distinct directory
-> gets a distinct name, with no counter, no ordering effect, and no dependence on git at all
-> (`cksum` is POSIX, so this needs nothing installed):
+> Put a whole tree under one prefix, so the status line groups them:
 >
 > ```bash
-> export TSM_SESSION_NAME_CMD='printf %s "$1" | cksum | cut -d" " -f1'
+>   name)
+>     echo "work/$(basename "$2")"
+>     ;;
 > ```
 >
-> ```
-> ~/code/project/a/feature  ->  799783932
-> ~/code/project/b/feature  ->  2866497250
-> ```
->
-> It is also the clearest argument for the default. A session name is something you read off a
-> status line, type at `tsm active`, and hold in your head while moving between four of them.
-> `799783932` is none of those. `project/feature` is a name a person chose, and the counter in
-> `project/feature1` shows up only on the rare pair that actually collides. Uniqueness is the
-> cheap half of the problem; being able to tell which worktree you are looking at is the half
-> worth optimising for.
->
-> Keeping the leaf and appending the hash buys some of both, at the cost of length:
->
-> ```bash
-> export TSM_SESSION_NAME_CMD='echo "$(basename "$1")-$(printf %s "$1" | cksum | cut -d" " -f1)"'
-> # -> feature-799783932
-> ```
->
-> A path hash also trades one staleness for another. It follows `git worktree move` precisely
-> because the path changed, so a session already running under the old hash keeps a name that no
-> longer matches anything, and picking the moved directory again starts a second session next to
-> it. The default fails the other way round: one session, one stale name.
+> This is also the way to make a collision stop happening. `~/code/api` and `~/work/api` collide on
+> `api`; a configuration claiming `^$HOME/work/` and naming `work/$(basename "$2")` makes the second
+> one `work/api`, and neither ever prompts again.
 
 </details>
 
@@ -632,8 +593,9 @@ under [Installation](#installation).
 
 > ### Git Worktrees (`tsm worktree`)
 >
-> A worktree of the current repository, in a session named `repo/worktree`, where `worktree` is
-> git's [internal name](#session-names) for it.
+> A worktree of the current repository, in a session named
+> [`repo/worktree`](#session-names), where `repo` is the directory the repository lives in and
+> `worktree` is the basename of the worktree's path.
 >
 > **NOTE:** Can only be run when the current working directory is inside a git repo
 > 
@@ -655,9 +617,9 @@ under [Installation](#installation).
 > | `tsm bookmark <char> [-c] [-p]` | Start a session at the directory bookmarked at `<char>` |
 > | `tsm bookmark [-c] [-p]` | Ask for a character, then start a session at its directory |
 >
-> The session that starts is a directory session like any other: a configuration rooted at the
-> bookmarked directory is what starts if one exists, a shared configuration whose `pattern`
-> claims it applies if none does, and `-c` and `-p` mean what they mean for the other pickers.
+> The session that starts is a directory session like any other: the configuration whose `pattern`
+> claims the bookmarked directory names and builds it if one does, and `-c` and `-p` mean what they
+> mean for the other pickers.
 >
 > The bookmarks themselves are managed with three commands of their own:
 >
@@ -730,16 +692,6 @@ under [Installation](#installation).
 > Switching sessions needs no hook: that redraws the client's status line by itself, and the
 > character that is highlighted follows along. Setting or removing a bookmark needs none either since
 > `tsm bookmark-add` and `tsm bookmark-remove` refresh the line themselves.
-
-<a id="configured-sessions"></a>
-
-## Configured Sessions (`tsm configured`)
-
-Launch a configured session directly, without going through a directory picker.
-
-![Launch Configured Sessions](docs/configured_launcher.gif)
-
-See **[Building a Session](docs/building-a-session.md)** for more info on writing session configurations.
 
 ## Active Session Switcher
 

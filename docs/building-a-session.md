@@ -4,86 +4,87 @@ A session configuration is an executable program that calls `tmux` commands dire
 DSL and no YAML abstraction over tmux, so anything tmux can do a configuration can do, and
 `man tmux` is the reference for all of it.
 
-Configurations are stored in `${XDG_CONFIG_HOME:-~/.config}/tsm/` and launched with
-[`tsm configured`](../README.md#configured-sessions), or by the
+Configurations are stored in `${XDG_CONFIG_HOME:-~/.config}/tsm/` and are reached by the
 [directory pickers](../README.md#directory-sessions) when one claims the directory you picked.
 
 ## The contract
 
-tsm runs your program with a verb and reads its answer. It never looks inside the file, which is
-why a configuration can be written in any language with a shebang:
+tsm runs your program with a verb and reads its answer. It never looks inside the file — it just
+execs it — which is why a configuration can be written in any language, or be a compiled binary:
 
 | Verb | Called when | What it should do |
 | --- | --- | --- |
-| `root` | resolving where the session lives | print the session's root directory on stdout |
-| `pattern` | [dot configurations](#defining-a-shared-configuration) only | print an ERE of the directories it claims, on stdout |
+| `pattern` | resolving which configuration claims a directory | print an ERE of the directories it claims, on stdout |
+| `name` | naming the session, before it exists | print the session name for the directory given as `$2`, on stdout |
 | `start` | after tmux has created the session | build the layout |
 | `kill` | asynchronously, when the session is killed | tear down what `start` built |
 
 Three rules make it work in every language:
 
-- **Only `root` and `pattern` treat stdout as an answer.** For `start` and `kill`, stdout is the
-  [session log](#logging). A stray `echo` under `root` corrupts the path; under `start` it is just
+- **Only `pattern` and `name` treat stdout as an answer.** For `start` and `kill`, stdout is the
+  [session log](#logging). A stray `echo` under `name` corrupts the name; under `start` it is just
   a log line.
 - **A verb the program does not handle must exit 0.** That is how "no hook for this" is said. A
-  `case` with no matching branch falls through and exits clean, which is exactly right.
-- **A non-zero exit from `root` fails the session.** tsm reports it and points you at the log.
-  `kill` is best-effort: tsm kills the tmux session either way.
+  `case` with no matching branch falls through and exits clean, which is exactly right. Only
+  `pattern` is really required; everything else has a sensible default.
+- **Nothing a configuration answers can fail the session.** A `pattern` that fails or prints
+  nothing simply does not match. A `name` that fails or prints nothing falls back to the default
+  derivation. `kill` is best-effort: tsm kills the tmux session either way.
 
-`SESSION`, the name of the session, is in the environment for every verb. `ROOT` is in the
-environment for `start` and `kill`.
+`ROOT`, the claimed directory, is in the environment for `name`, `start` and `kill` — not for
+`pattern`, which is asked before any particular directory has been settled on. `SESSION`, the name
+of the session, is in the environment for `start` and `kill` — not for `name`, which is the verb
+that decides it.
 
 ## The configuration file
 
 **The file must be executable.** `chmod +x` is what makes it a configuration; a file without the
 bit is ignored, which is what keeps a README or a half-written draft in the directory from being
-mistaken for one. `tsm configured <name>` will tell you if it found the file but not the bit.
+mistaken for one.
 
-**The file's name, minus any extension, is the session's name.** The extension is for your
-editor's benefit rather than tsm's, so `myproject`, `myproject.sh`, `myproject.fish` and
-`myproject.py` all start a session called `myproject`.
+**The file's name, minus any extension, identifies the configuration** in logs and error messages.
+The extension is for your editor's benefit rather than tsm's, so `work`, `work.sh`, `work.fish` and
+`work.py` are all the configuration `work`.
 
 tsm owns the session's lifecycle:
-- it creates the session before your `start` runs,
+- it names the session,
+- creates it before your `start` runs,
 - and kills it when you kill the session.
 
-Everything the program answers is therefore optional, and describes what you want *beyond* a plain
-session. A configuration that handles no `start` gets exactly that plain session, rooted wherever
-`root` said (or `$HOME` if it said nothing). A
-[matching configuration](#defining-a-shared-configuration) is opted into, never inherited.
+Everything the program answers beyond `pattern` is therefore optional, and describes what you want
+*beyond* a plain session named after its directory.
 
-**NOTE:** Session names cannot contain `.` or `:`. tmux reads both as the window and pane
-separators of a target, so a session named `my.project` would be created and then be unreachable.
-tsm refuses such a name rather than quietly renaming the session out from under you. Since the
-final extension is stripped, `my.project.sh` still resolves to the rejected name `my.project`.
-
-The smallest useful configuration answers `root` and nothing else:
+The smallest useful configuration answers `pattern` and nothing else:
 
 ```bash
 #!/bin/bash
-# ~/.config/tsm/notes.sh  ->  a session named "notes", rooted at ~/notes
+# ~/.config/tsm/notes.sh  ->  claims ~/notes, session named "notes"
 case "$1" in
-  root) echo "$HOME/notes" ;;
+  pattern) printf '%s\n' "^$HOME/notes$" ;;
 esac
 ```
 
-A program that answers nothing at all is still valid: it launches a session at `$HOME` with a
-single window and pane.
+That is a configuration that changes nothing yet — it is the same bare session the directory would
+have got on its own. It becomes useful the moment it answers `start`, or `name`.
 
-Nesting works, and the whole path under the configuration directory is the session name. For
-example, a session can be called `myrepo/base`, matching the `repo/worktree` names
-[worktree sessions](../README.md#git-worktrees) get, and sort next to them in the switcher:
+**NOTE:** Session names cannot contain `.` or `:`. tmux reads both as the window and pane
+separators of a target, so a session named `my.project` would be created and then be unreachable.
+Names derived from a directory, and names a configuration returns from `name`, are
+[sanitized](../README.md#session-names) rather than refused; a name you type at the `-p` prompt is
+refused, since it is not tsm's to rewrite.
+
+Nesting works, and the whole path under the configuration directory identifies the configuration:
 
 ```
 ~/.config/tsm/
-  notes.sh                ->  session "notes"
-  myrepo/base.fish        ->  session "myrepo/base"
-  myrepo/experiment.py    ->  session "myrepo/experiment"
+  notes.sh                ->  configuration "notes"
+  work/api.fish           ->  configuration "work/api"
+  work/web.py             ->  configuration "work/web"
 ```
 
 **NOTE:** The program runs once per verb, so its top level runs every time tsm asks it anything.
-The directory pickers ask every configuration for its `root`, so keep the top level cheap and put
-the work inside the branches. Anything expensive at the top level is paid on every `tsm dir`.
+The directory pickers ask every configuration for its `pattern`, so keep the top level cheap and
+put the work inside the branches. Anything expensive at the top level is paid on every `tsm dir`.
 
 ## Pane addressing
 
@@ -94,8 +95,8 @@ commands into the panes that result:
 ```bash
 #!/bin/bash
 case "$1" in
-  root)
-    echo "$HOME/code/myproject"
+  pattern)
+    printf '%s\n' "^$HOME/code/myproject$"
     ;;
   start)
     code=$(tmux display-message -p -t "$SESSION" '#{pane_id}')
@@ -141,8 +142,8 @@ This config creates:
 # ~/.config/tsm/myproject.sh   (chmod +x)
 
 case "$1" in
-  root)
-    echo "$HOME/projects/myproject"
+  pattern)
+    printf '%s\n' "^$HOME/projects/myproject$"
     ;;
 
   start)
@@ -174,8 +175,8 @@ what `start` brought up:
 #!/bin/bash
 
 case "$1" in
-  root)
-    echo "$HOME/projects/myproject"
+  pattern)
+    printf '%s\n' "^$HOME/projects/myproject$"
     ;;
 
   start)
@@ -226,8 +227,11 @@ same `notes` configuration in fish and in Python:
 set -l verb "$argv[1]"
 
 switch "$verb"
-    case root
-        printf '%s\n' "$HOME/notes"
+    case pattern
+        printf '%s\n' "^$HOME/notes$"
+
+    case name
+        printf '%s\n' notes
 
     case start
         set -l code (tmux display-message -p -t "$SESSION" '#{pane_id}')
@@ -259,41 +263,78 @@ def tmux(*args):
     ).stdout.strip()
 
 
-def root():
-    print(os.path.expanduser("~/notes"))
+def pattern():
+    print("^" + os.path.expanduser("~/notes") + "$")
 
 
-def start():
+def name(path):
+    print("notes")
+
+
+def start(path):
     code = tmux("display-message", "-p", "-t", SESSION, "#{pane_id}")
     tmux("rename-window", "-t", code, "notes")
     tmux("send-keys", "-t", code, "nvim .", "Enter")
 
 
-VERBS = {"root": root, "start": start}
+VERBS = {"pattern": lambda _: pattern(), "name": name, "start": start}
 
 if __name__ == "__main__":
     verb = sys.argv[1] if len(sys.argv) > 1 else ""
-    VERBS.get(verb, lambda: None)()
+    path = sys.argv[2] if len(sys.argv) > 2 else ROOT
+    VERBS.get(verb, lambda _: None)(path)
 ```
 
 **NOTE:** A `pattern` is matched by tsm with `grep -E`, not by your program, so it must be a POSIX
 extended regular expression whatever language printed it. Python's `re`-only syntax (`\d`,
 lookahead, non-greedy `*?`) will not work.
 
-## Defining a Shared Configuration
+## Naming the session
 
-Most configurations end up wanting the same layout. Rather than repeat it in every file, write it
-once in a file whose name starts with a dot and say which directories it covers by answering
-`pattern`.
-
-Where a normal configuration names one directory with `root`, a dot configuration describes a whole
-set of them with `pattern`, a [POSIX extended regular expression](https://pubs.opengroup.org/onlinepubs/9699919799/basedefs/V1_chap09.html#tag_09_04)
-tested against the directory you picked. It is how you say "every repository under `~/code/work`
-gets this layout" without writing a file per repository.
+A session is named after the directory it starts at: the sanitized basename, or `repo/worktree`
+inside a git worktree. The `name` verb replaces that for every directory the configuration claims.
 
 ```bash
 #!/bin/bash
-# ~/.config/tsm/.work.sh   (chmod +x)
+# ~/.config/tsm/work.sh   (chmod +x)
+
+case "$1" in
+  pattern)
+    printf '%s\n' "^$HOME/code/work/"
+    ;;
+
+  name)
+    # The claimed directory arrives as $2, and as $ROOT.
+    echo "work/$(basename "$2")"
+    ;;
+esac
+```
+
+Only the first line of output is used, with surrounding whitespace trimmed. A configuration that
+does not handle `name`, or that prints nothing, or that fails, gets the default derivation — a
+naming scheme with no opinion about a particular directory is a normal thing to write, and it
+should not wedge the pickers.
+
+What it does print is sanitized rather than refused: every character outside `[A-Za-z0-9_-/]`
+becomes `_`. A name is usually derived from something the configuration does not control — a branch,
+a directory — and `feature/v1.2` is a reasonable thing to hand back and an unreasonable thing to
+fail over. It arrives as `feature/v1_2`.
+
+`SESSION` is deliberately *not* in the environment for `name`: it is the thing being computed.
+
+**NOTE:** `tsm dir -p` beats `name`. The flag exists for the case the rules got wrong, so it is the
+last word on the subject — though it still *offers* what `name` returned, so pressing enter accepts
+it.
+
+## Claiming directories
+
+`pattern` is a [POSIX extended regular expression](https://pubs.opengroup.org/onlinepubs/9699919799/basedefs/V1_chap09.html#tag_09_04)
+tested against the directory you picked. One file can therefore describe a whole tree — "every
+repository under `~/code/work` gets this layout" — without a file per repository:
+
+```bash
+#!/bin/bash
+# ~/.config/tsm/work.sh   (chmod +x)
 
 case "$1" in
   pattern)
@@ -315,12 +356,9 @@ case "$1" in
 esac
 ```
 
-A leading dot marks the file rather than naming an extension, so `.work.sh` is the configuration
-`.work`.
-
 The match is unanchored, so anchor it yourself when you mean it. `^$HOME/code/work/[^/]+$` claims
 the repositories directly under `~/code/work` and nothing deeper; `^$HOME/code/work/` claims
-everything beneath it, at any depth.
+everything beneath it, at any depth; `^$HOME/code/work/myproject$` claims exactly one directory.
 
 Being a regex rather than a glob is easy to forget. A pattern of `~/code/*` matches nothing at all:
 `~` is not expanded inside quotes, and tsm tests against fully resolved absolute paths. Written
@@ -328,16 +366,9 @@ unquoted the tilde does expand, but `*` is still a regex quantifier on the prece
 `~/code/*` reduces to "the path contains `/home/you/code`", which also claims `~/codegen`. Use
 `$HOME` and anchor with `^`.
 
-Dot files are excluded from the configured-session list and picker, since they are not sessions to
-start. A dot file is only ever reached by matching a directory.
-
-[Directory sessions](../README.md#directory-sessions) get both hooks without asking. Any session
-`tsm dir`, `tsm git` or `tsm worktree` creates that no configuration of its own claims runs the
-matching dot configuration's `start` on the way in and its `kill` on the way out. `SESSION` is the
-new session's name and `ROOT` is the directory you picked. The session is still named after the
-directory. A dot configuration describes a layout, not a session.
-
-A directory that no `root` and no `pattern` claims gets a bare session.
+A session that a configuration claims gets its `start` on the way in and its `kill` on the way out.
+`SESSION` is the session's name and `ROOT` is the directory you picked. A directory no `pattern`
+claims gets a bare session and runs nothing.
 
 ### Precedence
 
@@ -350,7 +381,7 @@ so a configuration answering it claims any directory the more specific patterns 
 
 ```bash
 #!/bin/bash
-# ~/.config/tsm/.zz-default.sh   (chmod +x)
+# ~/.config/tsm/zz-default.sh   (chmod +x)
 case "$1" in
   pattern) printf '%s\n' ".*" ;;
 esac
@@ -361,22 +392,24 @@ every other pattern becomes unreachable:
 
 | Catch-all named | Order | `~/code/work/repo` gets |
 | --- | --- | --- |
-| `.default_config.sh` | `.default_config.sh`, `.work.sh` | `.default_config.sh` -- `.work.sh` never runs |
-| `.zz-default.sh` | `.work.sh`, `.zz-default.sh` | `.work.sh` |
+| `default_config.sh` | `default_config.sh`, `work.sh` | `default_config.sh` -- `work.sh` never runs |
+| `zz-default.sh` | `work.sh`, `zz-default.sh` | `work.sh` |
 
 **NOTE:** Printing an empty `pattern` does not mean "match everything". Nothing printed reads as
 declaring no pattern at all, and the file is skipped. Print `.*`.
 
-Configurations of your own get neither hook. Opt in by calling `tsm apply-matching-config` under
-`start` and `tsm kill-matching-config` under `kill`:
+### Falling through to the next configuration
+
+A configuration that matches first does not inherit the one behind it. It opts in, by calling
+`tsm apply-matching-config` under `start` and `tsm kill-matching-config` under `kill`:
 
 ```bash
 #!/bin/bash
-# ~/.config/tsm/myproject.sh   (chmod +x)
+# ~/.config/tsm/aa-myproject.sh   (chmod +x)
 
 case "$1" in
-  root)
-    echo "$HOME/code/work/myproject"
+  pattern)
+    printf '%s\n' "^$HOME/code/work/myproject$"
     ;;
 
   start)
@@ -391,12 +424,13 @@ case "$1" in
 esac
 ```
 
-`tsm apply-matching-config` finds the dot configuration whose `pattern` matches `$ROOT` (`.work.sh`
-above) and runs its `start`. `tsm kill-matching-config` does the same for its `kill`. Both run at
-the point they are called, with `SESSION` and `ROOT` already in the environment, so a configuration
-is free to do its own work before or after the shared setup. If no dot configuration matches
-`$ROOT`, both are a no-op and say so in the session log. The two files need not be written in the
-same language: tsm runs each with its own shebang.
+`tsm apply-matching-config` finds the **next** configuration whose `pattern` also matches `$ROOT` --
+`work.sh` above, since `aa-myproject.sh` sorts ahead of it -- and runs its `start`.
+`tsm kill-matching-config` does the same for its `kill`. Both run at the point they are called, with
+`SESSION` and `ROOT` already in the environment, so a configuration is free to do its own work
+before or after the shared setup. A configuration reached this way can fall through in turn, so a
+chain of them composes. If nothing further matches `$ROOT`, both are a no-op and say so in the
+session log. The files need not be written in the same language: tsm execs each one on its own.
 
 ## Beyond tmux commands
 
@@ -411,8 +445,8 @@ session attaches immediately while the command continues running, and its output
 #!/bin/bash
 
 case "$1" in
-  root)
-    echo "$HOME/projects/webapp"
+  pattern)
+    printf '%s\n' "^$HOME/projects/webapp$"
     ;;
 
   start)
@@ -438,11 +472,9 @@ is slow, it will block the rest.
 
 ## Logging
 
-Output from the `start` and `kill` verbs is redirected to a dedicated log file, along with anything
-a failing `root` writes to stderr. Directory sessions are logged the same way when a dot
-configuration runs, so a `.work.sh` is as debuggable as a configuration of its own. A session that
-matched nothing, or one created with `-c`, runs no program and gets no log. Logs can be found in
-`${XDG_STATE_HOME:-~/.local/state}/tsm/logs/<session-name>/tsm.log`.
+Output from the `start` and `kill` verbs is redirected to a dedicated log file. A session that
+matched no configuration, or one created with `-c`, runs no program and gets no log. Logs can be
+found in `${XDG_STATE_HOME:-~/.local/state}/tsm/logs/<session-name>/tsm.log`.
 
 Use `tsm logs` to browse all log files across sessions with fzf. The fzf preview pane shows the
 tail of the currently highlighted file.
