@@ -60,8 +60,6 @@ _tsm_commands() {
         'bookmark-status:The open sessions bookmarks, for a tmux status line'
         'match:Configurations claiming a path, best first'
         'logs:Browse session logs'
-        'apply-matching-config:Apply the matching configuration start hook'
-        'kill-matching-config:Run the matching configuration kill hook'
         'help:Show help message'
     )
     _describe 'command' commands

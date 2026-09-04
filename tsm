@@ -11,50 +11,46 @@ TSM_DIRS_CMD_DEFAULT='find "$HOME" -maxdepth 4 -name ".*" -prune -o -type d \( -
 TSM_GIT_DIRS_CMD_DEFAULT='find "$HOME" -maxdepth 4 -name ".*" -prune -o -type d -exec test -e {}/.git \; -print -prune 2>/dev/null'
 
 usage() {
-  echo "Tmux Session Manager"
-  echo ""
-  echo "Usage"
-  echo "  tsm                                      # Show help message"
-  echo "  tsm active [session]                     # Switch to session"
-  echo "  tsm kill [session]                       # Kill session (run cleanup script if present)"
-  echo "  tsm last                                 # Switch to the most recent session that is still open"
-  echo "  "
-  echo "  tsm dir [path] [-c] [-p]                 # Create session at path"
-  echo "  tsm git [path] [-b] [-f] [-c] [-p]       # Browse git repositories with fzf, creates session at path"
-  echo "  tsm worktree [name] [-c] [-p]            # Create session at git worktree path"
-  echo "  tsm bookmark [char] [-c] [-p]            # Create session at a bookmarked directory (prompts for char)"
-  echo "  "
-  echo "    -c, --no-config                        # Ignore any configuration claiming the selected path"
-  echo "    -p, --prompt-name                      # Prompt for the session name instead of using the default"
-  echo "    -b, --brief                            # (git) Show git status information in the picker"
-  echo "    -f, --fetch                            # (git) Fetch before showing the brief; implies -b"
-  echo "  "
-  echo "  tsm bookmark-add [char] [path]           # Bookmark a directory (prompts for char; path defaults to the current directory)"
-  echo "  tsm bookmark-remove [char]               # Remove a bookmark (prompts for char)"
-  echo "  tsm bookmark-list [-f]                   # List bookmarks (-f, --fzf: browse them with fzf and start a session)"
-  echo "  tsm bookmark-status [path]               # Bookmarks of the open sessions, for a tmux status line (-s, -c set its styles)"
-  echo "  "
-  echo "  tsm match [path]                         # Configurations claiming a path, best first (defaults to the current directory)"
-  echo "  tsm logs [session]                       # Browse session logs"
-  echo "  tsm apply-matching-config                # Apply the matching configuration's start (inside a configuration's start)"
-  echo "  tsm kill-matching-config                 # Run the matching configuration's kill (inside a configuration's kill)"
-  echo "  "
-  echo "  tsm help                                 # Show help message"
-  echo ""
-  echo "See https://github.com/ryanburda/tmux-session-manager for more documentation"
+  cat <<'EOF'
+Tmux Session Manager
+
+Usage
+  tsm                                      # Show help message
+  tsm active [session]                     # Switch to an existing session
+  tsm kill [session]                       # Kill session (runs its kill hook if present)
+  tsm last                                 # Switch to the most recent session that is still open
+
+  tsm dir [path] [-c] [-p]                 # Create session at path
+  tsm git [-b] [-f] [-c] [-p]              # Browse git repositories with fzf, creates session at path
+  tsm worktree [name] [-c] [-p]            # Create session at git worktree path
+  tsm bookmark [char] [-c] [-p]            # Create session at a bookmarked directory (prompts for char)
+
+    -c, --no-config                        # Ignore any configuration claiming the selected path
+    -p, --prompt-name                      # Prompt for the session name instead of using the default
+    -b, --brief                            # (git) Show git status information in the picker
+    -f, --fetch                            # (git) Fetch before showing the brief; implies -b
+
+  tsm bookmark-add [char] [path]           # Bookmark a directory (prompts for char; path defaults to the current directory)
+  tsm bookmark-remove [char]               # Remove a bookmark (prompts for char)
+  tsm bookmark-list [-f]                   # List bookmarks (-f, --fzf: browse them with fzf and start a session)
+  tsm bookmark-status [path]               # Bookmarks of the open sessions, for a tmux status line (-s, -c set its styles)
+
+  tsm match [path]                         # Configurations claiming a path, best first (defaults to the current directory)
+  tsm logs [session]                       # Browse session logs
+
+  tsm help                                 # Show help message
+
+See https://github.com/ryanburda/tmux-session-manager for more documentation
+EOF
 }
 
 ####################
 # helper functions #
 ####################
 notify() {
-  # Displays a message to the user.
-  # Uses tmux display-message when running inside tmux, otherwise falls back to echo.
-  #
-  # The echo goes to stderr because several of the functions that report this
-  # way run inside a command substitution -- naming a session, mostly -- where
-  # stdout is the return value and a message written to it is read as the
-  # answer rather than shown to anyone. Nothing consumes a notify's output.
+  # Show a message: tmux display-message inside tmux, stderr otherwise.
+  # stderr because several callers run inside a command substitution whose
+  # stdout is their return value.
   local msg="$1"
   if [ -n "$TMUX" ]; then
     tmux display-message "$msg"
@@ -64,22 +60,20 @@ notify() {
 }
 
 get_active_sessions() {
-  # Lists active tmux session names, one per line. Formatted rather than cut
-  # out of `tmux ls` output, which would split a name at its first colon.
+  # Active session names, one per line. Formatted rather than cut out of
+  # `tmux ls`, which would split a name at its first colon.
   tmux list-sessions -F '#{session_name}' 2>/dev/null
 }
 
 prune_history() {
-  # Drops sessions that are no longer running from HISTORY_FILE, so the
-  # history only ever holds sessions that could still be switched to.
+  # Drop sessions that are no longer running from HISTORY_FILE.
   [ -f "$HISTORY_FILE" ] || return 0
 
   local active
   active=$(get_active_sessions)
 
-  # Whole-line keys, so a session name is never read as a pattern. Passed
-  # through the environment rather than -v, which would expand a backslash
-  # in a session name as an escape sequence.
+  # Whole-line keys, so a session name is never read as a pattern. Passed via
+  # the environment: -v would expand backslashes in a name.
   TSM_ACTIVE="$active" awk '
     BEGIN {
       n = split(ENVIRON["TSM_ACTIVE"], names, "\n")
@@ -90,33 +84,19 @@ prune_history() {
 }
 
 record_switch() {
-  # Appends the session being switched away from to HISTORY_FILE, so `tsm
-  # last` can still find it later even if whatever replaces it as the
-  # current session is itself closed before `tsm last` is used.
-  #
-  # Called from the client-session-changed hook, which the user's tmux.conf
-  # is responsible for registering (see README). That hook is what makes
-  # this fire for every switch on the server.
+  # Append the session being switched away from to HISTORY_FILE for `tsm last`.
+  # Fired by the client-session-changed hook the user registers (see README).
   #
   # Args:
-  #   $1: from: the session that was left, already shell-quoted by tmux's
-  #       #{q:} format modifier before it ever became shell text
+  #   $1: from: the session that was left
   #   $2: to: the session that was switched to
   local from="$1" to="$2"
 
   [ -n "$from" ] && [ "$from" != "$to" ] || return
 
-  # Validated on every write. This, plus the dedupe below, is what bounds
-  # the file: it holds one line per session that is currently running.
+  # Prune + dedupe on every write bounds the file at one line per running
+  # session. -Fx matches the whole line literally, not as a regex.
   prune_history
-
-  # Compacted on every write. Drops any earlier occurrence of this session
-  # before appending it. This prevents the history file from containing
-  # duplicates of the same session name when only its most recent position
-  # matters for tsm last's walk-back.
-  #
-  # -F/-x match the whole line literally, since a session name
-  # could otherwise be read as a regex.
   if [ -f "$HISTORY_FILE" ]; then
     grep -Fxv -- "$from" "$HISTORY_FILE" > "$HISTORY_FILE.tmp" 2>/dev/null
     mv "$HISTORY_FILE.tmp" "$HISTORY_FILE"
@@ -126,17 +106,9 @@ record_switch() {
 }
 
 refresh_status() {
-  # Redraws every attached client's status line, re-running the commands in
-  # it. Called from the tmux hooks that fire when the set of sessions changes,
-  # which the user's tmux.conf is responsible for registering (see README), so
-  # that a status line holding `tsm bookmark-status` shows a session appearing
-  # or disappearing as it happens rather than at the next status-interval.
-  #
-  # Every client, one at a time, because tmux's own refresh-client reaches
-  # only the client the hook fired for, and the rest are showing a line that
-  # is just as out of date. A status line that passes #{session_path} makes
-  # each client's #() a job of its own, so refreshing one client's does not
-  # touch what the others are showing.
+  # Redraw every attached client's status line. tmux's own refresh-client
+  # reaches only one client, and a status line passing #{session_path} gives
+  # each client a #() job of its own, so all of them need the nudge.
   local client
 
   while IFS= read -r client; do
@@ -145,7 +117,7 @@ refresh_status() {
 }
 
 switch_or_attach() {
-  # Switches to a tmux session if inside tmux, otherwise attaches to it.
+  # Switch to a session if inside tmux, attach otherwise.
   local session="$1"
   if [ -n "$TMUX" ]; then
     tmux switch-client -t "=$session"
@@ -155,13 +127,10 @@ switch_or_attach() {
 }
 
 session_paths() {
-  # Emits "<session name>\t<path>" for every running session.
-  #
-  # The path is the one tsm recorded in the session's @tsm_path option when it
-  # created the session. #{session_path} is the fallback, for a session tsm did
-  # not create or one that predates the option: it is only ever the directory
-  # the session's first pane started in, and it drifts as soon as that pane cds
-  # somewhere else, which is exactly why @tsm_path exists.
+  # Emit "<session name>\t<path>" for every running session. The path is the
+  # @tsm_path recorded at creation; #{session_path} is the fallback for
+  # sessions tsm did not create (it drifts as the first pane cds around,
+  # which is why @tsm_path exists).
   tmux list-sessions -F $'#{session_name}\t#{@tsm_path}\t#{session_path}' 2>/dev/null \
     | while IFS=$'\t' read -r name recorded fallback; do
         printf '%s\t%s\n' "$name" "${recorded:-$fallback}"
@@ -169,13 +138,8 @@ session_paths() {
 }
 
 session_for_path() {
-  # Echoes the name of the running session started at $1, or nothing with a
-  # non-zero status. This is what makes a path, rather than a name, the identity
-  # of a session: picking a directory twice returns to the session already open
-  # there however it has since been renamed.
-  #
-  # Compared in the shell rather than with a `-f "#{==:...}"` filter because a
-  # path is arbitrary text and tmux's filter parser reads `,` and `}` in it.
+  # Echo the running session started at $1, or nothing with a non-zero status.
+  # Compared in the shell: tmux's filter parser reads `,` and `}` in a path.
   local want="$1" name path
   while IFS=$'\t' read -r name path; do
     [ "$path" = "$want" ] || continue
@@ -186,8 +150,8 @@ session_for_path() {
 }
 
 path_for_session() {
-  # The reverse of session_for_path: echoes the path the session named $1 was
-  # started at, or nothing with a non-zero status.
+  # Echo the path the session named $1 was started at, or nothing with a
+  # non-zero status.
   local want="$1" name path
   while IFS=$'\t' read -r name path; do
     [ "$name" = "$want" ] || continue
@@ -198,34 +162,23 @@ path_for_session() {
 }
 
 sanitize_session_name() {
-  # Makes $1 usable as a tmux session name by replacing every character outside
-  # [A-Za-z0-9_-/] with _.
-  #
-  # `/` survives because a worktree session is named repo/worktree and tmux is
-  # happy to hold one. `.` and `:` do not: tmux target syntax is
-  # session:window.pane, so a name holding either could be created and then
-  # never switched to or killed again.
-  #
-  # Takes a name, not a path -- callers take the basename themselves, because
-  # the worktree case needs to sanitize two halves separately and join them with
-  # a `/` this would otherwise have nothing to say about.
+  # Replace every character outside [A-Za-z0-9_-/] with _. `/` survives for
+  # repo/worktree names; `.` and `:` must not, being tmux target separators.
+  # Takes a name, not a path: callers take the basename themselves.
   printf '%s' "$1" | tr -c 'a-zA-Z0-9_/-' '_'
 }
 
 client_size() {
-  # Prints "WIDTH HEIGHT" for the client that will end up attaching, or
-  # nothing if neither source can tell us.
-  #
-  # tmux creates detached sessions at 80x24, so a percentage split made before
-  # the client attaches is computed against 80 columns and drifts toward 50/50
-  # once the real size arrives. Sizing the session up front avoids that.
+  # Print "WIDTH HEIGHT" for the client that will attach, or nothing. tmux
+  # creates detached sessions at 80x24, so percentage splits made before the
+  # client attaches drift once the real size arrives; sizing up front avoids
+  # that.
   local width height
 
   width=$(tmux display-message -p '#{client_width}' 2>/dev/null)
   height=$(tmux display-message -p '#{client_height}' 2>/dev/null)
 
-  # Outside tmux there is no client to ask, so fall back to the terminal tsm
-  # was invoked from.
+  # Outside tmux, fall back to the terminal tsm was invoked from.
   if [ -z "$width" ] || [ -z "$height" ]; then
     read -r height width < <({ stty size < /dev/tty; } 2>/dev/null)
   fi
@@ -234,19 +187,16 @@ client_size() {
     *[!0-9]* | '') return 1 ;;
   esac
 
-  # A pty with no size set answers `0 0`, and tmux refuses to create a session
-  # that wide. Answering nothing instead lets it use its own default, which is
-  # what every caller here already handles.
+  # A pty with no size set answers `0 0`, which tmux refuses.
   [ "$width" -gt 0 ] && [ "$height" -gt 0 ] || return 1
 
   echo "$width $height"
 }
 
 tsm_self() {
-  # Echoes the path to re-run tsm by. The name it was invoked as is resolved
-  # against the current PATH when it is a bare name, because the commands tsm
-  # hands to tmux and to fzf are run later, in an environment whose PATH is
-  # not necessarily this one.
+  # Echo the path to re-run tsm by. A bare name is resolved against the
+  # current PATH, since tmux and fzf run the command later in an environment
+  # whose PATH may differ.
   local self="$0"
 
   case "$self" in
@@ -258,31 +208,16 @@ tsm_self() {
 }
 
 tmux_command_string() {
-  # Escapes a shell command for use as a double-quoted argument to a tmux
-  # command that expands formats -- run-shell, here.
-  #
-  # Two layers read it before a shell does: tmux's parser, which acts on \, "
-  # and $ inside double quotes, and the format expander, where # introduces a
-  # #{...} substitution and ## is how a literal one is written.
-  local s="$1" out="" i c
-
-  for (( i = 0; i < ${#s}; i++ )); do
-    c="${s:i:1}"
-    case "$c" in
-      '\' | '"' | '$') out="$out\\$c" ;;
-      '#') out="$out##" ;;
-      *) out="$out$c" ;;
-    esac
-  done
-
-  printf '%s' "$out"
+  # Escape a shell command for use as a double-quoted argument to a tmux
+  # command that expands formats: tmux's parser acts on \, " and $, and #
+  # introduces a #{...} substitution (## is a literal #).
+  printf '%s' "$1" | sed -e 's/[\\"$]/\\&/g' -e 's/#/##/g'
 }
 
 expand_short_flags() {
-  # Splits clustered short flags (e.g. -bfnp) into single-letter flags so the
-  # subcommand parsers only ever see one flag per argument. Everything else --
-  # long flags, paths, names -- passes through untouched. The result lands in
-  # the EXPANDED_ARGS array because paths may contain whitespace.
+  # Split clustered short flags (-bfp -> -b -f -p) into EXPANDED_ARGS so the
+  # subcommand parsers see one flag per argument. Everything else passes
+  # through untouched.
   EXPANDED_ARGS=()
   local arg i
   for arg in "$@"; do
@@ -298,8 +233,7 @@ expand_short_flags() {
 }
 
 git_brief(){
-  # Returns a brief git status for the repo located in $1
-  # Format: branch ↑ahead↓behind +insertions-deletions
+  # Brief git status for the repo at $1: branch ↑ahead↓behind +added-removed
   local dir="$1"
   local no_fetch="$2"
   local branch ahead behind stats added removed
@@ -322,15 +256,10 @@ git_brief(){
 }
 
 default_session_name() {
-  # Derives the session name for a directory: repo/worktree for a linked
-  # worktree, the sanitized basename for anything else. Echoes the name.
-  #
-  # Both halves of the worktree name come from paths -- the directory the
-  # repository lives in, and the directory the worktree lives in. Two worktrees
-  # whose paths end in the same segment therefore derive the same name, and
-  # that is fine: a session is identified by its path, so the second one picked
-  # is caught as a name collision and named by hand rather than silently
-  # switching to the first.
+  # Derive a session name for a directory: repo/worktree for a linked
+  # worktree, the sanitized basename otherwise. Two worktrees whose paths end
+  # in the same segment derive the same name; that is caught later as a name
+  # collision, since a session is identified by its path.
   #
   # Args:
   #   $1: path: directory to derive the session name from
@@ -339,10 +268,9 @@ default_session_name() {
   local git_dir
   git_dir=$(git -C "$path" rev-parse --absolute-git-dir 2>/dev/null)
 
-  # A linked worktree's git dir is <common dir>/worktrees/<internal name> and
-  # holds the gitdir file pointing back at the worktree. Both are tested
-  # rather than taking any absolute answer to mean "worktree": inside a
-  # subdirectory of an ordinary repo rev-parse also answers absolutely.
+  # A linked worktree's git dir is <common dir>/worktrees/<name> and holds a
+  # gitdir file. Both are tested: inside a subdirectory of an ordinary repo,
+  # rev-parse also answers absolutely.
   if [ -n "$git_dir" ] && [ -f "$git_dir/gitdir" ] &&
     [ "$(basename "$(dirname "$git_dir")")" = "worktrees" ]; then
     local repo_dir
@@ -350,9 +278,8 @@ default_session_name() {
     local repo_leaf
     repo_leaf=$(basename "$repo_dir")
 
-    # The repository's directory is what names the first half, so the
-    # conventional wrappers around a bare repo are stepped over: worktrees of
-    # ~/code/api/.bare belong to `api`, not to `.bare`.
+    # Step over conventional bare-repo wrappers: worktrees of
+    # ~/code/api/.bare belong to `api`, not `.bare`.
     local repo_name
     if [ "$repo_leaf" = ".bare" ] || [ "$repo_leaf" = ".git" ]; then
       repo_name=$(basename "$(dirname "$repo_dir")")
@@ -360,9 +287,8 @@ default_session_name() {
       repo_name="$repo_leaf"
     fi
 
-    # Sanitized separately, so the `/` joining them is the only one the name is
-    # given: a worktree directory named for a branch like v1.2 would otherwise
-    # put a period in a session name tmux reads as a pane separator.
+    # Sanitized separately, so the joining `/` is the only one: a worktree
+    # directory named v1.2 would otherwise put a `.` in the name.
     echo "$(sanitize_session_name "$repo_name")/$(sanitize_session_name "$(basename "$path")")"
   else
     sanitize_session_name "$(basename "$path")"
@@ -370,38 +296,21 @@ default_session_name() {
 }
 
 config_files() {
-  # Emits the paths of the configuration files under $CONFIG_DIR,
-  # LC_ALL=C sorted, one per line.
+  # Paths of the configuration files under $CONFIG_DIR, one per line.
+  # A configuration is an executable program; tsm runs it with a verb and
+  # reads its answer.
   #
-  # A configuration is an executable program: tsm runs it with a verb and reads
-  # its answer.
-  #
-  # `-L` because configurations are commonly symlinks into a project.
-  # `-perm -u+x` rather than `-executable` because the latter is GNU-only.
-  #
-  # Which file wins a contest is a matter of what it is called, so the sort is
-  # pinned to LC_ALL=C. A locale-aware sort collates on the full path with
-  # punctuation ignored in the first pass, which puts a nested `sub/work` ahead
-  # of a top-level `zz-default` in en_US.UTF-8 and behind it in C. Precedence
-  # should not depend on the environment tsm happens to be run from.
+  # -L: configurations are commonly symlinks. -perm -u+x: -executable is
+  # GNU-only. LC_ALL=C sort: tie-breaking must not depend on the locale.
   [ -d "$CONFIG_DIR" ] || return
 
   find -L "$CONFIG_DIR" -type f -perm -u+x 2>/dev/null | LC_ALL=C sort
 }
 
 config_name_for_file() {
-  # Echoes the configuration name a file path carries: its path under
-  # $CONFIG_DIR with any final extension removed. Nesting a configuration one
-  # directory deep is how a session gets a name like "myrepo/base", matching
-  # what a worktree session is called.
-  #
-  # The extension is the user's business rather than tsm's. It is there so an
-  # editor knows what to highlight. This means `work`, `work.sh` and `work.fish` all
-  # name the session `work`.
-  #
-  # A leading dot is not an extension, so a hidden file keeps its name rather
-  # than having all of it eaten: `.work` is the configuration `.work`, and
-  # `.work.fish` is `.work` too.
+  # Echo the configuration name for a file: its path under $CONFIG_DIR minus
+  # any final extension, so `work`, `work.sh` and `work.fish` are all `work`.
+  # A leading dot is not an extension: `.work.fish` is `.work`.
   #
   # Args:
   #   $1: file: path to a configuration file under $CONFIG_DIR
@@ -418,13 +327,9 @@ config_name_for_file() {
 }
 
 config_file_for_name() {
-  # Echoes the path of the configuration called $1, or nothing with a non-zero
-  # status if no executable file under $CONFIG_DIR carries that name.
-  #
-  # The reverse of config_name_for_file, and a search rather than a
-  # substitution because the extension is not knowable from the name: `work`
-  # could be work, work.sh or work.fish. First match in LC_ALL=C order wins,
-  # the same rule everything else here uses.
+  # Echo the path of the configuration named $1, or nothing with a non-zero
+  # status. A search, since the extension is not knowable from the name;
+  # first match in LC_ALL=C order wins.
   #
   # Args:
   #   $1: name: a configuration name, as config_name_for_file produces
@@ -439,31 +344,14 @@ config_file_for_name() {
 }
 
 run_config() {
-  # Runs a configuration with a verb.
+  # Run a configuration with a verb: pattern, name, start or kill. The
+  # contract is argv in, stdout and exit status out; tsm never looks inside
+  # the file. A verb the program does not handle must exit 0. Only `pattern`
+  # and `name` treat stdout as an answer; for `start` and `kill` it is the
+  # session log, and callers redirect it there.
   #
-  # The contract is argv in, stdout and exit status out, which is what lets a
-  # configuration be written in any language: tsm never looks inside it.
-  #
-  #   pattern  print the ERE of directories this configuration claims
-  #   name     print the session name for the directory given as $2
-  #   start    build the layout; the session already exists
-  #   kill     tear down whatever start built
-  #
-  # A verb a configuration does not handle must leave a zero status. That is
-  # how "no hook for this" is said, in place of the absent shell function the
-  # sourced contract used to look for. It also means an existing configuration
-  # handling only `pattern` and `start` answers `name` correctly without being
-  # touched: the `case` falls through and the default naming applies.
-  #
-  # Only `pattern` and `name` treat stdout as a return channel. For `start` and
-  # `kill` it is the session log, and callers redirect it there.
-  #
-  # SESSION, and for `start` and `kill` also ROOT, are expected in the
-  # environment already; callers export them on the way in.
-  #
-  # set -m gives background jobs the configuration starts their own process
-  # group, and the subshell keeps a configuration that exits from taking tsm
-  # with it.
+  # set -m gives background jobs their own process group; the subshell keeps
+  # a configuration that exits from taking tsm with it.
   #
   # Args:
   #   $1: file: path to the configuration
@@ -475,36 +363,16 @@ run_config() {
 }
 
 rank_configs_for_root() {
-  # Emits "<score>\t<file>" for every configuration whose pattern claims the
-  # given directory, best first. Nothing at all if none does.
+  # Emit "<score>\t<file>" for every configuration whose pattern claims the
+  # directory, best first; nothing if none does.
   #
-  # A configuration describes a set of directories with `pattern`, a POSIX
-  # extended regular expression tested against the resolved path. It is the way
-  # to say "every repository under ~/code/work gets this layout" without a file
-  # per repository. Nothing claims a directory by default: a path no pattern
-  # matches gets a bare session.
+  # The score is the length of the pattern, longest first: a proxy for
+  # specificity measured on the pattern rather than the matched text, so a
+  # catch-all `.*` always sorts last. Ties break on LC_ALL=C file path order.
   #
-  # The score is the length of the pattern, and the longest one wins. It is a
-  # proxy for how specific a pattern is, and it is the length of the *pattern*
-  # rather than of the text it matched for a reason: `.*` matches the whole path
-  # and would beat everything, when a catch-all is the one thing that should
-  # always lose. Two characters is the shortest a useful pattern gets, so `.*`
-  # ends up last by construction and needs no naming convention to hold it
-  # there.
-  #
-  # Every configuration is asked, rather than stopping at the first match, since
-  # the winner is not known until the longest pattern has been seen.
-  #
-  # Ties fall back to LC_ALL=C order on the file path, which is the rule this
-  # replaced -- two patterns of the same length are equally specific as far as
-  # this can tell, and the answer still has to be the same every time.
-  #
-  # `grep -Eq` rather than bash's `[[ =~ ]]` so that a pattern means the same
-  # thing whatever language printed it. The `--` keeps a pattern beginning with
-  # `-` from being read as an option, and printf rather than echo keeps the
-  # path from being eaten the same way. A configuration that fails, prints
-  # nothing, or prints something that is not a valid regex all leave a non-zero
-  # status, which is to say they simply do not match.
+  # grep -Eq rather than [[ =~ ]] so a pattern means the same thing whatever
+  # language printed it. A configuration that fails, prints nothing, or
+  # prints an invalid regex simply does not match.
   #
   # Args:
   #   $1: path: the resolved directory a session would be rooted at
@@ -527,33 +395,15 @@ rank_configs_for_root() {
 }
 
 matching_config_for_root() {
-  # Echoes the path of the configuration that claims the given directory, or
-  # nothing with a non-zero status if none does. The ranking is
-  # rank_configs_for_root's; this takes the top of it.
-  #
-  # $2 resumes after a file instead of starting at the top, which is what
-  # `tsm apply-matching-config` is: a configuration asking for the next one
-  # along that also claims this directory. Without it a configuration calling
-  # that command would match itself and recurse forever, since it is in the same
-  # list as everything else. Skipping to just past itself also makes the answer
-  # the one precedence already implies -- the specific file falls through to the
-  # more general one below it in the ranking, and a chain of them keeps falling
-  # through.
+  # Echo the configuration claiming the directory (the top of the ranking),
+  # or nothing with a non-zero status.
   #
   # Args:
   #   $1: path: the resolved directory a session would be rooted at
-  #   $2: after: optional; skip every file up to and including this one
-  local path="$1" after="$2"
+  local path="$1"
 
-  local score file skipping=""
-  [ -n "$after" ] && skipping=1
-
+  local score file
   while IFS=$'\t' read -r score file; do
-    if [ -n "$skipping" ]; then
-      [ "$file" = "$after" ] && skipping=""
-      continue
-    fi
-
     printf '%s\n' "$file"
     return 0
   done < <(rank_configs_for_root "$path")
@@ -562,23 +412,13 @@ matching_config_for_root() {
 }
 
 config_session_name() {
-  # Echoes the session name the configuration $1 gives the directory $2, or
-  # nothing with a non-zero status when it has no opinion.
-  #
-  # The directory arrives both as the verb's argument and as ROOT, so a `name`
-  # implementation can read whichever suits it. SESSION is unset rather than
-  # exported: it is the thing being computed, and a configuration answering
-  # `name` with the value of SESSION would be answering with nothing at all.
-  #
-  # Only the first line is read and its surrounding whitespace trimmed, the
-  # same as `pattern`. A configuration that prints nothing, or that fails, is
-  # not an error -- a naming scheme with no opinion about a particular
-  # directory is a normal thing to write, and the default naming takes over.
-  #
-  # What it does print is sanitized rather than refused. A session name is
-  # derived from things a configuration does not control -- a branch, a
-  # directory -- and `feature/v1.2` is a reasonable thing to hand back and an
-  # unreasonable thing to fail over.
+  # Echo the session name configuration $1 gives directory $2, or nothing
+  # with a non-zero status when it has no opinion. The directory arrives as
+  # both the verb's argument and ROOT; SESSION is unset, being the thing
+  # computed. Only the first line is read, whitespace-trimmed. Failing or
+  # printing nothing is not an error: the default naming takes over. What is
+  # printed is sanitized rather than refused, since names come from things
+  # the configuration does not control (a branch, a directory).
   #
   # Args:
   #   $1: file: path to the configuration
@@ -599,13 +439,8 @@ config_session_name() {
 }
 
 report_name_collision() {
-  # Explains a session name collision on stderr: the name that was derived, the
-  # directory it was derived for, and the directory the session already holding
-  # that name was started at. Three facts, because any one of them alone leaves
-  # the obvious question unanswered.
-  #
-  # stderr rather than stdout because every caller of this runs inside a command
-  # substitution whose stdout is the session name.
+  # Explain a name collision on stderr: the derived name, the directory it
+  # was derived for, and where the session holding it already lives.
   #
   # Args:
   #   $1: name: the derived session name
@@ -624,17 +459,12 @@ report_name_collision() {
 }
 
 session_name_prompt() {
-  # Prompts for a session name, offering $2 as the default. Echoes the name.
-  #
-  # The suggestion is passed in rather than derived here because the two callers
-  # arrive with different ones: `-p` offers whatever the naming rules produced,
-  # and the collision path offers the name that just turned out to be taken.
+  # Prompt for a session name, offering $2 as the default. Echoes the name.
   #
   # Args:
   #   $1: path: the directory the session will be created at
   #   $2: session_name: the name to offer as the default
-  #   $3: quiet: optional; any value suppresses the path header, for a caller
-  #       that has already shown the path itself
+  #   $3: quiet: optional; any value suppresses the path header
   local path="$1"
   local session_name="$2"
   local quiet="$3"
@@ -645,9 +475,8 @@ session_name_prompt() {
     if ! tmux has-session -t "=$session_name" 2>/dev/null; then
       prompt="$prompt [$(tput setaf 4)${session_name}$(tput sgr0)]"
     fi
-    # A read that cannot be answered ends this rather than asking again: the
-    # session a name was asked for may be started from tmux's run-shell, where
-    # there is no terminal to answer with, and an unanswerable prompt in a
+    # A read that cannot be answered ends this rather than looping: under
+    # tmux's run-shell there is no terminal, and an unanswerable prompt in a
     # loop is a hang.
     if ! read -rp "$prompt: " user_input; then
       printf "\n" >&2
@@ -657,11 +486,9 @@ session_name_prompt() {
 
     local candidate="${user_input:-$session_name}"
 
-    # tmux target syntax is session:window.pane, so a name holding either
-    # separator can be created and then never referred to again. tsm cannot
-    # switch to or kill it, and neither can tmux. `/` is fine and is not
-    # rejected: a worktree session is named repo/worktree. Rejected rather than
-    # rewritten: the name the user typed is not tsm's to change.
+    # `.` and `:` are tmux target separators; a name holding either could be
+    # created but never targeted again. Rejected rather than rewritten: a
+    # typed name is not tsm's to change. `/` is fine (repo/worktree).
     case "$candidate" in
       *[:.]*)
         printf "$(tput setaf 1)Session names cannot contain ':' or '.'$(tput sgr0)\n" >&2
@@ -679,14 +506,9 @@ session_name_prompt() {
 }
 
 check_bookmark_char() {
-  # Exits unless the argument can key a bookmark: a single printable ASCII
-  # character, the same range vim marks accept. One character is the whole
-  # point. A bookmark is meant to be recalled from memory, and anything
-  # longer would be a name rather than a mark.
-  #
-  # Checked by code point rather than against a pattern like [!-~]: outside the
-  # C locale a range is read in collation order, and the letters that matter
-  # most as bookmarks fall outside it there.
+  # Exit unless $1 can key a bookmark: a single printable ASCII character.
+  # Checked by code point rather than a [!-~] range, which outside the C
+  # locale is read in collation order.
   #
   # Args:
   #   $1: char: the character to check
@@ -704,21 +526,15 @@ check_bookmark_char() {
 }
 
 prompt_bookmark_char() {
-  # Asks for a bookmark character: a single keypress, the way vim's m{char}
-  # takes the character that follows it.
+  # Ask for a bookmark character: a single keypress, like vim's m{char}.
   #
-  # Inside tmux the asking is tmux's own. command-prompt -1 puts the prompt in
-  # the status line and takes the next key, which is why no popup is needed to
-  # bind any of this to a key. It does not answer back, though: it runs a
-  # command of its own once the key is pressed. So tsm runs again with the
-  # character rather than this call returning it, and the template says how --
-  # the tsm arguments to run, with {} standing in for the character.
+  # Inside tmux, command-prompt -1 asks in the status line and runs a command
+  # with the key; it cannot answer back, so tsm is re-invoked with the
+  # character substituted for {} in the given arguments. Outside tmux the
+  # character is read from the terminal and left in PROMPTED_BOOKMARK_CHAR.
   #
-  # Outside tmux there is no status line to ask in, so the character is read
-  # from the terminal and left in PROMPTED_BOOKMARK_CHAR.
-  #
-  # Returns non-zero when there is nothing left for the caller to do: tmux has
-  # been asked, or the prompt was backed out of.
+  # Returns non-zero when there is nothing left for the caller to do: tmux
+  # has been asked, or the prompt was backed out of.
   #
   # Args:
   #   $1: prompt: what to ask for, without trailing punctuation
@@ -728,10 +544,8 @@ prompt_bookmark_char() {
   shift
 
   if [ -n "$TMUX" ]; then
-    # The character is quoted for the shell run-shell hands the command to.
-    # Single quotes, because tmux's %%% escapes the quotation marks a keypress
-    # can produce and a shell reads nothing else inside them -- a backslash, a
-    # dollar sign or a semicolon typed at the prompt is just a character.
+    # Single quotes around %%%: tmux escapes quotation marks a keypress can
+    # produce, and a shell reads nothing else inside them.
     local cmd arg
     cmd="$(printf '%q' "$(tsm_self)") _bookmark-prompted '%%%'"
     for arg in "$@"; do
@@ -744,9 +558,8 @@ prompt_bookmark_char() {
 
   local char
 
-  # Braces, so that the 2>/dev/null lasts only as long as the redirection it
-  # is quieting. On the exec itself it would silence this shell's stderr for
-  # good, prompt included.
+  # Braces so the 2>/dev/null lasts only for the redirection; on the exec it
+  # would silence this shell's stderr for good.
   if ! { exec 3< /dev/tty; } 2>/dev/null; then
     notify "Error: no terminal to read a bookmark character from"
     exit 1
@@ -764,24 +577,21 @@ prompt_bookmark_char() {
       ;;
   esac
 
-  # Echoed back, since the keypress itself was read silently.
+  # Echoed back, since the keypress was read silently.
   printf '%s\n' "$char" >&2
 
   PROMPTED_BOOKMARK_CHAR="$char"
 }
 
 read_bookmarks() {
-  # Emits one "char<TAB>directory" line per bookmark, sorted by character.
+  # Emit one "char<TAB>directory" line per bookmark, sorted by character.
   #
-  # Bookmarks are stored as a flat JSON object of character -> directory, the
-  # shape buf-mark writes its marks in. It is parsed here rather than with jq
-  # so that bookmarks cost nothing beyond the fzf tsm already needs: the file
-  # holds nothing but strings, and the only escapes it can hold are the ones
-  # write_bookmarks produces.
-  #
-  # A pair whose key is not a single character, or whose value is empty or
-  # holds a tab or a newline, is dropped. tsm cannot write one, and letting one
-  # through would split a line that callers read whole.
+  # Bookmarks are a flat JSON object of character -> directory, parsed here
+  # rather than with jq to avoid the dependency: the file holds only strings,
+  # and only the escapes write_bookmarks produces. A pair whose key is not a
+  # single character, or whose value is empty or holds a tab or newline, is
+  # dropped: tsm cannot write one, and it would split a line callers read
+  # whole.
   [ -f "$BOOKMARKS_FILE" ] || return 0
 
   awk '
@@ -820,8 +630,7 @@ read_bookmarks() {
         if (substr(json, i, 1) != "\"") { i++; continue }
         key = read_string()
 
-        # Whatever separates a key from its value -- the colon, and whatever
-        # whitespace surrounds it -- belongs to neither string.
+        # Skip the colon and whitespace between key and value.
         while (i <= n && substr(json, i, 1) != "\"") i++
         if (i > n) break
         val = read_string()
@@ -833,15 +642,14 @@ read_bookmarks() {
 }
 
 write_bookmarks() {
-  # Reads "char<TAB>directory" lines on stdin and replaces the store with them.
-  # Written to a temporary file and moved into place, so an interrupted write
-  # leaves the bookmarks that were already there rather than half a file.
+  # Read "char<TAB>directory" lines on stdin and replace the store with them.
+  # Written to a temp file and moved into place, so an interrupted write
+  # leaves the old bookmarks rather than half a file.
   local tmp="$BOOKMARKS_FILE.tmp"
 
   awk -F'\t' '
-    # Walked a character at a time rather than with gsub, whose replacement
-    # text has escaping rules of its own: doubling a backslash there means
-    # spelling one out four times over.
+    # A character at a time rather than gsub, whose replacement text has
+    # escaping rules of its own.
     function escape(s,   out, i, c) {
       out = ""
       for (i = 1; i <= length(s); i++) {
@@ -859,8 +667,7 @@ write_bookmarks() {
 }
 
 bookmark_directory() {
-  # Echoes the directory bookmarked at a character. Returns non-zero, and
-  # echoes nothing, when the character has no bookmark.
+  # Echo the directory bookmarked at $1, or nothing with a non-zero status.
   #
   # Args:
   #   $1: char: the bookmark character to look up
@@ -877,12 +684,8 @@ bookmark_directory() {
 }
 
 without_bookmark() {
-  # Filters "char<TAB>directory" lines on stdin, dropping the bookmark keyed by
-  # the given character. This is how a bookmark is removed or replaced: the
-  # store is rewritten whole rather than edited in place.
-  #
-  # The character is passed through the environment rather than with -v, which
-  # would read a backslash in it as the start of an escape sequence.
+  # Filter "char<TAB>directory" lines on stdin, dropping the bookmark keyed
+  # by $1. Passed via the environment: -v would expand backslashes.
   #
   # Args:
   #   $1: char: the bookmark character to drop
@@ -893,10 +696,9 @@ without_bookmark() {
 }
 
 bookmark_entries() {
-  # Emits the bookmark picker's rows: the character and the directory, tab
-  # separated, followed by the "char directory" column that is displayed. fzf
-  # is pointed at that third field with --with-nth, so the first two ride along
-  # for its bindings to use without ever being shown.
+  # The bookmark picker's rows: character and directory, tab separated,
+  # followed by the "char directory" column that is displayed. fzf shows only
+  # the third field (--with-nth); the first two ride along for its bindings.
   local char dir
 
   while IFS=$'\t' read -r char dir; do
@@ -910,7 +712,7 @@ bookmark_entries() {
 active_session() {
   local session="$1"
 
-  # If no session provided, use fzf to select from active sessions
+  # No session given: pick one with fzf.
   if [ -z "$session" ]; then
     local active_sessions
     active_sessions=$(get_active_sessions)
@@ -936,26 +738,21 @@ active_session() {
 }
 
 last_session() {
-  # Switches to the most recently visited session that is still open.
-  # What `tmux switch-client -l` gets at, but robust to the previous
-  # session having been closed since. record_switch builds HISTORY_FILE up
-  # as sessions are left, oldest first, and prune_history keeps only the
-  # ones still running, so it is walked newest first here to find the first
-  # that is not the session already being looked at.
+  # Switch to the most recently visited session that is still open: what
+  # `tmux switch-client -l` gets at, but robust to the previous session
+  # having been closed since. HISTORY_FILE is oldest first, so it is walked
+  # newest first for the first session that is not the current one.
   if [ ! -f "$HISTORY_FILE" ]; then
     notify "No session history yet -- see README for the tmux.conf hook 'tsm last' needs"
     exit 1
   fi
 
-  # Validated again on the way in: the file is only written when a switch
-  # happens, so sessions closed since the last one are still in it here.
+  # Sessions closed since the last switch are still in the file here.
   prune_history
 
   local current=""
   [ -n "$TMUX" ] && current=$(tmux display-message -p '#S' 2>/dev/null)
 
-  # Every line left in the file names a session that was running as of the prune
-  # above, so the newest one that is not the current session is the target.
   local target=""
   while IFS= read -r session; do
     if [ "$session" != "$current" ]; then
@@ -975,7 +772,7 @@ last_session() {
 kill_session() {
   local session="$1"
 
-  # If no session provided, use fzf to select from active sessions
+  # No session given: pick one with fzf.
   if [ -z "$session" ]; then
     local active_sessions
     active_sessions=$(get_active_sessions)
@@ -1002,11 +799,9 @@ kill_session() {
   mkdir -p "$log_dir"
 
   # The configuration that built the session is read back from the marker
-  # rather than resolved again, so the session is torn down by the one that
-  # built it even if the patterns have since been edited to claim its directory
-  # differently. A session created with -c recorded no marker and gets no
-  # cleanup: running a teardown for a layout it never got is worse than not
-  # running one at all.
+  # rather than resolved again, so it is torn down by the one that built it
+  # even if the patterns have since changed. A session created with -c
+  # recorded no marker and gets no cleanup.
   local matching_config
   matching_config=$(tmux show-environment -t "=$session" TSM_MATCHING_CONFIG 2>/dev/null | sed 's/^TSM_MATCHING_CONFIG=//')
 
@@ -1015,25 +810,16 @@ kill_session() {
     session_file=$(config_file_for_name "$matching_config") || session_file=""
   fi
 
-  # Run the kill hook in the background, so the session goes away immediately
-  # rather than waiting on cleanup. tsm kills the session itself either way.
-  # `kill` is for everything around it, and a configuration that has no
-  # teardown to do simply exits zero.
+  # The kill hook runs in the background so the session goes away immediately
+  # rather than waiting on cleanup; tsm kills the session itself either way.
   if [ -n "$session_file" ]; then
     echo "[$(date '+%Y-%m-%d %H:%M:%S')] Killing session '$session'" > "$log_file"
 
-    # ROOT comes from @tsm_path, the directory the session was created at, so
-    # that `kill` sees the ROOT that `start` saw. A configuration claims a set
-    # of directories and does not carry the particular one it was applied at.
+    # ROOT comes from @tsm_path, so `kill` sees the ROOT that `start` saw.
     local session_root
     session_root=$(path_for_session "$session")
 
-    # TSM_CONFIG_FILE goes along for the same reason it does on the way in:
-    # without it a configuration calling `tsm kill-matching-config` resumes the
-    # search from the top, matches itself, and runs its own teardown a second
-    # time.
     nohup env SESSION="$session" ROOT="${session_root:-$HOME}" \
-      TSM_CONFIG_FILE="$session_file" \
       "$session_file" kill >> "$log_file" 2>&1 &
   fi
 
@@ -1041,14 +827,9 @@ kill_session() {
 }
 
 match_configs() {
-  # Prints how a directory ranks against every configuration that claims it,
-  # one "<score>\t<file>" per line, best first. The first line is the
-  # configuration that would name and build a session at that path.
-  #
-  # This is the ranking dir_session uses, run on demand and printed instead of
-  # acted on. Precedence is the one thing about a configuration that cannot be
-  # read off the file, because it depends on every *other* file too, so being
-  # able to ask is the difference between reasoning about it and guessing.
+  # Print how a directory ranks against every configuration that claims it,
+  # one "<score>\t<file>" per line, best first. Precedence depends on every
+  # other file too, so being able to ask beats guessing.
   #
   # Args:
   #   $1: path: directory to test; defaults to the current directory
@@ -1065,77 +846,14 @@ match_configs() {
   local ranked
   ranked=$(rank_configs_for_root "$resolved")
 
-  # To stderr, so that a caller reading stdout gets the matches and nothing
-  # else. No match is an answer, not a failure of the command, but the non-zero
-  # status makes it testable.
+  # No match is an answer, not a failure, but the non-zero status makes it
+  # testable, and saying so on stderr keeps stdout clean for callers.
   if [ -z "$ranked" ]; then
     notify "No configuration claims $resolved"
     exit 1
   fi
 
   printf '%s\n' "$ranked"
-}
-
-matching_config_file() {
-  # Echoes the path of the configuration claiming $ROOT, for the two commands a
-  # configuration uses to opt into one. Both run inside a hook, so ROOT is
-  # already exported; it is resolved here the way the pickers resolve the
-  # directory they hand to matching_config_for_root, so a $ROOT written with a
-  # symlink or a `..` is tested as the same path either way.
-  #
-  # The search resumes after $TSM_CONFIG_FILE, the configuration currently
-  # running, which tsm exports alongside SESSION and ROOT. That is what makes
-  # `tsm apply-matching-config` mean "the next configuration that also claims
-  # this directory" rather than "me".
-  if [ -z "$ROOT" ]; then
-    notify "Error: ROOT is not set. Run this inside a configuration's start or kill"
-    exit 1
-  fi
-
-  local resolved
-  resolved=$(cd "$ROOT" 2>/dev/null && pwd -P) || resolved="$ROOT"
-
-  matching_config_for_root "$resolved" "$TSM_CONFIG_FILE"
-}
-
-apply_matching_config() {
-  # Runs the start hook of the next configuration whose `pattern` matches $ROOT
-  # -- the layout the directory would have got had this configuration not
-  # claimed it first. It is how a configuration reuses the setup its neighbours
-  # share instead of repeating it, at the point it calls
-  # `tsm apply-matching-config`.
-  #
-  # No configuration matching is not an error. It is the same answer a picked
-  # directory would get: nothing is applied. Saying so on stdout puts it in the
-  # session log, where a `pattern` that was meant to match can be seen not to
-  # have.
-  local file
-  file=$(matching_config_file) || {
-    echo "No further configuration matches ROOT '$ROOT'; nothing to apply"
-    return
-  }
-
-  # SESSION and ROOT are already exported: this runs inside a hook, which tsm
-  # gave them to, so the configuration reached this way sees the same
-  # environment it would have seen claiming the directory itself. TSM_CONFIG_FILE
-  # is the exception and moves on, so that a configuration reached this way can
-  # fall through to the next one in turn rather than back to itself.
-  TSM_CONFIG_FILE="$file" run_config "$file" start
-}
-
-kill_matching_config() {
-  # The counterpart of apply_matching_config: runs the kill hook of the next
-  # configuration matching $ROOT. A configuration that opted into the shared
-  # layout by calling `tsm apply-matching-config` in start opts into its
-  # cleanup by calling `tsm kill-matching-config` in kill. Sessions no
-  # configuration claimed at all run neither.
-  local file
-  file=$(matching_config_file) || {
-    echo "No further configuration matches ROOT '$ROOT'; nothing to clean up"
-    return
-  }
-
-  TSM_CONFIG_FILE="$file" run_config "$file" kill
 }
 
 dir_session() {
@@ -1156,8 +874,6 @@ dir_session() {
   local selected
 
   if [ -n "$target_dir" ]; then
-    # Path provided, use it directly
-    # Expand tilde if present
     selected="${target_dir/#\~/$HOME}"
 
     if [ ! -d "$selected" ]; then
@@ -1165,10 +881,10 @@ dir_session() {
       exit 1
     fi
   else
-    # No path provided, use fzf to select from TSM_DIRS_CMD or default
+    # No path given: pick one with fzf. The process substitution lets the
+    # directory generator be killed once fzf exits.
     local dirs_cmd="${TSM_DIRS_CMD:-$TSM_DIRS_CMD_DEFAULT}"
 
-    # Use process substitution to allow killing the directory generator after fzf exits
     exec 3< <(eval "$dirs_cmd")
     local dirs_pid=$!
     selected=$(fzf --cycle --prompt "Directory > " <&3)
@@ -1181,13 +897,11 @@ dir_session() {
     fi
   fi
 
-  # Resolve to absolute path
   selected=$(cd "$selected" && pwd -P)
 
   # A session is identified by the directory it was started at, not by its
-  # name. Picking a directory that already has a session open returns to it,
-  # whatever it has since been renamed to, and before any naming happens at
-  # all: there is nothing to name when nothing is being created, so this is
+  # name: picking a directory that already has a session returns to it,
+  # whatever it has been renamed to. Nothing is being created, so this is
   # also the answer -p gets.
   local existing
   if existing=$(session_for_path "$selected"); then
@@ -1195,10 +909,8 @@ dir_session() {
     exit 0
   fi
 
-  # A configuration may claim the path with its `pattern`. It gets to name the
-  # session, with the `name` verb, and to build it, with `start`. -c opts out of
-  # both: it is how you ask for a bare session at a path some configuration
-  # would otherwise have opinions about.
+  # A configuration may claim the path with `pattern`, naming the session
+  # (`name`) and building it (`start`). -c opts out of both.
   local matching_file="" matching_config=""
   if [ -z "$no_config" ]; then
     if matching_file=$(matching_config_for_root "$selected"); then
@@ -1208,40 +920,30 @@ dir_session() {
     fi
   fi
 
-  # The name the rules produce: the configuration's, if it has an opinion, and
-  # the directory's otherwise.
+  # The configuration's name if it has an opinion, the directory's otherwise.
   local session_name=""
   [ -n "$matching_file" ] && session_name=$(config_session_name "$matching_file" "$selected")
   [ -n "$session_name" ] || session_name=$(default_session_name "$selected")
 
   if [ -n "$prompt_name" ]; then
-    # -p is the last word on the name. The rules still get to make the
-    # suggestion -- seeing what a configuration would have called this and
-    # pressing enter is most of what -p is used for -- but anything typed over
-    # it wins.
-    #
-    # Failing inside a command substitution is why session_name_prompt returns
-    # rather than exits: an exit there would only end the subshell and leave
-    # this to carry on with an empty name.
+    # -p is the last word: the rules still make the suggestion, but anything
+    # typed over it wins. session_name_prompt returns rather than exits
+    # because an exit inside a command substitution only ends the subshell.
     session_name=$(session_name_prompt "$selected" "$session_name") || exit 1
   else
-    # The path is not open -- that was settled above -- so a session already
-    # holding this name is a genuine collision: two directories whose names
-    # landed on the same string. Switching there would silently take you
-    # somewhere you did not pick, so say what collided with what and let the
-    # name be given by hand.
+    # The path is not open (settled above), so a session already holding this
+    # name is a genuine collision: two directories whose names landed on the
+    # same string. Switching there would go somewhere that was not picked, so
+    # report it and ask for a name.
     if tmux has-session -t "=$session_name" 2>/dev/null; then
       local taken="$session_name" existing_path
       existing_path=$(path_for_session "$taken")
       report_name_collision "$taken" "$selected" "$existing_path"
 
-      # The report has already put the path on stderr, so the prompt does not
-      # repeat it.
+      # quiet: the report already put the path on stderr.
       session_name=$(session_name_prompt "$selected" "$taken" quiet) || {
-        # session_name_prompt has already said there was no terminal to answer
-        # with, but that goes to stderr, and a session started from tmux's
-        # run-shell has nowhere for stderr to land. Say the whole thing once
-        # more through notify, which becomes a tmux message there.
+        # The prompt's error goes to stderr, which has nowhere to land under
+        # tmux's run-shell; notify becomes a tmux message there.
         notify "Error: session '$taken' is already open at ${existing_path:-an unknown path}; $selected needs a name of its own"
         exit 1
       }
@@ -1251,43 +953,29 @@ dir_session() {
   local width height
   read -r width height < <(client_size)
 
-  # Sized up front, whether or not a configuration is involved: tmux creates a
-  # detached session at 80x24, so a percentage split made before the client
-  # attaches is computed against 80 columns and drifts toward 50/50 once the
-  # real size arrives.
+  # Sized up front: tmux creates detached sessions at 80x24, and percentage
+  # splits made before the client attaches drift once the real size arrives.
   tmux new-session -d -s "$session_name" -c "$selected" ${width:+-x "$width"} ${height:+-y "$height"} || exit 1
 
-  # The directory the session was created at, recorded on the session itself.
-  # Everything that has to know what a session is reads this: the check at the
-  # top of this function, the collision report, and the ROOT kill_session hands
-  # the teardown hook.
-  #
-  # The trailing `:` is load-bearing. `set-option` takes a target *pane*, not a
-  # target session, and infers the option's scope from its name -- a user option
-  # lands on the session the pane belongs to. `=name` alone is read as a pane
-  # target and fails to resolve; `=name:` is that session's current pane, which
-  # is the session tsm just made.
+  # Record the directory on the session itself; this is what identifies it.
+  # The trailing `:` is load-bearing: set-option takes a target pane, and
+  # `=name` alone is read as a pane target and fails to resolve, while
+  # `=name:` is that session's current pane.
   tmux set-option -t "=$session_name:" @tsm_path "$selected"
 
   if [ -n "$matching_file" ]; then
-    # Logged the way any script tsm runs is: its output is the only thing to go
-    # on when it misbehaves. A session no configuration claimed runs no script,
-    # so it gets no log.
+    # A session no configuration claimed runs no script, so it gets no log.
     local log_dir="$LOG_DIR/$session_name"
     local log_file="$log_dir/tsm.log"
     mkdir -p "$log_dir"
     echo "[$(date '+%Y-%m-%d %H:%M:%S')] Starting session '$session_name'" > "$log_file"
 
-    # Run in a subshell so that a configuration aborting under its own `set -e`
-    # does not tear down a session that tmux already created. The marker is
-    # recorded inside it for the same reason: it is only true once the
-    # configuration has actually been applied.
-    #
-    # kill_session reads it to know which file this session's cleanup belongs
-    # to. A session created with -c records nothing: cleaning up a layout it
-    # never got is worse than not cleaning up at all.
+    # Subshell so a configuration aborting under its own `set -e` does not
+    # tear down a session tmux already created. The marker is recorded inside
+    # it: it is only true once the configuration has actually been applied,
+    # and kill_session reads it to know which file owns the cleanup.
     (
-      export SESSION="$session_name" ROOT="$selected" TSM_CONFIG_FILE="$matching_file"
+      export SESSION="$session_name" ROOT="$selected"
       run_config "$matching_file" start
       tmux set-environment -t "=$session_name" TSM_MATCHING_CONFIG "$matching_config"
     ) >> "$log_file" 2>&1
@@ -1311,8 +999,7 @@ git_session() {
         ;;
     esac
   done
-  # Fetching only exists to freshen the ahead/behind counts in the brief, so
-  # asking for it is enough to ask for the brief itself.
+  # Fetching only exists to freshen the brief's ahead/behind counts.
   [ -n "$fetch" ] && brief=1
   local git_dirs_cmd="${TSM_GIT_DIRS_CMD:-$TSM_GIT_DIRS_CMD_DEFAULT}"
 
@@ -1328,12 +1015,9 @@ git_session() {
     selected=$(echo "$dirs" | fzf --cycle --prompt "Repo > ")
   else
     if [ -n "$fetch" ]; then
-      # Fetch in parallel, but bounded. Backgrounding one `git fetch` per repo
-      # and then waiting forks the whole list at once. Each fetch forks an
-      # ssh or git-remote-https child of its own. A machine with a few
-      # hundred repos under $HOME opens that many remote connections at once
-      # and can run into the process limit. xargs keeps a fixed number in
-      # flight instead. NUL separation so repo paths with spaces survive.
+      # Fetch in parallel, but bounded: each fetch opens a remote connection,
+      # and forking the whole list at once can hit the process limit. NUL
+      # separation so repo paths with spaces survive.
       printf '%s\n' "$dirs" | tr '\n' '\0' \
         | xargs -0 -P "${TSM_GIT_FETCH_JOBS:-8}" -n 1 \
                 sh -c 'git -C "$1" fetch --quiet 2>/dev/null' _
@@ -1397,10 +1081,9 @@ worktree_session() {
       exit 1
     fi
   else
-    # The header labels are measured alongside the values, so a column of
-    # short worktree names still widens to fit `wt` rather than the label
-    # overhanging it. fzf indents --header by the two columns its pointer
-    # takes on the rows below, so the two line up with no padding of our own.
+    # Header labels are measured alongside the values so short columns still
+    # widen to fit them. fzf indents --header by the two columns its pointer
+    # takes, so the header lines up with the rows on its own.
     local name_label='wt' branch_label='branch'
     local fzf_input header max_name=${#name_label} max_branch=${#branch_label}
     while IFS=$'\t' read -r wt branch; do
@@ -1426,9 +1109,9 @@ worktree_session() {
 }
 
 bookmark_prompted() {
-  # Internal: the command tmux's status line prompt runs once its key is
-  # pressed. The key comes first, and the tsm command to run follows it, with
-  # {} where the character goes.
+  # Internal: what tmux's status line prompt runs once its key is pressed.
+  # The key comes first; the tsm command to run follows, with {} standing in
+  # for the character.
   #
   # Args:
   #   $1: char: the key the prompt was answered with
@@ -1436,8 +1119,8 @@ bookmark_prompted() {
   local char="$1"
   shift
 
-  # Enter and escape back out of the prompt. tmux hands them over as ordinary
-  # characters, so this is where they stop.
+  # Enter and escape back out of the prompt; tmux hands them over as
+  # ordinary characters, so this is where they stop.
   case "$char" in
     '' | $'\e' | $'\r') exit 0 ;;
   esac
@@ -1452,10 +1135,8 @@ bookmark_prompted() {
 }
 
 bookmark_add() {
-  # Bookmarks a directory at a character, replacing whatever that character
-  # was bookmarking before -- the way setting a vim mark that is already set
-  # replaces it. The directory defaults to the current one, which is what makes
-  # `tsm bookmark-add p` worth typing from inside a project.
+  # Bookmark a directory at a character, replacing whatever that character
+  # was bookmarking before -- the way setting a vim mark that is set does.
   #
   # Args:
   #   $1: char: the bookmark character (prompted for when empty)
@@ -1476,9 +1157,9 @@ bookmark_add() {
     exit 1
   fi
 
-  # Rejected rather than escaped: a control character in the path would have to
-  # survive being written as JSON, read back as a whole line, and printed as a
-  # column of the picker, and no directory worth bookmarking has one.
+  # Rejected rather than escaped: a control character would have to survive
+  # JSON, whole-line reads, and the picker, and no directory worth
+  # bookmarking has one.
   case "$path" in
     *[[:cntrl:]]*)
       notify "Error: '$path' cannot be bookmarked: its path contains a control character"
@@ -1486,9 +1167,9 @@ bookmark_add() {
       ;;
   esac
 
-  # No character given: ask for one. The directory is named in the prompt,
-  # since a key binding is the way this is usually reached and nothing else on
-  # screen says what is about to be bookmarked.
+  # The directory is named in the prompt: a key binding is how this is
+  # usually reached, and nothing else on screen says what is being
+  # bookmarked.
   if [ -z "$char" ]; then
     prompt_bookmark_char "Bookmark ${path/#"$HOME"/\~} as" bookmark-add '{}' "$path" || exit 0
     char="$PROMPTED_BOOKMARK_CHAR"
@@ -1509,15 +1190,12 @@ bookmark_add() {
 }
 
 bookmark_remove() {
-  # Removes a bookmark.
+  # Remove a bookmark.
   #
   # Args:
   #   $1: char: the bookmark character to remove (prompted for when empty)
   local char="$1"
 
-  # No character given: ask for one. Nothing is listed alongside it -- the
-  # prompt is a status line away from being unable to, and `tsm bookmark-list`
-  # is there for when the character will not come to mind.
   if [ -z "$char" ]; then
     if [ -z "$(read_bookmarks)" ]; then
       notify "No bookmarks set"
@@ -1543,8 +1221,8 @@ bookmark_remove() {
 }
 
 bookmark_list() {
-  # Prints every bookmark as "char    directory". With -f, fzf does the showing
-  # instead, and the bookmark picked starts a session.
+  # Print every bookmark as "char    directory". With -f, browse them with
+  # fzf instead, and the bookmark picked starts a session.
   local use_fzf="" entries char dir
   expand_short_flags "$@"
   for arg in "${EXPANDED_ARGS[@]}"; do
@@ -1575,17 +1253,10 @@ bookmark_list() {
 }
 
 bookmark_status() {
-  # Prints the bookmark characters of the sessions that are open, for a tmux
-  # status line: one character per bookmark whose directory a session is
-  # currently rooted at, with the current session's styled differently.
-  #
-  # This is the compact alternative to reading session names off a status
-  # line. Only bookmarks are shown, and only the ones you could switch to
-  # right now, so the line stays short enough to take in at a glance.
-  #
-  # Nothing is printed when no open session is bookmarked, and nothing is ever
-  # notified: this runs on every status line redraw, so anything it has to say
-  # would be said over and over.
+  # Print the bookmark characters of the open sessions for a tmux status
+  # line, the current session's styled differently. Only bookmarks with a
+  # session open are shown, so the line stays short. Nothing is notified:
+  # this runs on every status line redraw.
   #
   # Args:
   #   $1: path: the directory of the session to treat as the current one
@@ -1594,7 +1265,7 @@ bookmark_status() {
   #   -c, --current-style: tmux style for the current session's character
   local style="dim" current_style="fg=yellow,bold" current="" current_given=""
 
-  # Styles are given without their #[] wrapper, so that a status line format
+  # Styles are given without their #[] wrapper, so a status line format
   # holding one does not have to escape it.
   while [ $# -gt 0 ]; do
     case "$1" in
@@ -1629,28 +1300,18 @@ bookmark_status() {
   open=$(tmux list-sessions -F '#{session_path}' 2>/dev/null)
   [ -n "$open" ] || return 0
 
-  # A session is the current one by the directory it is rooted at, the same
-  # thing a bookmark holds.
-  #
-  # Which session that is has to be given by whoever is drawing the status
-  # line, because tmux runs a #() command without a client and shares its
-  # output between them all: asking tmux here would answer for some other
-  # client's session, and answer the same thing for every client. A status
-  # line passes #{session_path}, which tmux expands per client and which makes
-  # each client's line a job of its own. Asking is the fallback, for a shell
-  # that has a session of its own to be current.
+  # Which session is current must be given by whoever draws the status line:
+  # tmux runs a #() command without a client and shares its output between
+  # them all, so asking here would answer the same for every client. A status
+  # line passes #{session_path}, expanded per client. Asking is the fallback
+  # for a shell with a session of its own.
   if [ -z "$current_given" ] && [ -n "$TMUX" ]; then
     current=$(tmux display-message -p '#{session_path}' 2>/dev/null)
   fi
 
-  # Each character is padded inside its own style, the way buf-mark's status
-  # does it, so that a style with a background reads as a block rather than as
-  # a tinted letter.
-  #
-  # Each style is preceded by a reset, because tmux styles accumulate: without
-  # one, the attributes of the current session's character (its color, its
-  # bold) stay on for every character drawn after it, and the current session
-  # is no longer the one that stands out.
+  # Each character is padded inside its own style, so a style with a
+  # background reads as a block. Each style is preceded by a reset, because
+  # tmux styles accumulate.
   read_bookmarks | TSM_OPEN_PATHS="$open" TSM_CURRENT_PATH="$current" \
     TSM_STYLE="$style" TSM_CURRENT_STYLE="$current_style" awk -F'\t' '
       BEGIN {
@@ -1669,45 +1330,8 @@ bookmark_status() {
     '
 }
 
-bookmark_goto() {
-  # Starts a session at the directory a character is bookmarking. The session
-  # itself is a directory session like any other, so a configuration rooted at
-  # the bookmarked directory is what actually starts, and the flags the other
-  # pickers take mean the same thing here.
-  #
-  # Args:
-  #   $1: char: the bookmark character to jump to (prompted for when empty)
-  #   $@: the remaining arguments are directory session flags, passed through
-  local char="$1" dir
-  shift
-
-  # No character given: ask for one, the same keypress bookmark-add and
-  # bookmark-remove take. Nothing is listed above it -- a bookmark is meant to
-  # be recalled, and `tsm bookmark-list -f` is there for when it is not.
-  if [ -z "$char" ]; then
-    # Nothing to go to is worth saying outright, rather than asking for a
-    # character that could not match anything.
-    if [ -z "$(read_bookmarks)" ]; then
-      notify "No bookmarks set"
-      exit 1
-    fi
-
-    prompt_bookmark_char "Go to bookmark" bookmark "$@" '{}' || exit 0
-    char="$PROMPTED_BOOKMARK_CHAR"
-  fi
-
-  check_bookmark_char "$char"
-
-  if ! dir=$(bookmark_directory "$char"); then
-    notify "Error: No bookmark '$char'"
-    exit 1
-  fi
-
-  dir_session "$dir" "$@"
-}
-
 bookmark_pick() {
-  # Browses the bookmarks with fzf and starts a session at the one picked.
+  # Browse the bookmarks with fzf and start a session at the one picked.
   local entries
   entries=$(bookmark_entries)
 
@@ -1716,10 +1340,9 @@ bookmark_pick() {
     exit 1
   fi
 
-  # The bindings re-invoke tsm: ctrl-x removes the bookmark under the cursor,
-  # then rebuilds the list from what is left on disk. fzf hands a binding to a
-  # shell, so the path tsm was invoked by is quoted for one, and the character
-  # is quoted by fzf itself when it fills in {1}.
+  # ctrl-x removes the bookmark under the cursor, then rebuilds the list from
+  # disk. fzf hands a binding to a shell, so tsm's path is quoted for one;
+  # fzf itself quotes {1}.
   local self
   printf -v self '%q' "$(tsm_self)"
 
@@ -1736,13 +1359,16 @@ bookmark_pick() {
     exit 0
   fi
 
-  # The row carries the directory in its second field, so the session is rooted
-  # at the bookmarked path rather than the ~ the picker displayed.
+  # The row carries the directory in its second field, so the session is
+  # rooted at the bookmarked path rather than the ~ the picker displayed.
   local row="${selected#*$'\t'}"
   dir_session "${row%%$'\t'*}"
 }
 
 bookmark_session() {
+  # Start a session at the directory a character is bookmarking. A directory
+  # session like any other: the configuration claiming the bookmarked
+  # directory names and builds it, and -c and -p mean what they usually mean.
   local char="" no_config="" prompt_name=""
   expand_short_flags "$@"
   for arg in "${EXPANDED_ARGS[@]}"; do
@@ -1757,9 +1383,31 @@ bookmark_session() {
     esac
   done
 
-  # A character goes straight to its session. Without one, bookmark_goto asks
-  # for the character first.
-  bookmark_goto "$char" ${no_config:+--no-config} ${prompt_name:+--prompt-name}
+  local flags=() dir
+  [ -n "$no_config" ] && flags+=(--no-config)
+  [ -n "$prompt_name" ] && flags+=(--prompt-name)
+
+  # No character given: ask for one, the same keypress bookmark-add and
+  # bookmark-remove take. `tsm bookmark-list -f` is there for when the
+  # character will not come to mind.
+  if [ -z "$char" ]; then
+    if [ -z "$(read_bookmarks)" ]; then
+      notify "No bookmarks set"
+      exit 1
+    fi
+
+    prompt_bookmark_char "Go to bookmark" bookmark "${flags[@]}" '{}' || exit 0
+    char="$PROMPTED_BOOKMARK_CHAR"
+  fi
+
+  check_bookmark_char "$char"
+
+  if ! dir=$(bookmark_directory "$char"); then
+    notify "Error: No bookmark '$char'"
+    exit 1
+  fi
+
+  dir_session "$dir" "${flags[@]}"
 }
 
 browse_logs() {
@@ -1851,31 +1499,21 @@ case "$command" in
   logs)
     browse_logs "$1"
     ;;
-  apply-matching-config)
-    apply_matching_config
-    ;;
-  kill-matching-config)
-    kill_matching_config
-    ;;
   _record-switch)
-    # Internal: invoked by the client-session-changed hook registered in
-    # the user's tmux.conf (see README). Not a user-facing command.
+    # Internal: invoked by the client-session-changed hook (see README).
     record_switch "$1" "$2"
     ;;
   _refresh-status)
-    # Internal: invoked by the session-created and session-closed hooks
-    # registered in the user's tmux.conf (see README). Not a user-facing
-    # command.
+    # Internal: invoked by the session-created/session-closed hooks (see
+    # README).
     refresh_status
     ;;
   _bookmark-prompted)
     # Internal: what tmux's status line prompt runs once its key is pressed.
-    # Not a user-facing command.
     bookmark_prompted "$@"
     ;;
   _bookmark-entries)
     # Internal: rebuilds the bookmark picker's rows for its reload binding.
-    # Not a user-facing command.
     bookmark_entries
     ;;
   help)

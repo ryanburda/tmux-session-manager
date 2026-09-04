@@ -65,8 +65,6 @@ complete -c tsm -n '__fish_use_subcommand' -a bookmark-list -d 'List all bookmar
 complete -c tsm -n '__fish_use_subcommand' -a bookmark-status -d 'The open sessions bookmarks, for a tmux status line'
 complete -c tsm -n '__fish_use_subcommand' -a match -d 'Configurations claiming a path, best first'
 complete -c tsm -n '__fish_use_subcommand' -a logs -d 'Browse session logs'
-complete -c tsm -n '__fish_use_subcommand' -a apply-matching-config -d 'Apply the matching configuration start hook'
-complete -c tsm -n '__fish_use_subcommand' -a kill-matching-config -d 'Run the matching configuration kill hook'
 complete -c tsm -n '__fish_use_subcommand' -a help -d 'Show help message'
 
 # Subcommand arguments
