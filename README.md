@@ -93,10 +93,10 @@ bind-key X run-shell "tsm kill #{session_name}"   # kill current session (runs i
 bind-key l run-shell "tsm last"      # most recent session still open
 
 # Directory based sessions
-bind-key d popup -E "tsm dir"        # directory launcher
-bind-key g popup -E "tsm git"        # git repository launcher
-bind-key G popup -E "tsm git -bf"    # git launcher with fetched status brief
-bind-key w popup -E "tsm worktree"   # worktree launcher
+bind-key d popup -E "tsm dir"        # directory picker
+bind-key g popup -E "tsm git"        # git repository picker
+bind-key G popup -E "tsm git -bf"    # git picker with fetched status brief
+bind-key w popup -E "tsm worktree"   # worktree picker
 bind-key b run-shell -b "tsm bookmark"        # session at a bookmark (asks for its char)
 bind-key B popup -E "tsm bookmark-list -f"    # browse bookmarks with fzf
 bind-key m run-shell -b "tsm bookmark-add"    # bookmark the session's directory
@@ -235,7 +235,7 @@ export TSM_DIRS_CMD='{
 }'
 ```
 
-![Launch Directory Sessions](docs/directory_launcher.gif)
+![Launch Directory Sessions](docs/directory_picker.gif)
 
 ### Git Repositories (`tsm git`)
 
@@ -254,7 +254,7 @@ Two flags are specific to this picker:
   in parallel, 8 repositories at a time; `TSM_GIT_FETCH_JOBS` changes the cap (each fetch opens
   a remote connection, so lower it if the picker is slow or your connection is metered).
 
-![Launch Git Sessions](docs/git_launcher.gif)
+![Launch Git Sessions](docs/git_picker.gif)
 
 <a id="git-worktrees"></a>
 
@@ -263,7 +263,7 @@ Two flags are specific to this picker:
 A worktree of the current repository, in a session named `repo/worktree`. Must be run from
 inside a git repo.
 
-![Launch Worktree Sessions](docs/worktree_launcher.gif)
+![Launch Worktree Sessions](docs/worktree_picker.gif)
 
 <a id="bookmarks"></a>
 
