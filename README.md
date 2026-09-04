@@ -1,16 +1,28 @@
 # tmux-session-manager
 
-Directory-based tmux sessions, configured on creation.
+`tsm` launches tmux sessions at directories. That's its whole job.
 
-- **Create** sessions rooted at directories
-- **Script** how your sessions start
-- **Switch** between sessions
-- **Kill** sessions with background cleanup hooks
+Several [pickers](#directory-sessions) help you find that directory:
 
-Session configurations are executable programs: a shell script, a Python script, a compiled
-binary. No YAML, no DSL. A configuration declares which directories it claims, what the session
-is called, what runs on startup, and what to clean up on the way out. `tsm` applies the right one
-based on where the session is rooted.
+| | |
+|---|---|
+| `tsm dir` | any directory on the filesystem |
+| `tsm git` | a git repository |
+| `tsm worktree` | a worktree of the current repository |
+| `tsm bookmark` | a directory bookmarked to a single character |
+
+Once a path is chosen, every session is created or entered the same way:
+
+1. **Does a session already exist for that directory?** Switch to it.
+2. **Does a configuration claim that directory?** Use that configuration
+   when creating/naming the session.
+3. **Otherwise:** create a plain session named after the directory.
+
+So `tsm worktree` is not a different feature from `tsm dir`; it is the same session launcher
+reached through a different directory picker.
+
+See [Usage](#usage) for the full list of commands, and
+[Session Configuration](#session-configuration) for details on how to customize sessions.
 
 ## Install
 
@@ -152,14 +164,10 @@ tsm logs [session]                   # Browse session logs
 
 ## Directory Sessions
 
-Four pickers open a session rooted at a directory, differing only in how you find it:
+`dir`, `git`, `worktree` and `bookmark` are four ways of arriving at one path. The sections
+below cover what is particular to each picker; everything here is what they share.
 
-- `tsm dir`: any directory on the filesystem
-- `tsm git`: a git repository
-- `tsm worktree`: a worktree of the current repository
-- `tsm bookmark`: a directory bookmarked to a single character
-
-Every picker resolves the picked directory the same way:
+A picked directory becomes a session by the same three rules, whichever picker produced it:
 
 1. **A session is already open at that path?** Switch to it.
 2. **A configuration's `pattern` claims the path?** Its `name` names the session, and its `start`
