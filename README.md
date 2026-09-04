@@ -2,7 +2,7 @@
 
 `tsm` launches tmux sessions at directories. That's its whole job.
 
-Several [pickers](#directory-sessions) help you find that directory:
+Several [pickers](#directory-pickers) help you find that directory:
 
 | | |
 |---|---|
@@ -162,7 +162,7 @@ tsm match [path]                     # Configurations claiming a path, best firs
 tsm logs [session]                   # Browse session logs
 ```
 
-## Directory Sessions
+## Directory pickers
 
 `dir`, `git`, `worktree` and `bookmark` are four ways of arriving at one path. The sections
 below cover what is particular to each picker; everything here is what they share.
