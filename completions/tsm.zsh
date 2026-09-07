@@ -32,13 +32,10 @@ _tsm_bookmarks() {
 }
 
 _tsm_pickers() {
-    # The built-in picker names, then anything else executable: `tsm via`
-    # runs whatever it is given that is not a built-in.
+    # The built-in picker names; `tsm pick` takes one of these.
     local pickers
     pickers=(${(f)"$(tsm _pickers 2>/dev/null)"})
-    _alternative \
-        "pickers:built-in picker:($pickers)" \
-        'commands:program:_command_names -e'
+    _describe 'picker' pickers
 }
 
 _tsm_commands() {
@@ -47,7 +44,8 @@ _tsm_commands() {
         'last:Switch to the most recent session that is still open'
         'kill:Kill a session'
         'at:Start a session at a directory'
-        'via:Start a session at the directory a picker prints'
+        'via:Start a session at the directory a program prints'
+        'pick:Print the directory a built-in picker names'
         'bookmark-add:Bookmark a directory at a character'
         'bookmark-remove:Remove a bookmark'
         'bookmark-path:Print the directory a bookmark points at'
@@ -87,8 +85,12 @@ _tsm() {
             done
 
             _alternative \
-                'pickers:picker:_tsm_pickers' \
+                'commands:program:_command_names -e' \
                 'options:option:(-c --no-config -p --prompt-name)'
+            ;;
+        pick)
+            # One built-in picker name and nothing else.
+            (( CURRENT == 2 )) && _tsm_pickers
             ;;
         bookmark-remove|bookmark-path)
             _tsm_bookmarks

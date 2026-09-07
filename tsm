@@ -58,11 +58,12 @@ Usage
   tsm at <path> [-c] [-p]                  # Start a session at a directory, or switch to the
                                            # session already open there
 
-  tsm via [-c] [-p] <picker> [args]        # The same, at the directory <picker> prints. <picker>
-                                           # is a built-in name below or a program printing a path
+  tsm via [-c] [-p] <program> [args]       # The same, at the directory <program> prints
 
     -c, --no-config                        # Ignore any configuration claiming the picked path
     -p, --prompt-name                      # Prompt for the session name instead of using the default
+
+  tsm pick <picker>                        # Print the directory a built-in picker names
 
   tsm bookmark-add <char> [path]           # Bookmark a directory (path defaults to the current directory)
   tsm bookmark-remove <char>               # Remove a bookmark
@@ -77,14 +78,16 @@ Usage
 Pickers
   A picker names a directory and nothing else: it takes none of the flags
   above, decides nothing about the session, and prints one path on stdout.
-  These are the built-in ones; anything else `tsm via` is given is run as a
-  program, so `zoxide query -i` or a script of your own is a picker too.
+  Any program that does that is one, so `tsm via zoxide query -i` works, and
+  so does a script of your own. These come with tsm, via `tsm pick <name>`:
 
   dir                                      # Any directory, with fzf
   git                                      # A git repository, with fzf
   git-brief                                # A git repository with something to show, with fzf
   worktree                                 # A worktree of this repository, with fzf
   bookmark                                 # A bookmarked directory, with fzf
+
+  tsm via tsm pick git                     # ...and that is how one becomes a session
 
 See https://github.com/ryanburda/tmux-session-manager for more documentation
 EOF
@@ -999,7 +1002,7 @@ via_picker() {
   done
 
   if [ $# -eq 0 ]; then
-    notify "Error: 'tsm via' takes a picker: $(pickers | tr '\n' ' ')or any program that prints a path"
+    notify "Error: 'tsm via' takes a program that prints a path, such as 'tsm pick dir'"
     exit 1
   fi
 
@@ -1087,6 +1090,23 @@ bookmark_remove() {
   refresh_status
 
   notify "Bookmark removed: $char"
+}
+
+pick_command() {
+  # Print the directory a built-in picker names:
+  #
+  #   tsm pick <name>
+  #
+  # A picker in the ordinary sense -- a program printing one path -- which is
+  # how the built-in ones reach `tsm via` without tsm reserving their names:
+  #
+  #   tsm via tsm pick git
+  #
+  # Backing out of the fzf prints nothing and succeeds, the same way any
+  # other picker declines to answer.
+  pick_builtin "$@" || exit 0
+
+  printf '%s\n' "$PICKED_DIR"
 }
 
 bookmark_path() {
@@ -1256,6 +1276,9 @@ case "$command" in
   via)
     via_picker "$@"
     ;;
+  pick)
+    pick_command "$@"
+    ;;
   bookmark-add)
     bookmark_add "$1" "$2"
     ;;
@@ -1288,7 +1311,7 @@ case "$command" in
     bookmark_entries
     ;;
   _pickers)
-    # Internal: the built-in picker names `tsm via` takes, for the shell
+    # Internal: the built-in picker names `tsm pick` takes, for the shell
     # completions.
     pickers
     ;;

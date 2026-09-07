@@ -8,13 +8,24 @@ Two commands start them. One takes the directory:
 tsm at <path> [-c] [-p]
 ```
 
-The other takes a [picker](#pickers) -- a program that prints the directory -- and runs it:
+The other takes a [picker](#pickers) -- any program that prints a directory -- and runs it:
 
 ```bash
-tsm via [-c] [-p] <picker> [args]
+tsm via [-c] [-p] <program> [args]
 ```
 
-| picker | names |
+That is the whole contract, so a lot of programs are already pickers:
+
+```bash
+tsm via zoxide query -i                  # your most-used directories
+tsm via git rev-parse --show-toplevel    # the root of the repo you are in
+tsm via mktemp -d                        # a fresh scratch session
+```
+
+Five pickers come with `tsm` and ask with fzf. They are reached through `tsm pick`, which
+prints a path like any other picker:
+
+| `tsm pick ...` | names |
 |---|---|
 | `dir` | any directory on the filesystem |
 | `git` | a git repository |
@@ -22,12 +33,12 @@ tsm via [-c] [-p] <picker> [args]
 | `worktree` | a worktree of the current repository |
 | `bookmark` | a directory bookmarked to a single character |
 
-Those five come with `tsm` and ask with fzf. Anything else `tsm via` is given is run as a
-program, so `zoxide query -i` is a picker, and so is a shell script of your own:
-
 ```bash
-tsm via zoxide query -i
+tsm via tsm pick git
 ```
+
+`tsm via` reserves no names at all, which is why `git` above is git and not the built-in `git`
+picker. See [Pickers you already have](#pickers-you-already-have) for more of them.
 
 Once a path is named, every session is created or entered the same way:
 
@@ -113,12 +124,13 @@ bind-key X run-shell "tsm kill #{session_name}"   # kill current session (runs i
 bind-key l run-shell "tsm last"      # most recent session still open
 
 # Directory based sessions
-bind-key d popup -E "tsm via dir"              # directory picker
-bind-key g popup -E "tsm via git"              # git repository picker
-bind-key G popup -E "tsm via git-brief"        # repositories with changes
-bind-key w popup -E "tsm via worktree"         # worktree picker
-bind-key b popup -E "tsm via bookmark"         # bookmark picker
-bind-key z popup -E "tsm via zoxide query -i"  # anything that prints a path
+bind-key d popup -E "tsm via tsm pick dir"                    # directory picker
+bind-key g popup -E "tsm via tsm pick git"                    # git repository picker
+bind-key G popup -E "tsm via tsm pick git-brief"              # repositories with changes
+bind-key w popup -E "tsm via tsm pick worktree"               # worktree picker
+bind-key b popup -E "tsm via tsm pick bookmark"               # bookmark picker
+bind-key z popup -E "tsm via zoxide query -i"                 # anything that prints a path
+bind-key r run-shell "tsm via git rev-parse --show-toplevel"  # this repo's root
 
 # Bookmarking
 bind-key m command-prompt -1 -p "Set bookmark:"    "run-shell -b \"tsm bookmark-add '%%%'\""
@@ -154,7 +166,7 @@ bind-key m command-prompt -1 -p "Set bookmark:" "run-shell -b \"tsm bookmark-add
 > | **bash** | /etc/profile → (~/.bash_profile OR ~/.bash_login OR ~/.profile) | ~/.bashrc | $BASH_ENV only (if set) |
 >
 > Fallback: use `tsm`'s full path in the bindings, e.g.
-> `bind-key d popup -E "~/.local/share/tmux-session-manager/tsm via dir"`.
+> `bind-key d popup -E "~/.local/share/tmux-session-manager/tsm via tsm pick dir"`.
 >
 > If you set a custom `TSM_DIRS_CMD`, define it in the same file as your PATH (e.g. `~/.zshenv`),
 > or the `dir` picker will show different lists inside and outside tmux popups.
@@ -174,10 +186,12 @@ tsm last                             # Switch to the most recent session that is
 tsm at <path> [-c] [-p]              # Start a session at a directory, or switch to the
                                      # session already open there
 
-tsm via [-c] [-p] <picker> [args]    # The same, at the directory <picker> prints
+tsm via [-c] [-p] <program> [args]   # The same, at the directory <program> prints
 
   -c, --no-config                    # Ignore any configuration claiming the picked path
   -p, --prompt-name                  # Prompt for the session name instead of using the default
+
+tsm pick <picker>                    # Print the directory a built-in picker names
 
 tsm bookmark-add <char> [path]       # Bookmark a directory (path defaults to the current directory)
 tsm bookmark-remove <char>           # Remove a bookmark
@@ -188,20 +202,22 @@ tsm match [path]                     # Configurations claiming a path, best firs
 tsm logs [session]                   # Browse session logs
 ```
 
-The built-in pickers `tsm via` recognises by name. Each asks with fzf and takes no arguments
-of its own:
+The pickers that come with `tsm`. Each asks with fzf, takes no arguments, and prints the path
+it was pointed at:
 
 ```bash
-dir                                  # Any directory
-git                                  # A git repository
-git-brief                            # A git repository that has something to show
-worktree                             # A worktree of this repository
-bookmark                             # A bookmarked directory
+tsm pick dir                         # Any directory
+tsm pick git                         # A git repository
+tsm pick git-brief                   # A git repository that has something to show
+tsm pick worktree                    # A worktree of this repository
+tsm pick bookmark                    # A bookmarked directory
 ```
 
-Anything else is run as a program (see [Writing a picker](#writing-a-picker)):
+`tsm via` takes a program, and `tsm pick` is one of them -- there is no list of names it treats
+specially (see [Writing a picker](#writing-a-picker)):
 
 ```bash
+tsm via tsm pick git
 tsm via zoxide query -i
 tsm via tsm bookmark-path m
 tsm via ~/bin/my-picker --since yesterday
@@ -238,10 +254,10 @@ of them:
   session, `-p` has nothing to name and simply switches to it.
 
 The flags come first, before the picker: everything from the picker's name onwards is the
-picker's own, and `-i` in `tsm via zoxide query -i` belongs to `zoxide`. The five built-in
-pickers take no arguments at all -- they open their fzf and that is the whole of it. To go
-straight to a directory you already know, `tsm at <path>` is the command that skips the picking
-entirely.
+picker's own, and `-i` in `tsm via zoxide query -i` belongs to `zoxide`. That is also why `tsm
+via` reserves no names: `tsm via git rev-parse --show-toplevel` runs git, and the built-in
+`git` picker is `tsm pick git`, a program like any other. To go straight to a directory you
+already know, `tsm at <path>` skips the picking entirely.
 
 ### Session names
 
@@ -315,7 +331,8 @@ The `git` picker, narrowed to the repositories that have something to show and a
 what it is: branch, ahead/behind counts, and the size of the working diff.
 
 ```bash
-tsm via git-brief
+tsm pick git-brief        # prints the path
+tsm via tsm pick git-brief   # ...and opens the session
 ```
 
 A repository earns a row by having **commits waiting upstream**, **commits not yet pushed**, or
@@ -386,7 +403,7 @@ tsm via tsm bookmark-path m
 
 | command | description |
 |---------|-------------|
-| `tsm via [-c] [-p] bookmark` | Start a session at a bookmarked directory |
+| `tsm via [-c] [-p] tsm pick bookmark` | Start a session at a bookmarked directory |
 | `tsm bookmark-add <char> [path]` | Bookmark a directory (default: the current directory) |
 | `tsm bookmark-remove <char>` | Remove the bookmark |
 | `tsm bookmark-path <char>` | Print the directory the bookmark points at |
@@ -426,6 +443,54 @@ set-hook -g session-closed 'run-shell -b "tsm _refresh-status"'
 
 Switching sessions, and setting or removing bookmarks, refresh the line on their own.
 
+<a id="pickers-you-already-have"></a>
+
+## Pickers you already have
+
+A picker is any program that prints a directory, which means most of these were pickers before
+`tsm` existed. None of them need installing beyond what you have.
+
+**Interactive**
+
+```bash
+tsm via zoxide query -i                             # your most-used directories
+tsm via env FZF_DEFAULT_COMMAND= fzf --walker=dir   # fzf's own directory walker
+tsm via tsm pick git-brief                          # repositories with something to show
+```
+
+fzf has walked the filesystem itself since 0.44, and `--walker=dir` restricts it to
+directories -- an fzf directory picker with no pipe and no `find`. Add
+`--walker-root=$HOME/code` to pin it to one tree instead of the current directory.
+
+The `env FZF_DEFAULT_COMMAND=` prefix is the catch. If you have `FZF_DEFAULT_COMMAND` set in
+your shell -- a very common `fd` one-liner -- fzf runs *that* instead of its walker, and
+`--walker=dir` is silently ignored: you get files. Clearing it for the one call brings the
+walker back, and `env` is an ordinary program, so this still needs no shell. The same variable
+is why a bare `fzf` picker can behave differently inside a tmux popup than in your shell.
+
+**Deterministic** -- no picking, just a path:
+
+```bash
+tsm via pwd                              # the current directory
+tsm via git rev-parse --show-toplevel    # the root of the repo you are in
+tsm via mktemp -d                        # a fresh scratch session, new directory every time
+tsm via tsm bookmark-path m              # whatever m bookmarks
+tsm via xdg-user-dir DOCUMENTS           # ~/Documents, wherever XDG says that is
+tsm via systemd-path user-configuration  # ~/.config
+```
+
+`git rev-parse --show-toplevel` is the one worth a keybind: from any subdirectory of a
+repository it opens a session at the repository's root. `mktemp -d` is the throwaway -- a new
+empty directory, and therefore a new session, every time you press the key.
+
+```tmux
+bind-key r run-shell "tsm via git rev-parse --show-toplevel"
+bind-key t run-shell "tsm via mktemp -d"
+```
+
+Note that none of these are special-cased anywhere in `tsm`. `git` here is git; `tsm` has no
+opinion about it and no name of its own that could get in the way.
+
 ## Writing a picker
 
 A picker names a directory: it prints one path on stdout, says anything else on stderr, and
@@ -448,16 +513,25 @@ tsm via -p recent-repo
 
 There is nothing to install and no naming convention to follow: `tsm via` looks its argument
 up the way a shell would, so a name on PATH, a relative path and an absolute path all work.
-Programs you did not write are pickers too, as long as they print a directory:
-
-```bash
-tsm via zoxide query -i
-tsm via tsm bookmark-path m
-```
+Programs you did not write are pickers too, as long as they print a directory -- see
+[Pickers you already have](#pickers-you-already-have).
 
 Everything after the picker's name is handed to the picker, so `tsm` takes its own flags out
-first -- they come before the picker, and `-i` above is `zoxide`'s. The five built-in pickers
-take no arguments at all, but that is their rule, not the contract's.
+first -- they come before the picker, and `-p` above is tsm's while `-i` in
+`tsm via zoxide query -i` is zoxide's.
+
+The one thing `tsm via` does *not* do is recognise names. There is no list of built-ins it
+checks first, so nothing you might want to run is shadowed -- in
+`tsm via git rev-parse --show-toplevel`, `git` is git, not tsm's `git` picker. The pickers that
+ship with `tsm` reach the contract the same way everything else does, through a program that
+prints a path:
+
+```bash
+tsm pick git          # the built-in picker, printing its answer
+tsm via tsm pick git  # ...and the session that follows
+```
+
+They take no arguments, so `tsm pick git rev-parse` is an error rather than a surprise.
 
 ### A pipeline, without writing a file
 
@@ -494,6 +568,7 @@ learn:
 
 ```bash
 recent-repo
+tsm pick git
 sh -c 'find . -type d | fzf'
 ```
 

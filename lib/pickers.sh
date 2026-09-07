@@ -6,65 +6,81 @@
 #
 # A picker names a directory and nothing else: it takes no arguments, decides
 # nothing about the session that follows, and ends with one path in
-# PICKED_DIR. `tsm via` is what turns that into a session, and it will run
-# any program that prints a path just as readily -- these are only the ones
-# that come with tsm.
+# PICKED_DIR. `tsm pick <name>` prints what one of these answers, and
+# `tsm via <program>` turns any program that prints a path into a session --
+# these are only the ones that come with tsm.
 
 pickers() {
-  # The built-in picker names `tsm via` recognises before it falls back to
-  # running its argument as a program.
+  # The built-in picker names `tsm pick` takes.
   printf '%s\n' dir git git-brief worktree bookmark
+}
+
+pick_builtin() {
+  # Set PICKED_DIR to the directory the built-in picker named $1 answers
+  # with. Returns non-zero when the picker was backed out of.
+  #
+  # Args:
+  #   $1: name: one of the names `pickers` lists
+  local name="$1"
+  shift
+
+  PICKED_DIR=""
+
+  case "$name" in
+    dir | git | git-brief | worktree | bookmark) ;;
+    '')
+      notify "Error: 'tsm pick' takes a picker: $(pickers | tr '\n' ' ')"
+      exit 1
+      ;;
+    *)
+      notify "Error: No built-in picker '$name'; tsm has $(pickers | tr '\n' ' ')"
+      exit 1
+      ;;
+  esac
+
+  # The built-in pickers ask with fzf and nothing else.
+  if [ $# -gt 0 ]; then
+    notify "Error: the '$name' picker takes no arguments"
+    exit 1
+  fi
+
+  # The case above is the whitelist, so this only ever names one of the
+  # pick_* functions below.
+  "pick_${name//-/_}"
 }
 
 run_picker() {
   # Set PICKED_DIR to the directory a picker names. Returns non-zero when
   # nothing was picked and there is nothing left to do.
   #
-  # A built-in name is one of the fzf pickers below and takes no arguments.
-  # Anything else is a program: it is run with the arguments given, prints
-  # one path on stdout and says everything else on stderr. That is the whole
-  # contract, so `zoxide query -i`, a script of your own, or anything else
-  # that answers with a directory works without tsm knowing about it.
+  # A picker is a program and nothing more: it is run with the arguments
+  # given, prints one path on stdout and says everything else on stderr.
+  # There is no list of names tsm knows, which is what keeps it from
+  # shadowing anything -- `git` here is git, and the built-in git picker is
+  # reached as `tsm pick git` like any other program.
   #
   # Args:
-  #   $1: a built-in picker name, or a program to run
-  #   $@: the program's arguments
+  #   $1: the program to run
+  #   $@: its arguments
   local picker="$1"
   shift
 
   PICKED_DIR=""
 
-  case "$picker" in
-    dir | git | git-brief | worktree | bookmark)
-      # The built-in pickers ask with fzf and nothing else, so an argument
-      # here is a leftover from the days when they took one. Dropping it
-      # silently would start a session somewhere that was not asked for.
-      if [ $# -gt 0 ]; then
-        notify "Error: the built-in '$picker' picker takes no arguments"
-        exit 1
-      fi
+  local program
+  program=$(command -v -- "$picker" 2>/dev/null)
 
-      # The case above is the whitelist, so this only ever names one of the
-      # pick_* functions below.
-      "pick_${picker//-/_}"
-      ;;
-    *)
-      local program
-      program=$(command -v -- "$picker" 2>/dev/null)
+  if [ -z "$program" ]; then
+    notify "Error: '$picker' is not a program on PATH"
+    exit 1
+  fi
 
-      if [ -z "$program" ]; then
-        notify "Error: '$picker' is not a built-in picker or a program on PATH"
-        exit 1
-      fi
+  # Stdout is the answer, so a status is all a program has left to fail with;
+  # it is passed on rather than turned into a session at nowhere. Printing
+  # nothing and succeeding is how it backs out.
+  PICKED_DIR=$("$program" "$@") || exit $?
 
-      # Stdout is the answer, so a status is all a program has left to fail
-      # with; it is passed on rather than turned into a session at nowhere.
-      # Printing nothing and succeeding is how it backs out.
-      PICKED_DIR=$("$program" "$@") || exit $?
-
-      [ -n "$PICKED_DIR" ]
-      ;;
-  esac
+  [ -n "$PICKED_DIR" ]
 }
 
 pick_dir() {
@@ -270,7 +286,7 @@ pick_worktree() {
 pick_bookmark() {
   # A bookmarked directory, chosen with fzf. To go straight to one without
   # the fzf, `tsm bookmark-path <char>` prints it -- which makes it a picker
-  # of the other kind: `tsm via tsm bookmark-path m`.
+  # in its own right: `tsm via tsm bookmark-path m`.
   local entries
   entries=$(bookmark_entries)
 

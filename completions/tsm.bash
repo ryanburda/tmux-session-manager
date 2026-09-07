@@ -15,7 +15,7 @@ _tsm_completions() {
     prev="${COMP_WORDS[COMP_CWORD-1]}"
     cmd="${COMP_WORDS[1]}"
 
-    subcmds="active last kill at via bookmark-add bookmark-remove bookmark-path bookmark-status match logs help"
+    subcmds="active last kill at via pick bookmark-add bookmark-remove bookmark-path bookmark-status match logs help"
 
     # Completing the subcommand itself
     if [ "$COMP_CWORD" -eq 1 ]; then
@@ -37,9 +37,9 @@ _tsm_completions() {
             return 0
             ;;
         via)
-            # The session flags come first, then the picker: a built-in name,
-            # or any program that prints a path. Everything after the picker
-            # is the program's own, so it is left alone.
+            # The session flags come first, then the picker: any program
+            # that prints a path. Everything after the picker is the
+            # program's own, so it is left alone.
             flags="-c --no-config -p --prompt-name"
             local i picked=0
             for (( i = 2; i < COMP_CWORD; i++ )); do
@@ -49,7 +49,14 @@ _tsm_completions() {
                 esac
             done
             [ "$picked" -eq 0 ] &&
-                COMPREPLY=($(compgen -W "$(tsm _pickers 2>/dev/null) $flags" -c -- "$cur"))
+                COMPREPLY=($(compgen -W "$flags" -c -- "$cur"))
+            return 0
+            ;;
+        pick)
+            # One built-in picker name and nothing else.
+            if [ "$COMP_CWORD" -eq 2 ]; then
+                COMPREPLY=($(compgen -W "$(tsm _pickers 2>/dev/null)" -- "$cur"))
+            fi
             return 0
             ;;
         bookmark-remove|bookmark-path)
