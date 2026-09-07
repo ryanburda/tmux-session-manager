@@ -3,15 +3,34 @@
 #   source /path/to/tsm.bash
 # Or copy to /etc/bash_completion.d/tsm
 
+_tsm_worktree_names() {
+    git worktree list --porcelain 2>/dev/null | awk '
+        /^worktree / { path = substr($0, 10) }
+        /^bare$/ { path = "" }
+        /^$/ { if (path != "") { n = split(path, a, "/"); print a[n]; path = "" } }
+        END { if (path != "") { n = split(path, a, "/"); print a[n] } }
+    '
+}
+
+_tsm_bookmark_chars() {
+    # Only asked for when there is something to list: with no bookmarks set,
+    # tsm says so, and inside tmux it says so in the status line.
+    local bookmarks_file="${XDG_STATE_HOME:-$HOME/.local/state}/tsm/bookmarks.json"
+    [ -s "$bookmarks_file" ] || return
+    tsm bookmark-list 2>/dev/null | awk 'length($1) == 1 { print $1 }'
+}
+
 _tsm_completions() {
-    local cur prev cmd subcmds
+    local cur prev cmd subcmds flags
     COMPREPLY=()
     cur="${COMP_WORDS[COMP_CWORD]}"
     prev="${COMP_WORDS[COMP_CWORD-1]}"
     cmd="${COMP_WORDS[1]}"
 
-    # Available subcommands
-    subcmds="active last kill dir git worktree bookmark bookmark-add bookmark-remove bookmark-list bookmark-status match logs help"
+    # Available subcommands, plus whatever tsm-* programs are on PATH: tsm
+    # runs `tsm <name>` as `tsm-<name>` when <name> is not one of its own.
+    subcmds="active last kill create-or-switch bookmark-add bookmark-remove bookmark-list bookmark-status match logs help"
+    subcmds="$subcmds $(tsm _external-commands 2>/dev/null)"
 
     # Completing the subcommand itself
     if [ "$COMP_CWORD" -eq 1 ]; then
@@ -26,37 +45,33 @@ _tsm_completions() {
             COMPREPLY=($(compgen -W "$active" -- "$cur"))
             return 0
             ;;
-        dir)
-            COMPREPLY=($(compgen -d -W "-c --no-config -p --prompt-name" -- "$cur"))
-            return 0
-            ;;
-        git)
-            COMPREPLY=($(compgen -W "-b --brief -f --fetch -c --no-config -p --prompt-name" -- "$cur"))
-            return 0
-            ;;
-        worktree)
-            local worktrees=$(git worktree list --porcelain 2>/dev/null | awk '
-                /^worktree / { path = substr($0, 10) }
-                /^bare$/ { path = "" }
-                /^$/ { if (path != "") { n = split(path, a, "/"); print a[n]; path = "" } }
-                END { if (path != "") { n = split(path, a, "/"); print a[n] } }
-            ')
-            COMPREPLY=($(compgen -W "$worktrees -c --no-config -p --prompt-name" -- "$cur"))
-            return 0
-            ;;
-        bookmark|bookmark-remove)
-            # Only asked for when there is something to list: with no bookmarks
-            # set, tsm says so, and inside tmux it says so in the status line.
-            local bookmarks_file="${XDG_STATE_HOME:-$HOME/.local/state}/tsm/bookmarks.json"
-            local bookmarks=""
-            if [ -s "$bookmarks_file" ]; then
-                bookmarks=$(tsm bookmark-list 2>/dev/null | awk 'length($1) == 1 { print $1 }')
+        create-or-switch)
+            # The picker comes first; everything after it is the session
+            # flags, plus whatever argument that picker takes.
+            if [ "$COMP_CWORD" -eq 2 ]; then
+                COMPREPLY=($(compgen -W "$(tsm _pickers 2>/dev/null)" -- "$cur"))
+                return 0
             fi
-            if [ "$cmd" = "bookmark" ]; then
-                COMPREPLY=($(compgen -W "$bookmarks -c --no-config -p --prompt-name" -- "$cur"))
-            else
-                COMPREPLY=($(compgen -W "$bookmarks" -- "$cur"))
-            fi
+
+            flags="-c --no-config -p --prompt-name"
+            case "${COMP_WORDS[2]}" in
+                dir)
+                    COMPREPLY=($(compgen -d -W "$flags" -- "$cur"))
+                    ;;
+                worktree)
+                    COMPREPLY=($(compgen -W "$(_tsm_worktree_names) $flags" -- "$cur"))
+                    ;;
+                bookmark)
+                    COMPREPLY=($(compgen -W "$(_tsm_bookmark_chars) $flags" -- "$cur"))
+                    ;;
+                *)
+                    COMPREPLY=($(compgen -W "$flags" -- "$cur"))
+                    ;;
+            esac
+            return 0
+            ;;
+        bookmark-remove)
+            COMPREPLY=($(compgen -W "$(_tsm_bookmark_chars)" -- "$cur"))
             return 0
             ;;
         bookmark-list)

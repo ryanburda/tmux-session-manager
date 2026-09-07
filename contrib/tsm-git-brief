@@ -1,0 +1,78 @@
+#!/bin/bash
+#
+# tsm-git-brief: a tsm picker. Prints the directory of a git repository
+# chosen from a list showing its branch, ahead/behind counts and the size of
+# its working diff.
+#
+# A picker names a directory and nothing else: no flags, no say in the
+# session that follows, one path on stdout and everything else on stderr.
+# `tsm <name>` runs `tsm-<name>` from PATH, so putting this file (or a
+# symlink to it) on your PATH is all it takes to install:
+#
+#   ln -s "$PWD/contrib/tsm-git-brief" ~/.local/bin/tsm-git-brief
+#   tsm create-or-switch git-brief
+#
+# Every repository is fetched before the list is drawn, so the ahead/behind
+# counts are current -- that is the point of asking for a brief. It is also
+# what makes this picker slow to appear; the built-in `git` picker is there
+# for when you just want the list.
+#
+# Environment
+#   TSM_GIT_DIRS_CMD        command printing the repositories to list; the
+#                           same variable the built-in `git` picker reads,
+#                           and the same default
+#   TSM_GIT_FETCH_JOBS      how many repositories are fetched at once
+#                           (default 8)
+
+TSM_GIT_DIRS_CMD_DEFAULT='find "$HOME" -maxdepth 4 -name ".*" -prune -o -type d -exec test -e {}/.git \; -print -prune 2>/dev/null'
+
+git_brief() {
+  # Brief git status for the repo at $1: branch ↑ahead↓behind +added-removed.
+  # Never fetches; that is done for the whole list at once, up front.
+  local dir="$1"
+  local branch ahead behind stats added removed
+
+  branch=$(git -C "$dir" branch --show-current 2>/dev/null) || return
+  ahead=$(git -C "$dir" log @{u}..HEAD --oneline 2>/dev/null | wc -l | tr -d ' ')
+  behind=$(git -C "$dir" log HEAD..@{u} --oneline 2>/dev/null | wc -l | tr -d ' ')
+  stats=$(git -C "$dir" diff --shortstat 2>/dev/null)
+  added=$(echo "$stats" | grep -o '[0-9]* insertion' | grep -o '[0-9]*')
+  removed=$(echo "$stats" | grep -o '[0-9]* deletion' | grep -o '[0-9]*')
+
+  local blue='\033[34m' yellow='\033[33m' green='\033[32m' red='\033[31m' reset='\033[0m'
+  local out="${blue}${branch}${reset}"
+  [ "${ahead:-0}" -gt 0 ] && out+=" ${yellow}↑${ahead}${reset}"
+  [ "${behind:-0}" -gt 0 ] && out+=" ${yellow}↓${behind}${reset}"
+  [ "${added:-0}" -gt 0 ] && out+=" ${green}+${added}${reset}"
+  [ "${removed:-0}" -gt 0 ] && out+=" ${red}-${removed}${reset}"
+  printf '%b\n' "$out"
+}
+
+dirs=$(eval "${TSM_GIT_DIRS_CMD:-$TSM_GIT_DIRS_CMD_DEFAULT}" | sort)
+
+if [ -z "$dirs" ]; then
+  # stderr: stdout is the answer, and there is not one.
+  echo "No git repositories found" >&2
+  exit 1
+fi
+
+# Fetch in parallel, but bounded: each fetch opens a remote connection, and
+# forking the whole list at once can hit the process limit. NUL separation so
+# repository paths with spaces survive.
+printf '%s\n' "$dirs" | tr '\n' '\0' \
+  | xargs -0 -P "${TSM_GIT_FETCH_JOBS:-8}" -n 1 \
+          sh -c 'git -C "$1" fetch --quiet 2>/dev/null' _
+
+# The path is carried in a first column fzf is told not to display, so the
+# brief can be coloured without the selection having to be parsed back out.
+# fzf draws on the terminal, not on stdout, so it does not disturb the answer.
+selected=$(printf '%s\n' "$dirs" \
+  | while IFS= read -r dir; do
+      printf '%s\t%s  %s\n' "$dir" "$dir" "$(git_brief "$dir")"
+    done \
+  | fzf --ansi --cycle --delimiter=$'\t' --with-nth=2 --prompt "Repo > ")
+
+# Nothing picked: succeed silently. Backing out of a picker is not an error.
+[ -n "$selected" ] || exit 0
+
+printf '%s\n' "${selected%%	*}"

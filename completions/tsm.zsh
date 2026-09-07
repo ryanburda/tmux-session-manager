@@ -45,15 +45,18 @@ _tsm_bookmarks() {
     fi
 }
 
+_tsm_pickers() {
+    local pickers
+    pickers=(${(f)"$(tsm _pickers 2>/dev/null)"})
+    _describe 'picker' pickers
+}
+
 _tsm_commands() {
     local commands=(
         'active:Switch to session'
         'last:Switch to the most recent session that is still open'
         'kill:Kill a session'
-        'dir:Browse/start session at directory'
-        'git:Browse git repositories with fzf'
-        'worktree:Browse worktrees for current git repo session'
-        'bookmark:Browse/start session at a bookmarked directory'
+        'create-or-switch:Start a session at the directory a picker names'
         'bookmark-add:Bookmark a directory at a character'
         'bookmark-remove:Remove a bookmark'
         'bookmark-list:List all bookmarks, or browse them with fzf'
@@ -62,6 +65,14 @@ _tsm_commands() {
         'logs:Browse session logs'
         'help:Show help message'
     )
+
+    # Whatever tsm-* programs are on PATH: tsm runs `tsm <name>` as
+    # `tsm-<name>` when <name> is not one of its own commands.
+    local ext
+    for ext in ${(f)"$(tsm _external-commands 2>/dev/null)"}; do
+        [[ -n "$ext" ]] && commands+=("$ext:External command (tsm-$ext)")
+    done
+
     _describe 'command' commands
 }
 
@@ -78,23 +89,34 @@ _tsm() {
         active|kill)
             _tsm_active_sessions
             ;;
-        dir)
-            _alternative \
-                'directories:directory:_files -/' \
-                'options:option:(-c --no-config -p --prompt-name)'
-            ;;
-        git)
-            _values -s ' ' 'git options' '-b' '--brief' '-f' '--fetch' '-c' '--no-config' '-p' '--prompt-name'
-            ;;
-        worktree)
-            _alternative \
-                'worktrees:worktree:_tsm_worktrees' \
-                'options:option:(-c --no-config -p --prompt-name)'
-            ;;
-        bookmark)
-            _alternative \
-                'bookmarks:bookmark:_tsm_bookmarks' \
-                'options:option:(-c --no-config -p --prompt-name)'
+        create-or-switch)
+            # The picker comes first; everything after it is the session
+            # flags, plus whatever argument that picker takes.
+            if (( CURRENT == 2 )); then
+                _tsm_pickers
+                return
+            fi
+
+            case "$line[2]" in
+                dir)
+                    _alternative \
+                        'directories:directory:_files -/' \
+                        'options:option:(-c --no-config -p --prompt-name)'
+                    ;;
+                worktree)
+                    _alternative \
+                        'worktrees:worktree:_tsm_worktrees' \
+                        'options:option:(-c --no-config -p --prompt-name)'
+                    ;;
+                bookmark)
+                    _alternative \
+                        'bookmarks:bookmark:_tsm_bookmarks' \
+                        'options:option:(-c --no-config -p --prompt-name)'
+                    ;;
+                *)
+                    _values -s ' ' 'session options' '-c' '--no-config' '-p' '--prompt-name'
+                    ;;
+            esac
             ;;
         bookmark-remove)
             _tsm_bookmarks

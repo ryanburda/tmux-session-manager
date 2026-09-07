@@ -48,6 +48,17 @@ function __tsm_bookmarks
     end
 end
 
+# Helper function: get the tsm-* programs on PATH, which tsm runs as
+# `tsm <name>` when <name> is not one of its own commands
+function __tsm_external_commands
+    tsm _external-commands 2>/dev/null
+end
+
+# Helper function: the picker names create-or-switch takes
+function __tsm_pickers
+    tsm _pickers 2>/dev/null
+end
+
 # Disable file completion by default
 complete -c tsm -f
 
@@ -55,10 +66,7 @@ complete -c tsm -f
 complete -c tsm -n '__fish_use_subcommand' -a active -d 'Switch to session'
 complete -c tsm -n '__fish_use_subcommand' -a last -d 'Switch to the most recent session that is still open'
 complete -c tsm -n '__fish_use_subcommand' -a kill -d 'Kill a session'
-complete -c tsm -n '__fish_use_subcommand' -a dir -d 'Browse/start session at directory'
-complete -c tsm -n '__fish_use_subcommand' -a git -d 'Browse git repositories with fzf'
-complete -c tsm -n '__fish_use_subcommand' -a worktree -d 'Browse worktrees for current git repo session'
-complete -c tsm -n '__fish_use_subcommand' -a bookmark -d 'Browse/start session at a bookmarked directory'
+complete -c tsm -n '__fish_use_subcommand' -a create-or-switch -d 'Start a session at the directory a picker names'
 complete -c tsm -n '__fish_use_subcommand' -a bookmark-add -d 'Bookmark a directory at a character'
 complete -c tsm -n '__fish_use_subcommand' -a bookmark-remove -d 'Remove a bookmark'
 complete -c tsm -n '__fish_use_subcommand' -a bookmark-list -d 'List all bookmarks, or browse them with fzf'
@@ -66,16 +74,17 @@ complete -c tsm -n '__fish_use_subcommand' -a bookmark-status -d 'The open sessi
 complete -c tsm -n '__fish_use_subcommand' -a match -d 'Configurations claiming a path, best first'
 complete -c tsm -n '__fish_use_subcommand' -a logs -d 'Browse session logs'
 complete -c tsm -n '__fish_use_subcommand' -a help -d 'Show help message'
+complete -c tsm -n '__fish_use_subcommand' -a '(__tsm_external_commands)' -d 'External command'
 
 # Subcommand arguments
 complete -c tsm -n '__fish_seen_subcommand_from active kill' -xa '(__tsm_active_sessions)'
-complete -c tsm -n '__fish_seen_subcommand_from dir' -ra '(__fish_complete_directories)'
-complete -c tsm -n '__fish_seen_subcommand_from dir' -xa '-c --no-config -p --prompt-name'
-complete -c tsm -n '__fish_seen_subcommand_from git' -xa '-b --brief -f --fetch -c --no-config -p --prompt-name'
-complete -c tsm -n '__fish_seen_subcommand_from worktree' -xa '(__tsm_worktrees)'
-complete -c tsm -n '__fish_seen_subcommand_from worktree' -xa '-c --no-config -p --prompt-name'
-complete -c tsm -n '__fish_seen_subcommand_from bookmark' -xa '(__tsm_bookmarks)'
-complete -c tsm -n '__fish_seen_subcommand_from bookmark' -xa '-c --no-config -p --prompt-name'
+# create-or-switch takes a picker first, then the session flags and whatever
+# argument that picker takes
+complete -c tsm -n '__fish_seen_subcommand_from create-or-switch; and not __fish_seen_subcommand_from (__tsm_pickers)' -xa '(__tsm_pickers)'
+complete -c tsm -n '__fish_seen_subcommand_from create-or-switch; and __fish_seen_subcommand_from dir' -ra '(__fish_complete_directories)'
+complete -c tsm -n '__fish_seen_subcommand_from create-or-switch; and __fish_seen_subcommand_from worktree' -xa '(__tsm_worktrees)'
+complete -c tsm -n '__fish_seen_subcommand_from create-or-switch; and __fish_seen_subcommand_from bookmark' -xa '(__tsm_bookmarks)'
+complete -c tsm -n '__fish_seen_subcommand_from create-or-switch' -xa '-c --no-config -p --prompt-name'
 complete -c tsm -n '__fish_seen_subcommand_from bookmark-remove' -xa '(__tsm_bookmarks)'
 complete -c tsm -n '__fish_seen_subcommand_from bookmark-list' -xa '-f --fzf'
 complete -c tsm -n '__fish_seen_subcommand_from bookmark-status' -xa '-s --style -c --current-style'
