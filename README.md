@@ -2,18 +2,32 @@
 
 `tsm` launches tmux sessions at directories. That's its whole job.
 
-One command starts them, and a [picker](#pickers) says where:
+Two commands start them. One takes the directory:
 
 ```bash
-tsm create-or-switch <picker> [-c] [-p] [arg]
+tsm create-or-switch <path> [-c] [-p]
+```
+
+The other takes a [picker](#pickers) -- a program that prints the directory -- and runs it:
+
+```bash
+tsm create-or-switch-exec [-c] [-p] <picker> [args]
 ```
 
 | picker | names |
 |---|---|
 | `dir` | any directory on the filesystem |
 | `git` | a git repository |
+| `git-brief` | a git repository that has something to show |
 | `worktree` | a worktree of the current repository |
 | `bookmark` | a directory bookmarked to a single character |
+
+Those five come with `tsm` and ask with fzf. Anything else `create-or-switch-exec` is given is
+run as a program, so `zoxide query -i` is a picker, and so is a shell script of your own:
+
+```bash
+tsm create-or-switch-exec zoxide query -i
+```
 
 Once a path is named, every session is created or entered the same way:
 
@@ -24,8 +38,8 @@ Once a path is named, every session is created or entered the same way:
 
 So `worktree` is not a different feature from `dir`. A picker names a directory and stops
 there -- no flags, no say in the session that follows -- which is why writing your own is
-worth so little: print a path on stdout, call it `tsm-<name>`, put it on PATH. See
-[Writing a picker](#writing-a-picker).
+worth so little: print a path on stdout. There is no plugin interface to learn and nothing to
+register. See [Writing a picker](#writing-a-picker).
 
 See [Usage](#usage) for the full list of commands, and
 [Session Configuration](#session-configuration) for details on how to customize sessions.
@@ -63,8 +77,8 @@ ln -s ~/git/tmux-session-manager/tsm ~/.local/bin/tsm
 <details>
 <summary><strong style="font-size: 1.25em;">Shell Completions</strong></summary>
 
-Completions cover active session names, directories, worktrees, bookmarks, and sessions with
-logs. Paths below assume the install script's checkout location; substitute your own if you
+Completions cover active session names, directories, the built-in picker names, bookmarks, and
+sessions with logs. Paths below assume the install script's checkout location; substitute your own if you
 cloned elsewhere.
 
 **Bash**: add to `~/.bashrc`:
@@ -99,14 +113,16 @@ bind-key X run-shell "tsm kill #{session_name}"   # kill current session (runs i
 bind-key l run-shell "tsm last"      # most recent session still open
 
 # Directory based sessions
-bind-key d popup -E "tsm create-or-switch dir"       # directory picker
-bind-key g popup -E "tsm create-or-switch git"       # git repository picker
-bind-key w popup -E "tsm create-or-switch worktree"  # worktree picker
-bind-key b popup -E "tsm create-or-switch bookmark"  # bookmark picker
+bind-key d popup -E "tsm create-or-switch-exec dir"        # directory picker
+bind-key g popup -E "tsm create-or-switch-exec git"        # git repository picker
+bind-key G popup -E "tsm create-or-switch-exec git-brief"  # repositories with changes
+bind-key w popup -E "tsm create-or-switch-exec worktree"   # worktree picker
+bind-key b popup -E "tsm create-or-switch-exec bookmark"   # bookmark picker
+bind-key z popup -E "tsm create-or-switch-exec zoxide query -i"  # anything that prints a path
 
 # Bookmarking
 bind-key m command-prompt -1 -p "Set bookmark:"    "run-shell -b \"tsm bookmark-add '%%%'\""
-bind-key \' command-prompt -1 -p "Jump to bookmark:"    "run-shell -b \"tsm create-or-switch bookmark '%%%'\""
+bind-key \' command-prompt -1 -p "Jump to bookmark:"    "run-shell -b \"tsm create-or-switch-exec tsm bookmark-path '%%%'\""
 bind-key M command-prompt -1 -p "Remove bookmark:" "run-shell -b \"tsm bookmark-remove '%%%'\""
 
 # Session logs
@@ -138,7 +154,7 @@ bind-key m command-prompt -1 -p "Set bookmark:" "run-shell -b \"tsm bookmark-add
 > | **bash** | /etc/profile → (~/.bash_profile OR ~/.bash_login OR ~/.profile) | ~/.bashrc | $BASH_ENV only (if set) |
 >
 > Fallback: use `tsm`'s full path in the bindings, e.g.
-> `bind-key d popup -E "~/.local/share/tmux-session-manager/tsm create-or-switch dir"`.
+> `bind-key d popup -E "~/.local/share/tmux-session-manager/tsm create-or-switch-exec dir"`.
 >
 > If you set a custom `TSM_DIRS_CMD`, define it in the same file as your PATH (e.g. `~/.zshenv`),
 > or the `dir` picker will show different lists inside and outside tmux popups.
@@ -155,31 +171,42 @@ tsm active [session]                 # Switch to an existing session
 tsm kill [session]                   # Kill session (runs its kill hook if present)
 tsm last                             # Switch to the most recent session that is still open
 
-tsm create-or-switch <picker> [-c] [-p] [arg]
-                                     # Start a session at the directory <picker> names, or
-                                     # switch to the session already open there
+tsm create-or-switch <path> [-c] [-p]
+                                     # Start a session at a directory, or switch to the
+                                     # session already open there
+
+tsm create-or-switch-exec [-c] [-p] <picker> [args]
+                                     # The same, at the directory <picker> prints
 
   -c, --no-config                    # Ignore any configuration claiming the picked path
   -p, --prompt-name                  # Prompt for the session name instead of using the default
 
 tsm bookmark-add <char> [path]       # Bookmark a directory (path defaults to the current directory)
 tsm bookmark-remove <char>           # Remove a bookmark
+tsm bookmark-path <char>             # Print the directory a bookmark points at
 tsm bookmark-status [path]           # Bookmarks of the open sessions, for a tmux status line
 
 tsm match [path]                     # Configurations claiming a path, best first (defaults to the current directory)
 tsm logs [session]                   # Browse session logs
-
-tsm <name> [args]                    # Run tsm-<name> from PATH, as git does for its own external commands
 ```
 
-The pickers `create-or-switch` takes, each with the argument that skips its fzf:
+The built-in pickers `create-or-switch-exec` recognises by name. Each asks with fzf and takes
+no arguments of its own:
 
 ```bash
-dir [path]                           # Any directory, with fzf, or the path given
-git [path]                           # A git repository, with fzf, or the path given
-worktree [name]                      # A worktree of this repository, with fzf, or the one named
-bookmark [char]                      # A bookmarked directory, with fzf, or the one keyed to char
-<name>                               # tsm-<name> from PATH (see Writing a picker)
+dir                                  # Any directory
+git                                  # A git repository
+git-brief                            # A git repository that has something to show
+worktree                             # A worktree of this repository
+bookmark                             # A bookmarked directory
+```
+
+Anything else is run as a program (see [Writing a picker](#writing-a-picker)):
+
+```bash
+tsm create-or-switch-exec zoxide query -i
+tsm create-or-switch-exec tsm bookmark-path m
+tsm create-or-switch-exec ~/bin/my-picker --since yesterday
 ```
 
 <a id="directory-pickers"></a>
@@ -187,9 +214,10 @@ bookmark [char]                      # A bookmarked directory, with fzf, or the 
 ## Pickers
 
 A picker names a directory. That is all it does: it takes none of the session flags, decides
-nothing about the session that follows, and answers with one path. `create-or-switch` does
-everything else, so the rules below hold whichever picker produced the path -- the four built
-in, or one you wrote.
+nothing about the session that follows, and answers with one path. `create-or-switch-exec` does
+everything else, so the rules below hold whichever picker produced the path -- the five built
+in, or one you wrote. They hold for `tsm create-or-switch <path>` too, which is the same thing
+with the picking already done.
 
 A picked directory becomes a session by the same three rules:
 
@@ -202,8 +230,8 @@ The first check is about the path, not the name: `tsm` records the directory a s
 started at on the session itself (`@tsm_path`), so picking a directory you already have open
 returns to that session, even if it has been renamed.
 
-The flags belong to `create-or-switch`, not to the picker, so they mean the same thing behind
-every one of them:
+The flags belong to `create-or-switch-exec`, not to the picker, so they mean the same thing
+behind every one of them:
 
 - `-c`, `--no-config`: ignore the configuration claiming the directory (both its `name` and its
   `start`), leaving a bare session named after the directory.
@@ -211,9 +239,11 @@ every one of them:
   produced, so enter accepts it and anything typed replaces it. When the path already has a
   session, `-p` has nothing to name and simply switches to it.
 
-Anything that is not a flag is handed to the picker. All four built-in ones take an argument
-that skips the fzf: a path for `dir` and `git`, a worktree name for `worktree`, a bookmark
-character for `bookmark`.
+The flags come first, before the picker: everything from the picker's name onwards is the
+picker's own, and `-i` in `tsm create-or-switch-exec zoxide query -i` belongs to `zoxide`. The
+five built-in pickers take no arguments at all -- they open their fzf and that is the whole of
+it. To go straight to a directory you already know, `tsm create-or-switch <path>` is the
+command that skips the picking entirely.
 
 ### Session names
 
@@ -236,7 +266,7 @@ names land on the same string (`~/code/api` and `~/work/api` are both `api`) are
 than silently merged, and you are asked for a name:
 
 ```
-$ tsm create-or-switch dir ~/work/api
+$ tsm create-or-switch ~/work/api
 Session name collision
   name              api
   new session at    /home/you/work/api
@@ -274,12 +304,63 @@ export TSM_GIT_DIRS_CMD='find "$HOME/code" -maxdepth 4 -name ".git" 2>/dev/null 
 
 It lists paths and nothing else, so it appears immediately. [`git-brief`](#tsm-git-brief) is
 the same picker narrowed to the repositories that have changed, with a git status brief beside
-each; it is a separate picker rather than a flag on this one.
-
-Its argument is a path, the same one `dir` takes; the two pickers differ only in what they
-list.
+each; it is a separate picker rather than a flag on this one, because fetching every repository
+is a different thing to ask for.
 
 ![Launch Git Sessions](docs/git_picker.gif)
+
+<a id="tsm-git-brief"></a>
+
+### `git-brief`
+
+The `git` picker, narrowed to the repositories that have something to show and annotated with
+what it is: branch, ahead/behind counts, and the size of the working diff.
+
+```bash
+tsm create-or-switch-exec git-brief
+```
+
+A repository earns a row by having **commits waiting upstream**, **commits not yet pushed**, or
+**uncommitted work** -- staged, unstaged or untracked. One that is level with its upstream and
+clean is left out: there is nothing there to go and look at, which is the only reason to open
+this picker. The fzf header says how many of the repositories checked made the list, so a short
+list is distinguishable from a broken search:
+
+```
+:: 3 of 41 repositories have changes
+```
+
+Each row reads `branch ↑ahead ↓behind +added -removed ?untracked`, and a field appears only when
+it is non-zero:
+
+| field | |
+|---|---|
+| `↑2` | two commits not yet pushed |
+| `↓5` | five commits waiting on the upstream |
+| `+31 -4` | lines added and removed since the last commit, staged and unstaged counted together |
+| `?3` | three untracked entries; a new directory counts once, and ignored files never |
+
+When nothing has changed it says so and exits rather than opening an empty picker.
+
+The one state it cannot judge is a branch with **no upstream**: there is nothing to measure
+"unpushed" against, so such a repository is listed only when it has uncommitted work of its own.
+
+Every repository is fetched before it is inspected, so the ahead/behind counts are current --
+that is the point of asking for a brief. It is also what makes this picker slower to appear than
+`git`, which is there for when you just want the list.
+
+Having no arguments, it reads its options from the environment:
+
+| variable | |
+|---|---|
+| `TSM_GIT_DIRS_CMD` | the repositories to check; the same variable the built-in `git` picker reads |
+| `TSM_GIT_FETCH_JOBS` | how many repositories are fetched and inspected at once (default 8) |
+
+Each job opens a remote connection for its fetch, so lower `TSM_GIT_FETCH_JOBS` if your
+connection is metered.
+
+Its source is `pick_git_brief` in [`lib/pickers.sh`](lib/pickers.sh); copy it as the starting
+point for a picker of your own.
 
 <a id="git-worktrees"></a>
 
@@ -297,15 +378,20 @@ inside a git repo.
 A bookmark maps one printable character to one directory, the way vim marks do. They are for the
 handful of directories you return to constantly.
 
-With no character it lists them in fzf, where `ctrl-x` removes the one under the cursor. With
-one, `tsm create-or-switch bookmark m` goes straight to a session at whatever `m` bookmarks --
-the same "the argument skips the fzf" the other pickers have.
+The `bookmark` picker lists them in fzf, where `ctrl-x` removes the one under the cursor. To go
+straight to one without the fzf, `tsm bookmark-path m` prints the directory `m` bookmarks --
+which makes it a picker in its own right:
+
+```bash
+tsm create-or-switch-exec tsm bookmark-path m
+```
 
 | command | description |
 |---------|-------------|
-| `tsm create-or-switch bookmark [char] [-c] [-p]` | Start a session at a bookmarked directory |
+| `tsm create-or-switch-exec [-c] [-p] bookmark` | Start a session at a bookmarked directory |
 | `tsm bookmark-add <char> [path]` | Bookmark a directory (default: the current directory) |
 | `tsm bookmark-remove <char>` | Remove the bookmark |
+| `tsm bookmark-path <char>` | Print the directory the bookmark points at |
 | `tsm bookmark-status [path]` | The open sessions' bookmarks, for a tmux status line |
 
 Bookmarking a character that is already set replaces it.
@@ -342,97 +428,80 @@ set-hook -g session-closed 'run-shell -b "tsm _refresh-status"'
 
 Switching sessions, and setting or removing bookmarks, refresh the line on their own.
 
-<a id="external-commands"></a>
-
 ## Writing a picker
 
 A picker names a directory: it prints one path on stdout, says anything else on stderr, and
 stops. It never sees `-c` or `-p`, never decides whether to create or switch, and never touches
-the configuration that claims the path -- `create-or-switch` does all of that behind every
+the configuration that claims the path -- `create-or-switch-exec` does all of that behind every
 picker equally. Printing nothing and exiting 0 is how it backs out; a non-zero exit is passed
 on.
 
-Anything on your PATH called `tsm-<name>` is one, the way git finds its own external commands.
-So a picker is an ordinary program in any language:
+That is the entire contract, so a picker is any executable, in any language, anywhere:
 
 ```sh
 #!/bin/sh
-# tsm-recent: the most recently touched repository under ~/code
+# ~/.local/bin/recent-repo: the most recently touched repository under ~/code
 ls -dt ~/code/*/ | head -n 1
 ```
 
 ```bash
-chmod +x ~/.local/bin/tsm-recent
-tsm create-or-switch recent -p
+chmod +x ~/.local/bin/recent-repo
+tsm create-or-switch-exec -p recent-repo
 ```
 
-Two things follow from the contract being this small. `tsm create-or-switch <name>` works for
-your picker exactly as it does for `dir`, flags included, because the flags were never the
-picker's business. And `tsm <name>` runs `tsm-<name>` on its own -- printing the path and doing
-nothing with it -- which is how you check what a picker answers.
-
-Whatever arguments follow the picker's name are its own; `tsm` only takes the flags out first.
-The built-in four each name one thing and reject a second argument, but that is their rule, not
-the contract's. `tsm` also exports `TSM` before running an external command: the path `tsm` was
-itself reached by, so a program that wants to call back into it does not have to hope PATH looks
-the same where it runs (inside a tmux popup, say).
-
-`tsm help` lists the pickers it can find, and the shell completions offer them.
-
-<a id="tsm-git-brief"></a>
-
-### `git-brief`
-
-The repository picker, narrowed to the repositories that have something to show and annotated
-with what it is: branch, ahead/behind counts, and the size of the working diff. It is the worked
-example, and it is **not** installed by `install.sh` -- symlink it onto your PATH to turn it on:
+There is nothing to install and no naming convention to follow: `create-or-switch-exec` looks
+its argument up the way a shell would, so a name on PATH, a relative path and an absolute path
+all work. Programs you did not write are pickers too, as long as they print a directory:
 
 ```bash
-ln -s ~/.local/share/tmux-session-manager/contrib/tsm-git-brief ~/.local/bin/tsm-git-brief
-tsm create-or-switch git-brief
+tsm create-or-switch-exec zoxide query -i
+tsm create-or-switch-exec tsm bookmark-path m
 ```
 
-A repository earns a row by having **commits waiting upstream**, **commits not yet pushed**, or
-**uncommitted work** -- staged, unstaged or untracked. One that is level with its upstream and
-clean is left out: there is nothing there to go and look at, which is the only reason to open
-this picker. The fzf header says how many of the repositories checked made the list, so a short
-list is distinguishable from a broken search:
+Everything after the picker's name is handed to the picker, so `tsm` takes its own flags out
+first -- they come before the picker, and `-i` above is `zoxide`'s. The five built-in pickers
+take no arguments at all, but that is their rule, not the contract's.
 
+### A pipeline, without writing a file
+
+`create-or-switch-exec` runs its argument directly rather than through a shell, so a pipeline
+cannot be handed to it as one string. Passing the shell itself is how you inline one:
+
+```bash
+tsm create-or-switch-exec sh -c 'find . -type d | fzf'
 ```
-:: 3 of 41 repositories have changes
+
+`sh` is the picker and the pipeline is its argument, which is all the contract asks for: the
+path fzf selects is what `sh` prints. Bound in `~/.tmux.conf`, with the quotes nested:
+
+```tmux
+bind-key f popup -E "tsm create-or-switch-exec sh -c 'find . -type d | fzf'"
 ```
 
-Each row reads `branch ↑ahead ↓behind +added -removed ?untracked`, and a field appears only when
-it is non-zero:
+The flags still come before the picker -- `tsm create-or-switch-exec -p sh -c '...'`. The `-c`
+after `sh` reaches `sh`, not `tsm`, even though `-c` is also `--no-config`; position is the only
+thing separating them.
 
-| field | |
-|---|---|
-| `↑2` | two commits not yet pushed |
-| `↓5` | five commits waiting on the upstream |
-| `+31 -4` | lines added and removed since the last commit, staged and unstaged counted together |
-| `?3` | three untracked entries; a new directory counts once, and ignored files never |
+One thing to watch: `find .` searches the directory `tsm` was run from, which under `popup -E`
+is the current pane's. That is useful when you mean "somewhere below here" and surprising when
+you don't, so give it an absolute root (`find ~/code -type d`) if the binding should list the
+same thing wherever you press it.
 
-When nothing has changed it says so and exits rather than opening an empty picker.
+Past a one-liner, put it in a file instead. It costs nothing now that a picker is just a
+program, and it is easier to quote.
 
-The one state it cannot judge is a branch with **no upstream**: there is nothing to measure
-"unpushed" against, so such a repository is listed only when it has uncommitted work of its own.
+### Checking a picker
 
-Every repository is fetched before it is inspected, so the ahead/behind counts are current --
-that is the point of asking for a brief. It is also what makes this picker slower to appear than
-`git`, which is there for when you just want the list.
+To see what a picker answers, run it. It is a program, so there is nothing tsm-specific to
+learn:
 
-Having no flags, it reads its options from the environment:
+```bash
+recent-repo
+sh -c 'find . -type d | fzf'
+```
 
-| variable | |
-|---|---|
-| `TSM_GIT_DIRS_CMD` | the repositories to check; the same variable the built-in `git` picker reads |
-| `TSM_GIT_FETCH_JOBS` | how many repositories are fetched and inspected at once (default 8) |
-
-Each job opens a remote connection for its fetch, so lower `TSM_GIT_FETCH_JOBS` if your
-connection is metered.
-
-Its source is [`contrib/tsm-git-brief`](contrib/tsm-git-brief); copy it as the starting point
-for a picker of your own.
+The built-in pickers live in [`lib/pickers.sh`](lib/pickers.sh) and follow the same contract,
+one `PICKED_DIR` at a time; `pick_git_brief` is the fullest example.
 
 ## Session Configuration
 

@@ -10,6 +10,41 @@ mkdir -p "$CONFIG_DIR" "$LOG_DIR"
 TSM_DIRS_CMD_DEFAULT='find "$HOME" -maxdepth 4 -name ".*" -prune -o -type d \( -exec test -e {}/.git \; -print -prune -o -print \)'
 TSM_GIT_DIRS_CMD_DEFAULT='find "$HOME" -maxdepth 4 -name ".*" -prune -o -type d -exec test -e {}/.git \; -print -prune 2>/dev/null'
 
+tsm_source_dir() {
+  # The directory tsm itself lives in, with any symlinks followed: tsm is
+  # normally installed as a symlink on PATH, and the pickers it sources sit
+  # beside the real file rather than beside the link.
+  local src="$0" dir
+
+  case "$src" in
+    */*) ;;
+    *) src=$(command -v -- "$src" 2>/dev/null) || src="$0" ;;
+  esac
+
+  while [ -L "$src" ]; do
+    dir=$(cd -P "$(dirname -- "$src")" && pwd)
+    src=$(readlink -- "$src")
+
+    # A relative link is relative to the directory the link is in.
+    case "$src" in
+      /*) ;;
+      *) src="$dir/$src" ;;
+    esac
+  done
+
+  cd -P "$(dirname -- "$src")" && pwd
+}
+
+TSM_SOURCE_DIR=$(tsm_source_dir)
+
+# The pickers live in a file of their own: they are the one part of tsm that
+# is about choosing a directory rather than about the session that follows.
+# shellcheck source=lib/pickers.sh
+if ! . "$TSM_SOURCE_DIR/lib/pickers.sh"; then
+  echo "tsm: could not read $TSM_SOURCE_DIR/lib/pickers.sh" >&2
+  exit 1
+fi
+
 usage() {
   cat <<'EOF'
 Tmux Session Manager
@@ -20,15 +55,19 @@ Usage
   tsm kill [session]                       # Kill session (runs its kill hook if present)
   tsm last                                 # Switch to the most recent session that is still open
 
-  tsm create-or-switch <picker> [-c] [-p] [arg]
-                                           # Start a session at the directory <picker> names, or
-                                           # switch to the session already open there
+  tsm create-or-switch <path> [-c] [-p]    # Start a session at a directory, or switch to the
+                                           # session already open there
+
+  tsm create-or-switch-exec [-c] [-p] <picker> [args]
+                                           # The same, at the directory <picker> prints. <picker> is
+                                           # a built-in name below or any program that prints a path
 
     -c, --no-config                        # Ignore any configuration claiming the picked path
     -p, --prompt-name                      # Prompt for the session name instead of using the default
 
   tsm bookmark-add <char> [path]           # Bookmark a directory (path defaults to the current directory)
   tsm bookmark-remove <char>               # Remove a bookmark
+  tsm bookmark-path <char>                 # Print the directory a bookmark points at
   tsm bookmark-status [path]               # Bookmarks of the open sessions, for a tmux status line (-s, -c set its styles)
 
   tsm match [path]                         # Configurations claiming a path, best first (defaults to the current directory)
@@ -36,31 +75,21 @@ Usage
 
   tsm help                                 # Show help message
 
-  tsm <name> [args]                        # Run tsm-<name> from PATH, as git does for its own external commands
-
 Pickers
   A picker names a directory and nothing else: it takes none of the flags
   above, decides nothing about the session, and prints one path on stdout.
-  Anything on PATH called tsm-<name> is one.
+  These are the built-in ones; anything else create-or-switch-exec is given
+  is run as a program, so `zoxide query -i` or a script of your own is a
+  picker too.
 
-  dir [path]                               # Any directory, with fzf, or the path given
-  git [path]                               # A git repository, with fzf, or the path given
-  worktree [name]                          # A worktree of this repository, with fzf, or the one named
-  bookmark [char]                          # A bookmarked directory, with fzf, or the one keyed to char
+  dir                                      # Any directory, with fzf
+  git                                      # A git repository, with fzf
+  git-brief                                # A git repository with something to show, with fzf
+  worktree                                 # A worktree of this repository, with fzf
+  bookmark                                 # A bookmarked directory, with fzf
+
+See https://github.com/ryanburda/tmux-session-manager for more documentation
 EOF
-
-  # The tsm-* pickers that are actually installed, so `tsm help` says what
-  # this machine can pick with.
-  local externals name
-  externals=$(external_commands)
-
-  if [ -n "$externals" ]; then
-    while IFS= read -r name; do
-      [ -n "$name" ] && printf '  %-40s # tsm-%s\n' "$name" "$name"
-    done <<< "$externals"
-  fi
-
-  printf '\nSee https://github.com/ryanburda/tmux-session-manager for more documentation\n'
 }
 
 ####################
@@ -242,27 +271,6 @@ expand_short_flags() {
       *) EXPANDED_ARGS+=("$arg") ;;
     esac
   done
-}
-
-external_commands() {
-  # Names of the tsm-* programs on PATH, one per line and without the prefix:
-  # exactly the names `tsm <name>` will find. Anything executable and named
-  # tsm-<name> is one, the same rule git uses for its own external commands.
-  local dir file base
-  local IFS=:
-
-  for dir in $PATH; do
-    # An empty PATH entry means the current directory, as it does everywhere.
-    [ -n "$dir" ] || dir=.
-
-    # With no match the glob yields the pattern itself, which the tests below
-    # then reject; nullglob is not assumed to be set.
-    for file in "$dir"/tsm-*; do
-      [ -f "$file" ] && [ -x "$file" ] || continue
-      base="${file##*/}"
-      printf '%s\n' "${base#tsm-}"
-    done
-  done | LC_ALL=C sort -u
 }
 
 default_session_name() {
@@ -808,237 +816,6 @@ match_configs() {
   printf '%s\n' "$ranked"
 }
 
-########################################################
-# pickers: everything whose job is to name a directory #
-########################################################
-pickers() {
-  # The picker names `tsm create-or-switch` takes: the four built in, then
-  # every tsm-* program on PATH.
-  printf '%s\n' dir git worktree bookmark
-  external_commands
-}
-
-run_picker() {
-  # Set PICKED_DIR to the directory a picker names. Returns non-zero when
-  # nothing was picked and there is nothing left to do.
-  #
-  # Naming a directory is a picker's whole job: it takes none of the session
-  # flags, decides nothing about the session, and answers with one path. The
-  # four built in are shell functions; any other name is looked for on PATH
-  # as tsm-<name>, which is what makes a picker of your own an ordinary
-  # program -- it prints a directory on stdout and says the rest on stderr.
-  #
-  # Args:
-  #   $1: picker: dir, git, worktree, bookmark, or an external picker's name
-  #   $@: the picker's own arguments, whatever it makes of them
-  local picker="$1"
-  shift
-
-  PICKED_DIR=""
-
-  case "$picker" in
-    dir | git | worktree | bookmark)
-      # A built-in picker names one thing, so a second argument is a typo.
-      # Dropping it silently would start a session somewhere that was not
-      # asked for; what an external picker makes of its arguments is its own
-      # business.
-      if [ $# -gt 1 ]; then
-        notify "Error: the '$picker' picker takes at most one argument"
-        exit 1
-      fi
-
-      # The case above is the whitelist, so this only ever names one of the
-      # four pick_* functions below.
-      "pick_$picker" "$@"
-      ;;
-    *)
-      local external
-      external=$(command -v -- "tsm-$picker" 2>/dev/null)
-
-      if [ -z "$external" ]; then
-        notify "Error: No picker '$picker'; tsm-$picker is not on PATH"
-        exit 1
-      fi
-
-      # Stdout is the answer, so a status is all an external picker has left
-      # to fail with; it is passed on rather than turned into a session at
-      # nowhere. Printing nothing and succeeding is how it backs out.
-      PICKED_DIR=$("$external" "$@") || exit $?
-
-      [ -n "$PICKED_DIR" ]
-      ;;
-  esac
-}
-
-pick_dir() {
-  # Any directory: $1 when one was given, otherwise one chosen with fzf from
-  # TSM_DIRS_CMD.
-  #
-  # Args:
-  #   $1: path: a directory, or empty to open the picker
-  local target="$1"
-
-  if [ -n "$target" ]; then
-    PICKED_DIR="$target"
-    return 0
-  fi
-
-  # The process substitution lets the directory generator be killed once fzf
-  # exits, rather than run out to the end of the tree.
-  local dirs_cmd="${TSM_DIRS_CMD:-$TSM_DIRS_CMD_DEFAULT}"
-
-  exec 3< <(eval "$dirs_cmd")
-  local dirs_pid=$!
-  PICKED_DIR=$(fzf --cycle --prompt "Directory > " <&3)
-  kill "$dirs_pid" 2>/dev/null
-  wait "$dirs_pid" 2>/dev/null
-  exec 3<&-
-
-  [ -n "$PICKED_DIR" ]
-}
-
-pick_git() {
-  # A git repository: $1 when one was given, otherwise one chosen with fzf
-  # from TSM_GIT_DIRS_CMD. The argument is a path, as `dir` takes -- the two
-  # differ only in what they list.
-  #
-  # Args:
-  #   $1: path: a repository directory, or empty to open the picker
-  local target="$1"
-
-  if [ -n "$target" ]; then
-    PICKED_DIR="$target"
-    return 0
-  fi
-
-  local git_dirs_cmd="${TSM_GIT_DIRS_CMD:-$TSM_GIT_DIRS_CMD_DEFAULT}"
-
-  local dirs
-  dirs=$(eval "$git_dirs_cmd" | sort)
-
-  if [ -z "$dirs" ]; then
-    notify "No git repositories found"
-    exit 1
-  fi
-
-  PICKED_DIR=$(printf '%s\n' "$dirs" | fzf --cycle --prompt "Repo > ")
-
-  [ -n "$PICKED_DIR" ]
-}
-
-pick_worktree() {
-  # Set PICKED_DIR to a worktree of the current repository: the one whose
-  # directory is named $1, or one chosen with fzf. Returns non-zero when the
-  # picker was backed out of.
-  #
-  # Args:
-  #   $1: name: a worktree directory name, or empty to open the picker
-  local name="$1"
-
-  local worktree_data
-  worktree_data=$(git worktree list --porcelain 2>/dev/null | awk '
-    /^worktree / { path = substr($0, 10); branch = "" }
-    /^branch / { branch = substr($0, 8); sub("refs/heads/", "", branch) }
-    /^bare$/ { path = "" }
-    /^$/ { if (path != "") print path "\t" (branch != "" ? branch : "(detached)"); path = ""; branch = "" }
-    END { if (path != "") print path "\t" (branch != "" ? branch : "(detached)") }
-  ')
-
-  if [ -z "$worktree_data" ]; then
-    notify "No worktrees found"
-    exit 1
-  fi
-
-  if [ -n "$name" ]; then
-    PICKED_DIR=$(echo "$worktree_data" | while IFS=$'\t' read -r wt _; do
-      if [ "${wt##*/}" = "$name" ]; then
-        echo "$wt"
-        break
-      fi
-    done)
-
-    if [ -z "$PICKED_DIR" ]; then
-      notify "No worktree found matching '$name'"
-      exit 1
-    fi
-
-    return 0
-  fi
-
-  # Header labels are measured alongside the values so short columns still
-  # widen to fit them. fzf indents --header by the two columns its pointer
-  # takes, so the header lines up with the rows on its own.
-  local name_label='wt' branch_label='branch'
-  local fzf_input header max_name=${#name_label} max_branch=${#branch_label}
-  while IFS=$'\t' read -r wt branch; do
-    local wt_name="${wt##*/}"
-    (( ${#wt_name} > max_name )) && max_name=${#wt_name}
-    (( ${#branch} > max_branch )) && max_branch=${#branch}
-  done <<< "$worktree_data"
-  fzf_input=$(echo "$worktree_data" | while IFS=$'\t' read -r wt branch; do
-    printf '%s\t%-*s  \033[32m%-*s\033[0m  %s\n' "$wt" "$max_name" "${wt##*/}" "$max_branch" "$branch" "$wt"
-  done)
-  header=$(printf '%-*s  %-*s  %s' "$max_name" "$name_label" "$max_branch" "$branch_label" 'path')
-
-  local selected
-  selected=$(echo "$fzf_input" | fzf --ansi --cycle --with-nth=2 --delimiter=$'\t' --prompt "Worktree > " --header "$header")
-
-  PICKED_DIR="${selected%%	*}"
-
-  [ -n "$PICKED_DIR" ]
-}
-
-pick_bookmark() {
-  # The directory a bookmark points at: the one keyed to $1 when a character
-  # was given, otherwise one chosen with fzf. Like every other picker, the
-  # argument is only there to skip the fzf.
-  #
-  # Args:
-  #   $1: char: a bookmark character, or empty to open the picker
-  local char="$1"
-
-  if [ -n "$char" ]; then
-    check_bookmark_char "$char"
-
-    if ! PICKED_DIR=$(bookmark_directory "$char"); then
-      notify "Error: No bookmark '$char'"
-      exit 1
-    fi
-
-    return 0
-  fi
-
-  local entries
-  entries=$(bookmark_entries)
-
-  if [ -z "$entries" ]; then
-    notify "No bookmarks set"
-    exit 1
-  fi
-
-  # ctrl-x removes the bookmark under the cursor, then rebuilds the list from
-  # disk. fzf hands a binding to a shell, so tsm's path is quoted for one;
-  # fzf itself quotes {1}.
-  local self
-  printf -v self '%q' "$(tsm_self)"
-
-  local selected
-  selected=$(printf '%s\n' "$entries" | fzf \
-    --cycle \
-    --delimiter=$'\t' \
-    --with-nth=3 \
-    --prompt "Bookmark > " \
-    --header $':: \e[33mctrl-x\e[0m to \e[31mremove\e[0m' \
-    --bind "ctrl-x:execute-silent($self bookmark-remove {1})+reload($self _bookmark-entries)")
-
-  [ -n "$selected" ] || return 1
-
-  # The row carries the directory in its second field, so the session is
-  # rooted at the bookmarked path rather than the ~ the row displayed.
-  local row="${selected#*$'\t'}"
-  PICKED_DIR="${row%%$'\t'*}"
-}
-
 ###################################################
 # the session: the one thing every picker ends in #
 ###################################################
@@ -1158,28 +935,14 @@ session_at() {
 }
 
 create_or_switch() {
-  # Start a session at the directory a picker names, or switch to the session
-  # already open there:
+  # Start a session at a directory, or switch to the session already open
+  # there:
   #
-  #   tsm create-or-switch <picker> [-c] [-p] [picker args]
+  #   tsm create-or-switch <path> [-c] [-p]
   #
-  # The only place a session is made. The flags are parsed here because they
-  # are about the session rather than about the picking, so they mean the
-  # same thing behind every picker, one you wrote included.
-  local picker="$1"
-  shift
-
-  # The picker comes first, before the flags: it says what the flags are
-  # being applied to, and a flag in its place is the easy way to get that
-  # backwards.
-  case "$picker" in
-    '' | -*)
-      notify "Error: 'tsm create-or-switch' takes a picker first: $(pickers | tr '\n' ' ')"
-      exit 1
-      ;;
-  esac
-
-  local session_flags=() picker_args=() arg
+  # A path and nothing else. `create-or-switch-exec` is the same thing behind
+  # a program that prints the path instead.
+  local session_flags=() paths=() arg
   expand_short_flags "$@"
   for arg in "${EXPANDED_ARGS[@]}"; do
     case "$arg" in
@@ -1189,11 +952,60 @@ create_or_switch() {
         notify "Error: Unknown option '$arg' for 'tsm create-or-switch'"
         exit 1
         ;;
-      *) picker_args+=("$arg") ;;
+      *) paths+=("$arg") ;;
     esac
   done
 
-  run_picker "$picker" ${picker_args+"${picker_args[@]}"} || exit 0
+  if [ "${#paths[@]}" -ne 1 ]; then
+    notify "Error: 'tsm create-or-switch' takes one directory"
+    exit 1
+  fi
+
+  session_at "${paths[0]}" ${session_flags+"${session_flags[@]}"}
+}
+
+create_or_switch_exec() {
+  # Start a session at the directory a picker prints, or switch to the
+  # session already open there:
+  #
+  #   tsm create-or-switch-exec [-c] [-p] <picker> [picker args]
+  #
+  # The picker is a built-in name or any program that prints a path; the
+  # arguments after it are the program's own, so the session flags have to
+  # come first -- `-i` in `zoxide query -i` belongs to zoxide, not to tsm,
+  # and there is no way to tell them apart after the fact.
+  #
+  # Only the arguments before the picker are expanded and read as flags: the
+  # ones after it belong to the program, where -la is its own business and
+  # not two flags of tsm's.
+  local session_flags=() arg
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --) shift; break ;;
+      -[!-]* | --*) ;;
+      *) break ;;
+    esac
+
+    expand_short_flags "$1"
+    for arg in "${EXPANDED_ARGS[@]}"; do
+      case "$arg" in
+        -c | --no-config) session_flags+=(--no-config) ;;
+        -p | --prompt-name) session_flags+=(--prompt-name) ;;
+        *)
+          notify "Error: Unknown option '$arg' for 'tsm create-or-switch-exec'"
+          exit 1
+          ;;
+      esac
+    done
+    shift
+  done
+
+  if [ $# -eq 0 ]; then
+    notify "Error: 'tsm create-or-switch-exec' takes a picker: $(pickers | tr '\n' ' ')or any program that prints a path"
+    exit 1
+  fi
+
+  run_picker "$@" || exit 0
 
   session_at "$PICKED_DIR" ${session_flags+"${session_flags[@]}"}
 }
@@ -1277,6 +1089,30 @@ bookmark_remove() {
   refresh_status
 
   notify "Bookmark removed: $char"
+}
+
+bookmark_path() {
+  # Print the directory a bookmark points at. A picker in its own right: it
+  # names a directory and nothing else, so
+  #
+  #   tsm create-or-switch-exec tsm bookmark-path m
+  #
+  # goes straight to a session at whatever m bookmarks, skipping the fzf the
+  # `bookmark` picker opens.
+  #
+  # Args:
+  #   $1: char: the bookmark character to look up
+  local char="$1"
+
+  check_bookmark_char "$char"
+
+  local dir
+  if ! dir=$(bookmark_directory "$char"); then
+    notify "Error: No bookmark '$char'"
+    exit 1
+  fi
+
+  printf '%s\n' "$dir"
 }
 
 bookmark_status() {
@@ -1419,11 +1255,17 @@ case "$command" in
   create-or-switch)
     create_or_switch "$@"
     ;;
+  create-or-switch-exec)
+    create_or_switch_exec "$@"
+    ;;
   bookmark-add)
     bookmark_add "$1" "$2"
     ;;
   bookmark-remove)
     bookmark_remove "$1"
+    ;;
+  bookmark-path)
+    bookmark_path "$1"
     ;;
   bookmark-status)
     bookmark_status "$@"
@@ -1447,30 +1289,15 @@ case "$command" in
     # Internal: rebuilds the bookmark picker's rows for its reload binding.
     bookmark_entries
     ;;
-  _external-commands)
-    # Internal: the tsm-* programs on PATH, for the shell completions.
-    external_commands
-    ;;
   _pickers)
-    # Internal: the picker names create-or-switch takes, for the shell
-    # completions.
+    # Internal: the built-in picker names create-or-switch-exec takes, for
+    # the shell completions.
     pickers
     ;;
   help)
     usage
     ;;
   *)
-    # Not a built-in: look for it on PATH as `tsm-<command>`, the way git
-    # finds its own external commands. Running a picker this way prints the
-    # directory it names and stops there; `tsm create-or-switch <name>` is
-    # what turns that into a session.
-    external=$(command -v -- "tsm-$command" 2>/dev/null)
-    if [ -n "$external" ]; then
-      TSM=$(tsm_self)
-      export TSM
-      exec "$external" "$@"
-    fi
-
     notify "Error: Unknown command '$command'"
     usage
     exit 1

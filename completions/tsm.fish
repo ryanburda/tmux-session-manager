@@ -24,16 +24,6 @@ function __tsm_log_sessions
     end
 end
 
-# Helper function: get worktree names
-function __tsm_worktrees
-    git worktree list --porcelain 2>/dev/null | awk '
-        /^worktree / { path = substr($0, 10) }
-        /^bare$/ { path = "" }
-        /^$/ { if (path != "") { n = split(path, a, "/"); print a[n]; path = "" } }
-        END { if (path != "") { n = split(path, a, "/"); print a[n] } }
-    '
-end
-
 # Helper function: get bookmark characters and their directories
 function __tsm_bookmarks
     # The bookmark picker's own rows: character, directory, then the column
@@ -41,15 +31,20 @@ function __tsm_bookmarks
     tsm _bookmark-entries 2>/dev/null | awk -F'\t' '{ d = $3; sub(/^[^ ]+ +/, "", d); print $1 "\t" d }'
 end
 
-# Helper function: get the tsm-* programs on PATH, which tsm runs as
-# `tsm <name>` when <name> is not one of its own commands
-function __tsm_external_commands
-    tsm _external-commands 2>/dev/null
-end
-
-# Helper function: the picker names create-or-switch takes
+# Helper function: the built-in picker names create-or-switch-exec takes
 function __tsm_pickers
     tsm _pickers 2>/dev/null
+end
+
+# Helper function: true while create-or-switch-exec is still waiting for its
+# picker -- everything after the picker belongs to the program it names, so
+# there is nothing of tsm's left to complete
+function __tsm_needs_picker
+    set -l tokens (commandline -opc)
+    for tok in $tokens[3..-1]
+        string match -q -- '-*' $tok; or return 1
+    end
+    return 0
 end
 
 # Disable file completion by default
@@ -59,25 +54,27 @@ complete -c tsm -f
 complete -c tsm -n '__fish_use_subcommand' -a active -d 'Switch to session'
 complete -c tsm -n '__fish_use_subcommand' -a last -d 'Switch to the most recent session that is still open'
 complete -c tsm -n '__fish_use_subcommand' -a kill -d 'Kill a session'
-complete -c tsm -n '__fish_use_subcommand' -a create-or-switch -d 'Start a session at the directory a picker names'
+complete -c tsm -n '__fish_use_subcommand' -a create-or-switch -d 'Start a session at a directory'
+complete -c tsm -n '__fish_use_subcommand' -a create-or-switch-exec -d 'Start a session at the directory a picker prints'
 complete -c tsm -n '__fish_use_subcommand' -a bookmark-add -d 'Bookmark a directory at a character'
 complete -c tsm -n '__fish_use_subcommand' -a bookmark-remove -d 'Remove a bookmark'
+complete -c tsm -n '__fish_use_subcommand' -a bookmark-path -d 'Print the directory a bookmark points at'
 complete -c tsm -n '__fish_use_subcommand' -a bookmark-status -d 'The open sessions bookmarks, for a tmux status line'
 complete -c tsm -n '__fish_use_subcommand' -a match -d 'Configurations claiming a path, best first'
 complete -c tsm -n '__fish_use_subcommand' -a logs -d 'Browse session logs'
 complete -c tsm -n '__fish_use_subcommand' -a help -d 'Show help message'
-complete -c tsm -n '__fish_use_subcommand' -a '(__tsm_external_commands)' -d 'External command'
 
 # Subcommand arguments
 complete -c tsm -n '__fish_seen_subcommand_from active kill' -xa '(__tsm_active_sessions)'
-# create-or-switch takes a picker first, then the session flags and whatever
-# argument that picker takes
-complete -c tsm -n '__fish_seen_subcommand_from create-or-switch; and not __fish_seen_subcommand_from (__tsm_pickers)' -xa '(__tsm_pickers)'
-complete -c tsm -n '__fish_seen_subcommand_from create-or-switch; and __fish_seen_subcommand_from dir git' -ra '(__fish_complete_directories)'
-complete -c tsm -n '__fish_seen_subcommand_from create-or-switch; and __fish_seen_subcommand_from worktree' -xa '(__tsm_worktrees)'
-complete -c tsm -n '__fish_seen_subcommand_from create-or-switch; and __fish_seen_subcommand_from bookmark' -xa '(__tsm_bookmarks)'
+# create-or-switch takes a directory and the session flags
+complete -c tsm -n '__fish_seen_subcommand_from create-or-switch' -ra '(__fish_complete_directories)'
 complete -c tsm -n '__fish_seen_subcommand_from create-or-switch' -xa '-c --no-config -p --prompt-name'
-complete -c tsm -n '__fish_seen_subcommand_from bookmark-remove' -xa '(__tsm_bookmarks)'
+# create-or-switch-exec takes the session flags first, then a picker: a
+# built-in name or any program that prints a path
+complete -c tsm -n '__fish_seen_subcommand_from create-or-switch-exec; and __tsm_needs_picker' -xa '(__tsm_pickers)' -d 'Built-in picker'
+complete -c tsm -n '__fish_seen_subcommand_from create-or-switch-exec; and __tsm_needs_picker' -xa '-c --no-config -p --prompt-name'
+complete -c tsm -n '__fish_seen_subcommand_from create-or-switch-exec; and __tsm_needs_picker' -xa '(__fish_complete_command)'
+complete -c tsm -n '__fish_seen_subcommand_from bookmark-remove bookmark-path' -xa '(__tsm_bookmarks)'
 complete -c tsm -n '__fish_seen_subcommand_from bookmark-status' -xa '-s --style -c --current-style'
 complete -c tsm -n '__fish_seen_subcommand_from bookmark-add' -ra '(__fish_complete_directories)'
 complete -c tsm -n '__fish_seen_subcommand_from match' -ra '(__fish_complete_directories)'

@@ -3,15 +3,6 @@
 #   source /path/to/tsm.bash
 # Or copy to /etc/bash_completion.d/tsm
 
-_tsm_worktree_names() {
-    git worktree list --porcelain 2>/dev/null | awk '
-        /^worktree / { path = substr($0, 10) }
-        /^bare$/ { path = "" }
-        /^$/ { if (path != "") { n = split(path, a, "/"); print a[n]; path = "" } }
-        END { if (path != "") { n = split(path, a, "/"); print a[n] } }
-    '
-}
-
 _tsm_bookmark_chars() {
     # The bookmark picker's own rows; the character is their first field.
     tsm _bookmark-entries 2>/dev/null | cut -f1
@@ -24,10 +15,7 @@ _tsm_completions() {
     prev="${COMP_WORDS[COMP_CWORD-1]}"
     cmd="${COMP_WORDS[1]}"
 
-    # Available subcommands, plus whatever tsm-* programs are on PATH: tsm
-    # runs `tsm <name>` as `tsm-<name>` when <name> is not one of its own.
-    subcmds="active last kill create-or-switch bookmark-add bookmark-remove bookmark-status match logs help"
-    subcmds="$subcmds $(tsm _external-commands 2>/dev/null)"
+    subcmds="active last kill create-or-switch create-or-switch-exec bookmark-add bookmark-remove bookmark-path bookmark-status match logs help"
 
     # Completing the subcommand itself
     if [ "$COMP_CWORD" -eq 1 ]; then
@@ -43,31 +31,28 @@ _tsm_completions() {
             return 0
             ;;
         create-or-switch)
-            # The picker comes first; everything after it is the session
-            # flags, plus whatever argument that picker takes.
-            if [ "$COMP_CWORD" -eq 2 ]; then
-                COMPREPLY=($(compgen -W "$(tsm _pickers 2>/dev/null)" -- "$cur"))
-                return 0
-            fi
-
+            # A directory and the session flags, in either order.
             flags="-c --no-config -p --prompt-name"
-            case "${COMP_WORDS[2]}" in
-                dir|git)
-                    COMPREPLY=($(compgen -d -W "$flags" -- "$cur"))
-                    ;;
-                worktree)
-                    COMPREPLY=($(compgen -W "$(_tsm_worktree_names) $flags" -- "$cur"))
-                    ;;
-                bookmark)
-                    COMPREPLY=($(compgen -W "$(_tsm_bookmark_chars) $flags" -- "$cur"))
-                    ;;
-                *)
-                    COMPREPLY=($(compgen -W "$flags" -- "$cur"))
-                    ;;
-            esac
+            COMPREPLY=($(compgen -d -W "$flags" -- "$cur"))
             return 0
             ;;
-        bookmark-remove)
+        create-or-switch-exec)
+            # The session flags come first, then the picker: a built-in name,
+            # or any program that prints a path. Everything after the picker
+            # is the program's own, so it is left alone.
+            flags="-c --no-config -p --prompt-name"
+            local i picked=0
+            for (( i = 2; i < COMP_CWORD; i++ )); do
+                case "${COMP_WORDS[i]}" in
+                    -*) ;;
+                    *) picked=1; break ;;
+                esac
+            done
+            [ "$picked" -eq 0 ] &&
+                COMPREPLY=($(compgen -W "$(tsm _pickers 2>/dev/null) $flags" -c -- "$cur"))
+            return 0
+            ;;
+        bookmark-remove|bookmark-path)
             COMPREPLY=($(compgen -W "$(_tsm_bookmark_chars)" -- "$cur"))
             return 0
             ;;

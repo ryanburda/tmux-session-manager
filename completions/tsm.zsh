@@ -23,17 +23,6 @@ _tsm_log_sessions() {
     fi
 }
 
-_tsm_worktrees() {
-    local worktrees
-    worktrees=(${(f)"$(git worktree list --porcelain 2>/dev/null | awk '
-        /^worktree / { path = substr($0, 10) }
-        /^bare$/ { path = "" }
-        /^$/ { if (path != "") { n = split(path, a, "/"); print a[n]; path = "" } }
-        END { if (path != "") { n = split(path, a, "/"); print a[n] } }
-    ')"})
-    _describe 'worktree' worktrees
-}
-
 _tsm_bookmarks() {
     # The bookmark picker's own rows: character, directory, then the column
     # it displays -- which makes a fine completion description.
@@ -43,9 +32,13 @@ _tsm_bookmarks() {
 }
 
 _tsm_pickers() {
+    # The built-in picker names, then anything else executable: create-or-
+    # switch-exec runs whatever it is given that is not a built-in.
     local pickers
     pickers=(${(f)"$(tsm _pickers 2>/dev/null)"})
-    _describe 'picker' pickers
+    _alternative \
+        "pickers:built-in picker:($pickers)" \
+        'commands:program:_command_names -e'
 }
 
 _tsm_commands() {
@@ -53,21 +46,16 @@ _tsm_commands() {
         'active:Switch to session'
         'last:Switch to the most recent session that is still open'
         'kill:Kill a session'
-        'create-or-switch:Start a session at the directory a picker names'
+        'create-or-switch:Start a session at a directory'
+        'create-or-switch-exec:Start a session at the directory a picker prints'
         'bookmark-add:Bookmark a directory at a character'
         'bookmark-remove:Remove a bookmark'
+        'bookmark-path:Print the directory a bookmark points at'
         'bookmark-status:The open sessions bookmarks, for a tmux status line'
         'match:Configurations claiming a path, best first'
         'logs:Browse session logs'
         'help:Show help message'
     )
-
-    # Whatever tsm-* programs are on PATH: tsm runs `tsm <name>` as
-    # `tsm-<name>` when <name> is not one of its own commands.
-    local ext
-    for ext in ${(f)"$(tsm _external-commands 2>/dev/null)"}; do
-        [[ -n "$ext" ]] && commands+=("$ext:External command (tsm-$ext)")
-    done
 
     _describe 'command' commands
 }
@@ -86,35 +74,23 @@ _tsm() {
             _tsm_active_sessions
             ;;
         create-or-switch)
-            # The picker comes first; everything after it is the session
-            # flags, plus whatever argument that picker takes.
-            if (( CURRENT == 2 )); then
-                _tsm_pickers
-                return
-            fi
-
-            case "$line[2]" in
-                dir|git)
-                    _alternative \
-                        'directories:directory:_files -/' \
-                        'options:option:(-c --no-config -p --prompt-name)'
-                    ;;
-                worktree)
-                    _alternative \
-                        'worktrees:worktree:_tsm_worktrees' \
-                        'options:option:(-c --no-config -p --prompt-name)'
-                    ;;
-                bookmark)
-                    _alternative \
-                        'bookmarks:bookmark:_tsm_bookmarks' \
-                        'options:option:(-c --no-config -p --prompt-name)'
-                    ;;
-                *)
-                    _values -s ' ' 'session options' '-c' '--no-config' '-p' '--prompt-name'
-                    ;;
-            esac
+            _alternative \
+                'directories:directory:_files -/' \
+                'options:option:(-c --no-config -p --prompt-name)'
             ;;
-        bookmark-remove)
+        create-or-switch-exec)
+            # The session flags come first, then the picker; everything after
+            # the picker is the program's own and is left alone.
+            local i
+            for (( i = 2; i < CURRENT; i++ )); do
+                [[ "$line[i]" == -* ]] || return
+            done
+
+            _alternative \
+                'pickers:picker:_tsm_pickers' \
+                'options:option:(-c --no-config -p --prompt-name)'
+            ;;
+        bookmark-remove|bookmark-path)
             _tsm_bookmarks
             ;;
         bookmark-status)

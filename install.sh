@@ -25,7 +25,9 @@ command -v tmux > /dev/null 2>&1 || die "tmux is required but was not found on P
 command -v fzf > /dev/null 2>&1 ||
     echo "install.sh: warning: fzf was not found on PATH; the session pickers require it." >&2
 
-# Fetch (or update) the source checkout that the symlinks point at.
+# Fetch (or update) the source checkout that the symlink points at. Only tsm
+# itself is linked: it follows the link to find lib/pickers.sh beside the real
+# file, so the checkout has to stay where it is.
 if [ -d "$TSM_HOME/.git" ]; then
     echo "Updating existing checkout at $TSM_HOME"
     git -C "$TSM_HOME" fetch --quiet origin
@@ -44,6 +46,7 @@ src="$TSM_HOME/tsm"
 dest="$BIN_DIR/tsm"
 
 [ -f "$src" ] || die "expected $src to exist"
+[ -f "$TSM_HOME/lib/pickers.sh" ] || die "expected $TSM_HOME/lib/pickers.sh to exist"
 
 if [ -e "$dest" ] && [ ! -L "$dest" ]; then
     die "$dest exists and is not a symlink; remove it and retry"
@@ -68,6 +71,3 @@ echo
 echo "Done. Run 'tsm help' to see its usage."
 echo "Shell completions are not installed by this script; see the Shell Completions"
 echo "section of $TSM_HOME/README.md for the one-liner for your shell."
-echo
-echo "Neither are the pickers in $TSM_HOME/contrib; symlink one onto your PATH"
-echo "to turn it on. See the Writing a picker section of the README."
