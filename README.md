@@ -200,7 +200,7 @@ A picked directory becomes a session by the same three rules:
 
 The first check is about the path, not the name: `tsm` records the directory a session was
 started at on the session itself (`@tsm_path`), so picking a directory you already have open
-returns to that session however it has since been renamed.
+returns to that session, even if it has been renamed.
 
 The flags belong to `create-or-switch`, not to the picker, so they mean the same thing behind
 every one of them:
@@ -273,8 +273,8 @@ export TSM_GIT_DIRS_CMD='find "$HOME/code" -maxdepth 4 -name ".git" 2>/dev/null 
 ```
 
 It lists paths and nothing else, so it appears immediately. [`git-brief`](#tsm-git-brief) is
-the same picker with a git status brief beside each repository; it is a separate picker rather
-than a flag on this one.
+the same picker narrowed to the repositories that have changed, with a git status brief beside
+each; it is a separate picker rather than a flag on this one.
 
 Its argument is a path, the same one `dir` takes; the two pickers differ only in what they
 list.
@@ -383,16 +383,41 @@ the same where it runs (inside a tmux popup, say).
 
 ### `git-brief`
 
-The repository picker with a git status brief beside each repo: branch, ahead/behind counts, and
-the size of the working diff. It is the worked example, and it is **not** installed by
-`install.sh` -- symlink it onto your PATH to turn it on:
+The repository picker, narrowed to the repositories that have something to show and annotated
+with what it is: branch, ahead/behind counts, and the size of the working diff. It is the worked
+example, and it is **not** installed by `install.sh` -- symlink it onto your PATH to turn it on:
 
 ```bash
 ln -s ~/.local/share/tmux-session-manager/contrib/tsm-git-brief ~/.local/bin/tsm-git-brief
 tsm create-or-switch git-brief
 ```
 
-Every repository is fetched before the list is drawn, so the ahead/behind counts are current --
+A repository earns a row by having **commits waiting upstream**, **commits not yet pushed**, or
+**uncommitted work** -- staged, unstaged or untracked. One that is level with its upstream and
+clean is left out: there is nothing there to go and look at, which is the only reason to open
+this picker. The fzf header says how many of the repositories checked made the list, so a short
+list is distinguishable from a broken search:
+
+```
+:: 3 of 41 repositories have changes
+```
+
+Each row reads `branch ↑ahead ↓behind +added -removed ?untracked`, and a field appears only when
+it is non-zero:
+
+| field | |
+|---|---|
+| `↑2` | two commits not yet pushed |
+| `↓5` | five commits waiting on the upstream |
+| `+31 -4` | lines added and removed since the last commit, staged and unstaged counted together |
+| `?3` | three untracked entries; a new directory counts once, and ignored files never |
+
+When nothing has changed it says so and exits rather than opening an empty picker.
+
+The one state it cannot judge is a branch with **no upstream**: there is nothing to measure
+"unpushed" against, so such a repository is listed only when it has uncommitted work of its own.
+
+Every repository is fetched before it is inspected, so the ahead/behind counts are current --
 that is the point of asking for a brief. It is also what makes this picker slower to appear than
 `git`, which is there for when you just want the list.
 
@@ -400,11 +425,11 @@ Having no flags, it reads its options from the environment:
 
 | variable | |
 |---|---|
-| `TSM_GIT_DIRS_CMD` | the repositories to list; the same variable the built-in `git` picker reads |
-| `TSM_GIT_FETCH_JOBS` | how many repositories are fetched at once (default 8) |
+| `TSM_GIT_DIRS_CMD` | the repositories to check; the same variable the built-in `git` picker reads |
+| `TSM_GIT_FETCH_JOBS` | how many repositories are fetched and inspected at once (default 8) |
 
-Each fetch opens a remote connection, so lower `TSM_GIT_FETCH_JOBS` if your connection is
-metered.
+Each job opens a remote connection for its fetch, so lower `TSM_GIT_FETCH_JOBS` if your
+connection is metered.
 
 Its source is [`contrib/tsm-git-brief`](contrib/tsm-git-brief); copy it as the starting point
 for a picker of your own.

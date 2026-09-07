@@ -1,8 +1,14 @@
 #!/bin/bash
 #
 # tsm-git-brief: a tsm picker. Prints the directory of a git repository
-# chosen from a list showing its branch, ahead/behind counts and the size of
-# its working diff.
+# chosen from those that have something to show -- commits waiting upstream,
+# commits not yet pushed, or uncommitted work (staged, unstaged or untracked).
+# A repository level with its upstream and clean in the working tree is left
+# out: there is nothing there to go and look at, which is the only reason to
+# reach for this picker.
+#
+# The fzf header says how many of the repositories checked had changes, so an
+# empty-looking list is distinguishable from a short one.
 #
 # A picker names a directory and nothing else: no flags, no say in the
 # session that follows, one path on stdout and everything else on stderr.
@@ -12,41 +18,78 @@
 #   ln -s "$PWD/contrib/tsm-git-brief" ~/.local/bin/tsm-git-brief
 #   tsm create-or-switch git-brief
 #
-# Every repository is fetched before the list is drawn, so the ahead/behind
-# counts are current -- that is the point of asking for a brief. It is also
-# what makes this picker slow to appear; the built-in `git` picker is there
-# for when you just want the list.
+# Every repository is fetched before it is inspected, so the ahead/behind
+# counts are current. That is what makes this picker slower to appear than
+# the built-in `git` one, which is there for when you just want the list.
 #
 # Environment
-#   TSM_GIT_DIRS_CMD        command printing the repositories to list; the
+#   TSM_GIT_DIRS_CMD        command printing the repositories to check; the
 #                           same variable the built-in `git` picker reads,
 #                           and the same default
-#   TSM_GIT_FETCH_JOBS      how many repositories are fetched at once
-#                           (default 8)
+#   TSM_GIT_FETCH_JOBS      how many repositories are fetched and inspected
+#                           at once (default 8)
 
 TSM_GIT_DIRS_CMD_DEFAULT='find "$HOME" -maxdepth 4 -name ".*" -prune -o -type d -exec test -e {}/.git \; -print -prune 2>/dev/null'
 
-git_brief() {
-  # Brief git status for the repo at $1: branch ↑ahead↓behind +added-removed.
-  # Never fetches; that is done for the whole list at once, up front.
+repo_row() {
+  # One fzf row for the repo at $1 -- "<path>\t<path>  <brief>", the brief
+  # being branch ↑ahead ↓behind +added -removed ?untracked -- or nothing with
+  # a non-zero status when the repository has nothing to report.
+  #
+  # The fetch happens here rather than in a pass of its own, so one job both
+  # fetches and inspects a repository and there is no barrier between the two.
   local dir="$1"
-  local branch ahead behind stats added removed
+  local branch ahead behind stats added removed untracked
 
-  branch=$(git -C "$dir" branch --show-current 2>/dev/null) || return
+  git -C "$dir" rev-parse --git-dir > /dev/null 2>&1 || return 1
+
+  git -C "$dir" fetch --quiet 2>/dev/null
+
+  # Empty on a detached HEAD, which is still worth showing when it is dirty.
+  branch=$(git -C "$dir" branch --show-current 2>/dev/null)
+  [ -n "$branch" ] || branch="(detached)"
+
+  # With no upstream both counts come out 0, so a repository whose branch has
+  # never been pushed is listed only if it has uncommitted work.
   ahead=$(git -C "$dir" log @{u}..HEAD --oneline 2>/dev/null | wc -l | tr -d ' ')
   behind=$(git -C "$dir" log HEAD..@{u} --oneline 2>/dev/null | wc -l | tr -d ' ')
-  stats=$(git -C "$dir" diff --shortstat 2>/dev/null)
+
+  # Against HEAD rather than the index, so staged work counts as a change too.
+  # Before the first commit there is no HEAD to compare against, and the index
+  # is measured against the empty tree instead.
+  if git -C "$dir" rev-parse --verify -q HEAD > /dev/null 2>&1; then
+    stats=$(git -C "$dir" diff HEAD --shortstat 2>/dev/null)
+  else
+    stats=$(git -C "$dir" diff --cached --shortstat 2>/dev/null)
+  fi
   added=$(echo "$stats" | grep -o '[0-9]* insertion' | grep -o '[0-9]*')
   removed=$(echo "$stats" | grep -o '[0-9]* deletion' | grep -o '[0-9]*')
 
-  local blue='\033[34m' yellow='\033[33m' green='\033[32m' red='\033[31m' reset='\033[0m'
-  local out="${blue}${branch}${reset}"
-  [ "${ahead:-0}" -gt 0 ] && out+=" ${yellow}↑${ahead}${reset}"
-  [ "${behind:-0}" -gt 0 ] && out+=" ${yellow}↓${behind}${reset}"
-  [ "${added:-0}" -gt 0 ] && out+=" ${green}+${added}${reset}"
-  [ "${removed:-0}" -gt 0 ] && out+=" ${red}-${removed}${reset}"
-  printf '%b\n' "$out"
+  # --exclude-standard so ignored files stay ignored, and --directory so a new
+  # directory counts once instead of once per file inside it -- both what
+  # `git status` itself shows.
+  untracked=$(git -C "$dir" ls-files --others --exclude-standard --directory \
+    --no-empty-directory 2>/dev/null | wc -l | tr -d ' ')
+
+  # Nothing waiting, nothing unpushed, nothing uncommitted, nothing new: no row.
+  [ "${ahead:-0}" -gt 0 ] || [ "${behind:-0}" -gt 0 ] \
+    || [ "${added:-0}" -gt 0 ] || [ "${removed:-0}" -gt 0 ] \
+    || [ "${untracked:-0}" -gt 0 ] || return 1
+
+  local blue='\033[34m' yellow='\033[33m' green='\033[32m' red='\033[31m'
+  local cyan='\033[36m' reset='\033[0m'
+  local brief="${blue}${branch}${reset}"
+  [ "${ahead:-0}" -gt 0 ] && brief+=" ${yellow}↑${ahead}${reset}"
+  [ "${behind:-0}" -gt 0 ] && brief+=" ${yellow}↓${behind}${reset}"
+  [ "${added:-0}" -gt 0 ] && brief+=" ${green}+${added}${reset}"
+  [ "${removed:-0}" -gt 0 ] && brief+=" ${red}-${removed}${reset}"
+  [ "${untracked:-0}" -gt 0 ] && brief+=" ${cyan}?${untracked}${reset}"
+
+  # The path is carried in a first column fzf is told not to display, so the
+  # brief can be coloured without the selection having to be parsed back out.
+  printf '%s\t%s  %b\n' "$dir" "$dir" "$brief"
 }
+export -f repo_row
 
 dirs=$(eval "${TSM_GIT_DIRS_CMD:-$TSM_GIT_DIRS_CMD_DEFAULT}" | sort)
 
@@ -56,21 +99,30 @@ if [ -z "$dirs" ]; then
   exit 1
 fi
 
-# Fetch in parallel, but bounded: each fetch opens a remote connection, and
-# forking the whole list at once can hit the process limit. NUL separation so
-# repository paths with spaces survive.
-printf '%s\n' "$dirs" | tr '\n' '\0' \
+# Inspected in parallel, but bounded: each job opens a remote connection for
+# its fetch, and forking the whole list at once can hit the process limit. NUL
+# separation so repository paths with spaces survive. `|| true` because a
+# repository with nothing to report is the ordinary case, not an xargs
+# failure. Rows are one short write each, and sorted afterwards regardless.
+rows=$(printf '%s\n' "$dirs" | tr '\n' '\0' \
   | xargs -0 -P "${TSM_GIT_FETCH_JOBS:-8}" -n 1 \
-          sh -c 'git -C "$1" fetch --quiet 2>/dev/null' _
+          bash -c 'repo_row "$1" || true' _ \
+  | LC_ALL=C sort)
 
-# The path is carried in a first column fzf is told not to display, so the
-# brief can be coloured without the selection having to be parsed back out.
-# fzf draws on the terminal, not on stdout, so it does not disturb the answer.
-selected=$(printf '%s\n' "$dirs" \
-  | while IFS= read -r dir; do
-      printf '%s\t%s  %s\n' "$dir" "$dir" "$(git_brief "$dir")"
-    done \
-  | fzf --ansi --cycle --delimiter=$'\t' --with-nth=2 --prompt "Repo > ")
+checked=$(printf '%s\n' "$dirs" | wc -l | tr -d ' ')
+changed=0
+[ -n "$rows" ] && changed=$(printf '%s\n' "$rows" | wc -l | tr -d ' ')
+
+if [ -z "$rows" ]; then
+  echo "Nothing to show: none of the $checked repositories checked have changes" >&2
+  exit 1
+fi
+
+header=$(printf ':: \033[33m%s\033[0m of \033[33m%s\033[0m repositories have changes' \
+  "$changed" "$checked")
+
+selected=$(printf '%s\n' "$rows" \
+  | fzf --ansi --cycle --delimiter=$'\t' --with-nth=2 --prompt "Repo > " --header "$header")
 
 # Nothing picked: succeed silently. Backing out of a picker is not an error.
 [ -n "$selected" ] || exit 0
