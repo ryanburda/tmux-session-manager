@@ -371,6 +371,12 @@ your picker exactly as it does for `dir`, flags included, because the flags were
 picker's business. And `tsm <name>` runs `tsm-<name>` on its own -- printing the path and doing
 nothing with it -- which is how you check what a picker answers.
 
+Whatever arguments follow the picker's name are its own; `tsm` only takes the flags out first.
+The built-in four each name one thing and reject a second argument, but that is their rule, not
+the contract's. `tsm` also exports `TSM` before running an external command: the path `tsm` was
+itself reached by, so a program that wants to call back into it does not have to hope PATH looks
+the same where it runs (inside a tmux popup, say).
+
 `tsm help` lists the pickers it can find, and the shell completions offer them.
 
 <a id="tsm-git-brief"></a>

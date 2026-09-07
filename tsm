@@ -808,9 +808,9 @@ match_configs() {
   printf '%s\n' "$ranked"
 }
 
-##############################################################
-# pickers: everything whose job is to name a directory       #
-##############################################################
+########################################################
+# pickers: everything whose job is to name a directory #
+########################################################
 pickers() {
   # The picker names `tsm create-or-switch` takes: the four built in, then
   # every tsm-* program on PATH.
@@ -837,10 +837,20 @@ run_picker() {
   PICKED_DIR=""
 
   case "$picker" in
-    dir) pick_dir "$@" ;;
-    git) pick_git "$@" ;;
-    worktree) pick_worktree "$@" ;;
-    bookmark) pick_bookmark "$@" ;;
+    dir | git | worktree | bookmark)
+      # A built-in picker names one thing, so a second argument is a typo.
+      # Dropping it silently would start a session somewhere that was not
+      # asked for; what an external picker makes of its arguments is its own
+      # business.
+      if [ $# -gt 1 ]; then
+        notify "Error: the '$picker' picker takes at most one argument"
+        exit 1
+      fi
+
+      # The case above is the whitelist, so this only ever names one of the
+      # four pick_* functions below.
+      "pick_$picker" "$@"
+      ;;
     *)
       local external
       external=$(command -v -- "tsm-$picker" 2>/dev/null)
@@ -926,7 +936,7 @@ pick_worktree() {
   local name="$1"
 
   local worktree_data
-  worktree_data=$(git worktree list --porcelain | awk '
+  worktree_data=$(git worktree list --porcelain 2>/dev/null | awk '
     /^worktree / { path = substr($0, 10); branch = "" }
     /^branch / { branch = substr($0, 8); sub("refs/heads/", "", branch) }
     /^bare$/ { path = "" }
@@ -936,7 +946,7 @@ pick_worktree() {
 
   if [ -z "$worktree_data" ]; then
     notify "No worktrees found"
-    exit 0
+    exit 1
   fi
 
   if [ -n "$name" ]; then
