@@ -23,14 +23,6 @@ _tsm_log_sessions() {
     fi
 }
 
-_tsm_bookmarks() {
-    # The bookmark picker's own rows: character, directory, then the column
-    # it displays -- which makes a fine completion description.
-    local bookmarks
-    bookmarks=(${(f)"$(tsm _bookmark-entries 2>/dev/null | awk -F'\t' '{ d = $3; sub(/^[^ ]+ +/, "", d); print $1 ":" d }')"})
-    _describe 'bookmark' bookmarks
-}
-
 _tsm_pickers() {
     # The built-in picker names; `tsm pick` takes one of these.
     local pickers
@@ -46,10 +38,6 @@ _tsm_commands() {
         'at:Start a session at a directory'
         'via:Start a session at the directory a program prints'
         'pick:Print the directory a built-in picker names'
-        'bookmark-add:Bookmark a directory at a character'
-        'bookmark-remove:Remove a bookmark'
-        'bookmark-path:Print the directory a bookmark points at'
-        'bookmark-status:The open sessions bookmarks, for a tmux status line'
         'match:Configurations claiming a path, best first'
         'logs:Browse session logs'
         'help:Show help message'
@@ -91,19 +79,6 @@ _tsm() {
         pick)
             # One built-in picker name and nothing else.
             (( CURRENT == 2 )) && _tsm_pickers
-            ;;
-        bookmark-remove|bookmark-path)
-            _tsm_bookmarks
-            ;;
-        bookmark-status)
-            _values -s ' ' 'bookmark-status options' '-s' '--style' '-c' '--current-style'
-            ;;
-        bookmark-add)
-            # The character comes first and is the user's to pick; the
-            # directory after it is the one being bookmarked.
-            if (( CURRENT > 2 )); then
-                _files -/
-            fi
             ;;
         match)
             _files -/

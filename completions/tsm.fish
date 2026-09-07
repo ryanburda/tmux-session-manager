@@ -24,13 +24,6 @@ function __tsm_log_sessions
     end
 end
 
-# Helper function: get bookmark characters and their directories
-function __tsm_bookmarks
-    # The bookmark picker's own rows: character, directory, then the column
-    # it displays -- which makes a fine completion description.
-    tsm _bookmark-entries 2>/dev/null | awk -F'\t' '{ d = $3; sub(/^[^ ]+ +/, "", d); print $1 "\t" d }'
-end
-
 # Helper function: the built-in picker names `tsm pick` takes
 function __tsm_pickers
     tsm _pickers 2>/dev/null
@@ -57,10 +50,6 @@ complete -c tsm -n '__fish_use_subcommand' -a kill -d 'Kill a session'
 complete -c tsm -n '__fish_use_subcommand' -a at -d 'Start a session at a directory'
 complete -c tsm -n '__fish_use_subcommand' -a via -d 'Start a session at the directory a program prints'
 complete -c tsm -n '__fish_use_subcommand' -a pick -d 'Print the directory a built-in picker names'
-complete -c tsm -n '__fish_use_subcommand' -a bookmark-add -d 'Bookmark a directory at a character'
-complete -c tsm -n '__fish_use_subcommand' -a bookmark-remove -d 'Remove a bookmark'
-complete -c tsm -n '__fish_use_subcommand' -a bookmark-path -d 'Print the directory a bookmark points at'
-complete -c tsm -n '__fish_use_subcommand' -a bookmark-status -d 'The open sessions bookmarks, for a tmux status line'
 complete -c tsm -n '__fish_use_subcommand' -a match -d 'Configurations claiming a path, best first'
 complete -c tsm -n '__fish_use_subcommand' -a logs -d 'Browse session logs'
 complete -c tsm -n '__fish_use_subcommand' -a help -d 'Show help message'
@@ -75,8 +64,5 @@ complete -c tsm -n '__fish_seen_subcommand_from via; and __tsm_needs_picker' -xa
 complete -c tsm -n '__fish_seen_subcommand_from via; and __tsm_needs_picker' -xa '(__fish_complete_command)'
 # `tsm pick` takes one built-in picker name
 complete -c tsm -n '__fish_seen_subcommand_from pick' -xa '(__tsm_pickers)'
-complete -c tsm -n '__fish_seen_subcommand_from bookmark-remove bookmark-path' -xa '(__tsm_bookmarks)'
-complete -c tsm -n '__fish_seen_subcommand_from bookmark-status' -xa '-s --style -c --current-style'
-complete -c tsm -n '__fish_seen_subcommand_from bookmark-add' -ra '(__fish_complete_directories)'
 complete -c tsm -n '__fish_seen_subcommand_from match' -ra '(__fish_complete_directories)'
 complete -c tsm -n '__fish_seen_subcommand_from logs' -xa '(__tsm_log_sessions)'

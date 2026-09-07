@@ -22,7 +22,7 @@ tsm via git rev-parse --show-toplevel    # the root of the repo you are in
 tsm via mktemp -d                        # a fresh scratch session
 ```
 
-Five pickers come with `tsm` and ask with fzf. They are reached through `tsm pick`, which
+Four pickers come with `tsm` and ask with fzf. They are reached through `tsm pick`, which
 prints a path like any other picker:
 
 | `tsm pick ...` | names |
@@ -31,7 +31,6 @@ prints a path like any other picker:
 | `git` | a git repository |
 | `git-brief` | a git repository that has something to show |
 | `worktree` | a worktree of the current repository |
-| `bookmark` | a directory bookmarked to a single character |
 
 ```bash
 tsm via tsm pick git
@@ -88,7 +87,7 @@ ln -s ~/git/tmux-session-manager/tsm ~/.local/bin/tsm
 <details>
 <summary><strong style="font-size: 1.25em;">Shell Completions</strong></summary>
 
-Completions cover active session names, directories, the built-in picker names, bookmarks, and
+Completions cover active session names, directories, the built-in picker names, and
 sessions with logs. Paths below assume the install script's checkout location; substitute your own if you
 cloned elsewhere.
 
@@ -128,28 +127,26 @@ bind-key d popup -E "tsm via tsm pick dir"                    # directory picker
 bind-key g popup -E "tsm via tsm pick git"                    # git repository picker
 bind-key G popup -E "tsm via tsm pick git-brief"              # repositories with changes
 bind-key w popup -E "tsm via tsm pick worktree"               # worktree picker
-bind-key b popup -E "tsm via tsm pick bookmark"               # bookmark picker
+bind-key b popup -E "tsm via dir-mark pick"                   # a marked directory
 bind-key z popup -E "tsm via zoxide query -i"                 # anything that prints a path
 bind-key r run-shell "tsm via git rev-parse --show-toplevel"  # this repo's root
 
-# Bookmarking
-bind-key m command-prompt -1 -p "Set bookmark:"    "run-shell -b \"tsm bookmark-add '%%%'\""
-bind-key \' command-prompt -1 -p "Jump to bookmark:"    "run-shell -b \"tsm via tsm bookmark-path '%%%'\""
-bind-key M command-prompt -1 -p "Remove bookmark:" "run-shell -b \"tsm bookmark-remove '%%%'\""
+# Marked directories (dir-mark)
+bind-key m command-prompt -1 -p "Set mark:"    "run-shell -b \"dir-mark set '%%%'\""
+bind-key \' command-prompt -1 -p "Go to mark:" "run-shell -b \"tsm via dir-mark path '%%%'\""
+bind-key M command-prompt -1 -p "Remove mark:" "run-shell -b \"dir-mark remove '%%%'\""
 
 # Session logs
 bind-key L popup -E "tsm logs"
 ```
 
-The three bookmarking bindings ask in tmux's status line, so they need no popup: `-1` takes
-exactly one key and `%%%` substitutes it with quotation marks escaped. `'` and `;` are the two
-keys that cannot be answered with -- `;` is tmux's own command separator -- so do not bookmark
-at those. `tsm bookmark-add` bound this way bookmarks the directory the session is rooted at; to
-bookmark the current pane's directory instead:
+The `dir-mark` bindings want [`dir-mark`][dir-mark], a separate tool that maps one character to
+one directory -- see [Marked directories](#marked-directories). It is not a dependency of
+`tsm`: `dir-mark path m` prints a path, which makes it a picker like any other.
 
-```tmux
-bind-key m command-prompt -1 -p "Set bookmark:" "run-shell -b \"tsm bookmark-add '%%%' '#{pane_current_path}'\""
-```
+Those three ask in tmux's status line, so they need no popup: `-1` takes exactly one key and
+`%%%` substitutes it with quotation marks escaped. `'` and `;` are the two keys that cannot be
+answered with -- `;` is tmux's own command separator.
 
 <details>
 <summary><strong>Troubleshooting Keybinds</strong></summary>
@@ -193,11 +190,6 @@ tsm via [-c] [-p] <program> [args]   # The same, at the directory <program> prin
 
 tsm pick <picker>                    # Print the directory a built-in picker names
 
-tsm bookmark-add <char> [path]       # Bookmark a directory (path defaults to the current directory)
-tsm bookmark-remove <char>           # Remove a bookmark
-tsm bookmark-path <char>             # Print the directory a bookmark points at
-tsm bookmark-status [path]           # Bookmarks of the open sessions, for a tmux status line
-
 tsm match [path]                     # Configurations claiming a path, best first (defaults to the current directory)
 tsm logs [session]                   # Browse session logs
 ```
@@ -210,7 +202,6 @@ tsm pick dir                         # Any directory
 tsm pick git                         # A git repository
 tsm pick git-brief                   # A git repository that has something to show
 tsm pick worktree                    # A worktree of this repository
-tsm pick bookmark                    # A bookmarked directory
 ```
 
 `tsm via` takes a program, and `tsm pick` is one of them -- there is no list of names it treats
@@ -219,7 +210,7 @@ specially (see [Writing a picker](#writing-a-picker)):
 ```bash
 tsm via tsm pick git
 tsm via zoxide query -i
-tsm via tsm bookmark-path m
+tsm via dir-mark path m
 tsm via ~/bin/my-picker --since yesterday
 ```
 
@@ -387,61 +378,23 @@ inside a git repo.
 ![Launch Worktree Sessions](docs/worktree_picker.gif)
 
 <a id="bookmarks"></a>
+<a id="marked-directories"></a>
 
-### `bookmark`
+## Marked directories
 
-A bookmark maps one printable character to one directory, the way vim marks do. They are for the
-handful of directories you return to constantly.
-
-The `bookmark` picker lists them in fzf, where `ctrl-x` removes the one under the cursor. To go
-straight to one without the fzf, `tsm bookmark-path m` prints the directory `m` bookmarks --
-which makes it a picker in its own right:
+[`dir-mark`][dir-mark] maps one printable character to one directory, the way vim marks do --
+for the handful of directories you return to constantly. It used to be four `tsm bookmark-*`
+subcommands; it is now a tool of its own, because naming a directory and opening a session at
+one are two different jobs.
 
 ```bash
-tsm via tsm bookmark-path m
+tsm via dir-mark path m                  # a session at whatever m marks
+tsm via dir-mark pick                    # ...or at one you choose, with fzf
 ```
 
-| command | description |
-|---------|-------------|
-| `tsm via [-c] [-p] tsm pick bookmark` | Start a session at a bookmarked directory |
-| `tsm bookmark-add <char> [path]` | Bookmark a directory (default: the current directory) |
-| `tsm bookmark-remove <char>` | Remove the bookmark |
-| `tsm bookmark-path <char>` | Print the directory the bookmark points at |
-| `tsm bookmark-status [path]` | The open sessions' bookmarks, for a tmux status line |
-
-Bookmarking a character that is already set replaces it.
-
-`bookmark-add` and `bookmark-remove` take the character as an argument; `tsm` has no keypress
-prompt of its own. Inside tmux that is what `command-prompt -1` is for, and the
-[keybindings](#install) above reach all three by a single keypress. Bookmarks are stored in
-`${XDG_STATE_HOME:-~/.local/state}/tsm/bookmarks.json`.
-
-#### Status Line (`tsm bookmark-status`)
-
-Prints the bookmark characters of the sessions that are **open**, the current session's styled
-differently, a compact alternative to reading session names off the status line:
-
-```tmux
-set -g status-right "#(tsm bookmark-status '#{session_path}')"
-```
-
-Two flags set the styles, written without their `#[]` wrapper: `-s`/`--style` for other open
-sessions (default `dim`) and `-c`/`--current-style` for the current one (default
-`fg=yellow,bold`):
-
-```tmux
-set -g status-right "#(tsm bookmark-status '#{session_path}' -s 'fg=colour244' -c 'fg=black,bg=blue,bold')"
-```
-
-A status line is only redrawn every `status-interval` seconds. Two hooks make sessions opened or
-killed elsewhere appear immediately, on every attached client:
-
-```tmux
-set-hook -g session-created 'run-shell -b "tsm _refresh-status"'
-set-hook -g session-closed 'run-shell -b "tsm _refresh-status"'
-```
-
-Switching sessions, and setting or removing bookmarks, refresh the line on their own.
+That is the entire integration, and it is the same `tsm via` line anything else would use --
+`tsm` has no idea what a mark is. `dir-mark` also draws the marks that have a session open into
+the tmux status line; see its [README][dir-mark].
 
 <a id="pickers-you-already-have"></a>
 
@@ -474,7 +427,7 @@ is why a bare `fzf` picker can behave differently inside a tmux popup than in yo
 tsm via pwd                              # the current directory
 tsm via git rev-parse --show-toplevel    # the root of the repo you are in
 tsm via mktemp -d                        # a fresh scratch session, new directory every time
-tsm via tsm bookmark-path m              # whatever m bookmarks
+tsm via dir-mark path m                  # whatever m marks (see dir-mark)
 tsm via xdg-user-dir DOCUMENTS           # ~/Documents, wherever XDG says that is
 tsm via systemd-path user-configuration  # ~/.config
 ```
@@ -646,3 +599,5 @@ MIT
 ## Contributing
 
 Contributions are welcome! Please feel free to submit a Pull Request.
+
+[dir-mark]: https://github.com/ryanburda/dir-mark

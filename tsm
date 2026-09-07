@@ -4,7 +4,6 @@ CONFIG_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/tsm"
 STATE_DIR="${XDG_STATE_HOME:-$HOME/.local/state}/tsm"
 LOG_DIR="$STATE_DIR/logs"
 HISTORY_FILE="$STATE_DIR/session_history"
-BOOKMARKS_FILE="$STATE_DIR/bookmarks.json"
 mkdir -p "$CONFIG_DIR" "$LOG_DIR"
 
 TSM_DIRS_CMD_DEFAULT='find "$HOME" -maxdepth 4 -name ".*" -prune -o -type d \( -exec test -e {}/.git \; -print -prune -o -print \)'
@@ -65,11 +64,6 @@ Usage
 
   tsm pick <picker>                        # Print the directory a built-in picker names
 
-  tsm bookmark-add <char> [path]           # Bookmark a directory (path defaults to the current directory)
-  tsm bookmark-remove <char>               # Remove a bookmark
-  tsm bookmark-path <char>                 # Print the directory a bookmark points at
-  tsm bookmark-status [path]               # Bookmarks of the open sessions, for a tmux status line (-s, -c set its styles)
-
   tsm match [path]                         # Configurations claiming a path, best first (defaults to the current directory)
   tsm logs [session]                       # Browse session logs
 
@@ -85,7 +79,6 @@ Pickers
   git                                      # A git repository, with fzf
   git-brief                                # A git repository with something to show, with fzf
   worktree                                 # A worktree of this repository, with fzf
-  bookmark                                 # A bookmarked directory, with fzf
 
   tsm via tsm pick git                     # ...and that is how one becomes a session
 
@@ -152,17 +145,6 @@ record_switch() {
   fi
 
   echo "$from" >> "$HISTORY_FILE"
-}
-
-refresh_status() {
-  # Redraw every attached client's status line. tmux's own refresh-client
-  # reaches only one client, and a status line passing #{session_path} gives
-  # each client a #() job of its own, so all of them need the nudge.
-  local client
-
-  while IFS= read -r client; do
-    [ -n "$client" ] && tmux refresh-client -S -t "$client" 2>/dev/null
-  done < <(tmux list-clients -F '#{client_name}' 2>/dev/null)
 }
 
 switch_or_attach() {
@@ -240,20 +222,6 @@ client_size() {
   [ "$width" -gt 0 ] && [ "$height" -gt 0 ] || return 1
 
   echo "$width $height"
-}
-
-tsm_self() {
-  # Echo the path to re-run tsm by. A bare name is resolved against the
-  # current PATH, since tmux and fzf run the command later in an environment
-  # whose PATH may differ.
-  local self="$0"
-
-  case "$self" in
-    */*) ;;
-    *) self=$(command -v -- "$self" 2>/dev/null) || self="$0" ;;
-  esac
-
-  echo "$self"
 }
 
 expand_short_flags() {
@@ -522,149 +490,6 @@ session_name_prompt() {
     printf "$(tput setaf 1)Session '%s' already exists.$(tput sgr0)\n" "$session_name" >&2
   done
   echo "$session_name"
-}
-
-check_bookmark_char() {
-  # Exit unless $1 can key a bookmark: a single printable ASCII character.
-  # Checked by code point rather than a [!-~] range, which outside the C
-  # locale is read in collation order.
-  #
-  # Args:
-  #   $1: char: the character to check
-  local char="$1" code
-
-  if [ "${#char}" -eq 1 ]; then
-    code=$(printf '%d' "'$char" 2>/dev/null)
-    if [ -n "$code" ] && [ "$code" -ge 33 ] && [ "$code" -le 126 ]; then
-      return 0
-    fi
-  fi
-
-  notify "Error: a bookmark is keyed by a single printable character"
-  exit 1
-}
-
-read_bookmarks() {
-  # Emit one "char<TAB>directory" line per bookmark, sorted by character.
-  #
-  # Bookmarks are a flat JSON object of character -> directory, parsed here
-  # rather than with jq to avoid the dependency: the file holds only strings,
-  # and only the escapes write_bookmarks produces. A pair whose key is not a
-  # single character, or whose value is empty or holds a tab or newline, is
-  # dropped: tsm cannot write one, and it would split a line callers read
-  # whole.
-  [ -f "$BOOKMARKS_FILE" ] || return 0
-
-  awk '
-    { json = json $0 "\n" }
-
-    # Decodes the JSON string starting at i (its opening quote), leaving i on
-    # the character after its closing quote.
-    function read_string(   out, c, e) {
-      out = ""
-      i++
-      while (i <= n) {
-        c = substr(json, i, 1)
-        if (c == "\"") { i++; break }
-        if (c == "\\") {
-          e = substr(json, i + 1, 1)
-          if (e == "n") c = "\n"
-          else if (e == "t") c = "\t"
-          else if (e == "r") c = "\r"
-          else if (e == "b") c = "\b"
-          else if (e == "f") c = "\f"
-          else c = e
-          i++
-        }
-        out = out c
-        i++
-      }
-      return out
-    }
-
-    END {
-      n = length(json)
-      i = 1
-
-      # The object is flat, so its strings alternate key, value.
-      while (i <= n) {
-        if (substr(json, i, 1) != "\"") { i++; continue }
-        key = read_string()
-
-        # Skip the colon and whitespace between key and value.
-        while (i <= n && substr(json, i, 1) != "\"") i++
-        if (i > n) break
-        val = read_string()
-
-        if (length(key) == 1 && val != "" && val !~ /[\t\n]/) print key "\t" val
-      }
-    }
-  ' "$BOOKMARKS_FILE" | LC_ALL=C sort
-}
-
-write_bookmarks() {
-  # Read "char<TAB>directory" lines on stdin and replace the store with them.
-  # Written to a temp file and moved into place, so an interrupted write
-  # leaves the old bookmarks rather than half a file.
-  local tmp="$BOOKMARKS_FILE.tmp"
-
-  awk -F'\t' '
-    # A character at a time rather than gsub, whose replacement text has
-    # escaping rules of its own.
-    function escape(s,   out, i, c) {
-      out = ""
-      for (i = 1; i <= length(s); i++) {
-        c = substr(s, i, 1)
-        if (c == "\"" || c == "\\") out = out "\\"
-        out = out c
-      }
-      return out
-    }
-
-    BEGIN { printf "{\n" }
-    NF >= 2 { printf "%s  \"%s\": \"%s\"", (count++ ? ",\n" : ""), escape($1), escape($2) }
-    END { printf "%s}\n", (count ? "\n" : "") }
-  ' > "$tmp" && mv "$tmp" "$BOOKMARKS_FILE"
-}
-
-bookmark_directory() {
-  # Echo the directory bookmarked at $1, or nothing with a non-zero status.
-  #
-  # Args:
-  #   $1: char: the bookmark character to look up
-  local char="$1" c dir
-
-  while IFS=$'\t' read -r c dir; do
-    if [ "$c" = "$char" ]; then
-      echo "$dir"
-      return 0
-    fi
-  done < <(read_bookmarks)
-
-  return 1
-}
-
-without_bookmark() {
-  # Filter "char<TAB>directory" lines on stdin, dropping the bookmark keyed
-  # by $1. Passed via the environment: -v would expand backslashes.
-  #
-  # Args:
-  #   $1: char: the bookmark character to drop
-  TSM_BOOKMARK_CHAR="$1" awk -F'\t' '
-    BEGIN { char = ENVIRON["TSM_BOOKMARK_CHAR"] }
-    $1 != char
-  '
-}
-
-bookmark_entries() {
-  # The bookmark picker's rows: character and directory, tab separated,
-  # followed by the "char directory" column that is displayed. fzf shows only
-  # the third field (--with-nth); the first two ride along for its bindings.
-  local char dir
-
-  while IFS=$'\t' read -r char dir; do
-    printf '%s\t%s\t%s    %s\n' "$char" "$dir" "$char" "${dir/#"$HOME"/\~}"
-  done < <(read_bookmarks)
 }
 
 #################
@@ -1011,87 +836,6 @@ via_picker() {
   session_at "$PICKED_DIR" ${session_flags+"${session_flags[@]}"}
 }
 
-bookmark_add() {
-  # Bookmark a directory at a character, replacing whatever that character
-  # was bookmarking before -- the way setting a vim mark that is set does.
-  #
-  # Args:
-  #   $1: char: the bookmark character
-  #   $2: path: directory to bookmark (default: the current directory)
-  local char="$1" path="${2:-$PWD}"
-
-  path="${path/#\~/$HOME}"
-
-  if [ ! -d "$path" ]; then
-    notify "Error: Directory '$path' does not exist"
-    exit 1
-  fi
-
-  path=$(cd "$path" && pwd -P)
-
-  if [ -z "$path" ]; then
-    notify "Error: Directory '${2:-$PWD}' could not be resolved"
-    exit 1
-  fi
-
-  # Rejected rather than escaped: a control character would have to survive
-  # JSON, whole-line reads, and the picker, and no directory worth
-  # bookmarking has one.
-  case "$path" in
-    *[[:cntrl:]]*)
-      notify "Error: '$path' cannot be bookmarked: its path contains a control character"
-      exit 1
-      ;;
-  esac
-
-  # tsm does not ask for the character itself: inside tmux a key binding
-  # asks with command-prompt -1 and passes the answer in (see the README),
-  # which is the only way it was ever reached.
-  if [ -z "$char" ]; then
-    notify "Error: 'tsm bookmark-add' needs a character to bookmark ${path/#"$HOME"/\~} at"
-    exit 1
-  fi
-
-  check_bookmark_char "$char"
-
-  {
-    read_bookmarks | without_bookmark "$char"
-    printf '%s\t%s\n' "$char" "$path"
-  } | LC_ALL=C sort | write_bookmarks
-
-  # What the status line shows just changed, and no session was created or
-  # killed for a hook to notice it.
-  refresh_status
-
-  notify "Bookmark set: $char -> $path"
-}
-
-bookmark_remove() {
-  # Remove a bookmark.
-  #
-  # Args:
-  #   $1: char: the bookmark character to remove
-  local char="$1"
-
-  if [ -z "$char" ]; then
-    notify "Error: 'tsm bookmark-remove' needs a character"
-    exit 1
-  fi
-
-  check_bookmark_char "$char"
-
-  if ! bookmark_directory "$char" > /dev/null; then
-    notify "Error: No bookmark '$char'"
-    exit 1
-  fi
-
-  read_bookmarks | without_bookmark "$char" | write_bookmarks
-
-  refresh_status
-
-  notify "Bookmark removed: $char"
-}
-
 pick_command() {
   # Print the directory a built-in picker names:
   #
@@ -1107,108 +851,6 @@ pick_command() {
   pick_builtin "$@" || exit 0
 
   printf '%s\n' "$PICKED_DIR"
-}
-
-bookmark_path() {
-  # Print the directory a bookmark points at. A picker in its own right: it
-  # names a directory and nothing else, so
-  #
-  #   tsm via tsm bookmark-path m
-  #
-  # goes straight to a session at whatever m bookmarks, skipping the fzf the
-  # `bookmark` picker opens.
-  #
-  # Args:
-  #   $1: char: the bookmark character to look up
-  local char="$1"
-
-  check_bookmark_char "$char"
-
-  local dir
-  if ! dir=$(bookmark_directory "$char"); then
-    notify "Error: No bookmark '$char'"
-    exit 1
-  fi
-
-  printf '%s\n' "$dir"
-}
-
-bookmark_status() {
-  # Print the bookmark characters of the open sessions for a tmux status
-  # line, the current session's styled differently. Only bookmarks with a
-  # session open are shown, so the line stays short. Nothing is notified:
-  # this runs on every status line redraw.
-  #
-  # Args:
-  #   $1: path: the directory of the session to treat as the current one
-  #       (default: the session tmux reports as current)
-  #   -s, --style: tmux style for the other sessions' characters
-  #   -c, --current-style: tmux style for the current session's character
-  local style="dim" current_style="fg=yellow,bold" current="" current_given=""
-
-  # Styles are given without their #[] wrapper, so a status line format
-  # holding one does not have to escape it.
-  while [ $# -gt 0 ]; do
-    case "$1" in
-      -s | --style | -c | --current-style)
-        if [ $# -lt 2 ]; then
-          notify "Error: '$1' needs a tmux style"
-          exit 1
-        fi
-        case "$1" in
-          -s | --style) style="$2" ;;
-          -c | --current-style) current_style="$2" ;;
-        esac
-        shift 2
-        ;;
-      -*)
-        notify "Error: Unknown option '$1' for 'tsm bookmark-status'"
-        exit 1
-        ;;
-      *)
-        if [ -n "$current_given" ]; then
-          notify "Error: Too many arguments for 'tsm bookmark-status'"
-          exit 1
-        fi
-        current="$1"
-        current_given=1
-        shift
-        ;;
-    esac
-  done
-
-  local open
-  open=$(tmux list-sessions -F '#{session_path}' 2>/dev/null)
-  [ -n "$open" ] || return 0
-
-  # Which session is current must be given by whoever draws the status line:
-  # tmux runs a #() command without a client and shares its output between
-  # them all, so asking here would answer the same for every client. A status
-  # line passes #{session_path}, expanded per client. Asking is the fallback
-  # for a shell with a session of its own.
-  if [ -z "$current_given" ] && [ -n "$TMUX" ]; then
-    current=$(tmux display-message -p '#{session_path}' 2>/dev/null)
-  fi
-
-  # Each character is padded inside its own style, so a style with a
-  # background reads as a block. Each style is preceded by a reset, because
-  # tmux styles accumulate.
-  read_bookmarks | TSM_OPEN_PATHS="$open" TSM_CURRENT_PATH="$current" \
-    TSM_STYLE="$style" TSM_CURRENT_STYLE="$current_style" awk -F'\t' '
-      BEGIN {
-        n = split(ENVIRON["TSM_OPEN_PATHS"], paths, "\n")
-        for (i = 1; i <= n; i++) if (paths[i] != "") open[paths[i]]
-        current = ENVIRON["TSM_CURRENT_PATH"]
-        style = ENVIRON["TSM_STYLE"]
-        current_style = ENVIRON["TSM_CURRENT_STYLE"]
-      }
-
-      $2 in open {
-        out = out "#[default]#[" (current != "" && $2 == current ? current_style : style) "] " $1 " "
-      }
-
-      END { if (out != "") print out "#[default]" }
-    '
 }
 
 browse_logs() {
@@ -1279,18 +921,6 @@ case "$command" in
   pick)
     pick_command "$@"
     ;;
-  bookmark-add)
-    bookmark_add "$1" "$2"
-    ;;
-  bookmark-remove)
-    bookmark_remove "$1"
-    ;;
-  bookmark-path)
-    bookmark_path "$1"
-    ;;
-  bookmark-status)
-    bookmark_status "$@"
-    ;;
   match)
     match_configs "$1"
     ;;
@@ -1300,15 +930,6 @@ case "$command" in
   _record-switch)
     # Internal: invoked by the client-session-changed hook (see README).
     record_switch "$1" "$2"
-    ;;
-  _refresh-status)
-    # Internal: invoked by the session-created/session-closed hooks (see
-    # README).
-    refresh_status
-    ;;
-  _bookmark-entries)
-    # Internal: rebuilds the bookmark picker's rows for its reload binding.
-    bookmark_entries
     ;;
   _pickers)
     # Internal: the built-in picker names `tsm pick` takes, for the shell

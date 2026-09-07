@@ -3,11 +3,6 @@
 #   source /path/to/tsm.bash
 # Or copy to /etc/bash_completion.d/tsm
 
-_tsm_bookmark_chars() {
-    # The bookmark picker's own rows; the character is their first field.
-    tsm _bookmark-entries 2>/dev/null | cut -f1
-}
-
 _tsm_completions() {
     local cur prev cmd subcmds flags
     COMPREPLY=()
@@ -15,7 +10,7 @@ _tsm_completions() {
     prev="${COMP_WORDS[COMP_CWORD-1]}"
     cmd="${COMP_WORDS[1]}"
 
-    subcmds="active last kill at via pick bookmark-add bookmark-remove bookmark-path bookmark-status match logs help"
+    subcmds="active last kill at via pick match logs help"
 
     # Completing the subcommand itself
     if [ "$COMP_CWORD" -eq 1 ]; then
@@ -56,22 +51,6 @@ _tsm_completions() {
             # One built-in picker name and nothing else.
             if [ "$COMP_CWORD" -eq 2 ]; then
                 COMPREPLY=($(compgen -W "$(tsm _pickers 2>/dev/null)" -- "$cur"))
-            fi
-            return 0
-            ;;
-        bookmark-remove|bookmark-path)
-            COMPREPLY=($(compgen -W "$(_tsm_bookmark_chars)" -- "$cur"))
-            return 0
-            ;;
-        bookmark-status)
-            COMPREPLY=($(compgen -W "-s --style -c --current-style" -- "$cur"))
-            return 0
-            ;;
-        bookmark-add)
-            # The character comes first and is the user's to pick; the
-            # directory after it is the one being bookmarked.
-            if [ "$COMP_CWORD" -gt 2 ]; then
-                COMPREPLY=($(compgen -d -- "$cur"))
             fi
             return 0
             ;;

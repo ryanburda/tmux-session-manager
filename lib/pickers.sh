@@ -1,8 +1,7 @@
 # The pickers: everything whose job is to name a directory.
 #
 # Sourced by tsm, not run on its own -- the functions here use tsm's helpers
-# (notify, the bookmark store) and answer in PICKED_DIR the way tsm's own
-# functions do.
+# (notify) and answer in PICKED_DIR the way tsm's own functions do.
 #
 # A picker names a directory and nothing else: it takes no arguments, decides
 # nothing about the session that follows, and ends with one path in
@@ -12,7 +11,7 @@
 
 pickers() {
   # The built-in picker names `tsm pick` takes.
-  printf '%s\n' dir git git-brief worktree bookmark
+  printf '%s\n' dir git git-brief worktree
 }
 
 pick_builtin() {
@@ -27,7 +26,7 @@ pick_builtin() {
   PICKED_DIR=""
 
   case "$name" in
-    dir | git | git-brief | worktree | bookmark) ;;
+    dir | git | git-brief | worktree) ;;
     '')
       notify "Error: 'tsm pick' takes a picker: $(pickers | tr '\n' ' ')"
       exit 1
@@ -281,39 +280,4 @@ pick_worktree() {
   PICKED_DIR="${selected%%	*}"
 
   [ -n "$PICKED_DIR" ]
-}
-
-pick_bookmark() {
-  # A bookmarked directory, chosen with fzf. To go straight to one without
-  # the fzf, `tsm bookmark-path <char>` prints it -- which makes it a picker
-  # in its own right: `tsm via tsm bookmark-path m`.
-  local entries
-  entries=$(bookmark_entries)
-
-  if [ -z "$entries" ]; then
-    notify "No bookmarks set"
-    exit 1
-  fi
-
-  # ctrl-x removes the bookmark under the cursor, then rebuilds the list from
-  # disk. fzf hands a binding to a shell, so tsm's path is quoted for one;
-  # fzf itself quotes {1}.
-  local self
-  printf -v self '%q' "$(tsm_self)"
-
-  local selected
-  selected=$(printf '%s\n' "$entries" | fzf \
-    --cycle \
-    --delimiter=$'\t' \
-    --with-nth=3 \
-    --prompt "Bookmark > " \
-    --header $':: \e[33mctrl-x\e[0m to \e[31mremove\e[0m' \
-    --bind "ctrl-x:execute-silent($self bookmark-remove {1})+reload($self _bookmark-entries)")
-
-  [ -n "$selected" ] || return 1
-
-  # The row carries the directory in its second field, so the session is
-  # rooted at the bookmarked path rather than the ~ the row displayed.
-  local row="${selected#*$'\t'}"
-  PICKED_DIR="${row%%$'\t'*}"
 }
