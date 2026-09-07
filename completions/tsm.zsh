@@ -32,8 +32,8 @@ _tsm_bookmarks() {
 }
 
 _tsm_pickers() {
-    # The built-in picker names, then anything else executable: create-or-
-    # switch-exec runs whatever it is given that is not a built-in.
+    # The built-in picker names, then anything else executable: `tsm via`
+    # runs whatever it is given that is not a built-in.
     local pickers
     pickers=(${(f)"$(tsm _pickers 2>/dev/null)"})
     _alternative \
@@ -46,8 +46,8 @@ _tsm_commands() {
         'active:Switch to session'
         'last:Switch to the most recent session that is still open'
         'kill:Kill a session'
-        'create-or-switch:Start a session at a directory'
-        'create-or-switch-exec:Start a session at the directory a picker prints'
+        'at:Start a session at a directory'
+        'via:Start a session at the directory a picker prints'
         'bookmark-add:Bookmark a directory at a character'
         'bookmark-remove:Remove a bookmark'
         'bookmark-path:Print the directory a bookmark points at'
@@ -73,12 +73,12 @@ _tsm() {
         active|kill)
             _tsm_active_sessions
             ;;
-        create-or-switch)
+        at)
             _alternative \
                 'directories:directory:_files -/' \
                 'options:option:(-c --no-config -p --prompt-name)'
             ;;
-        create-or-switch-exec)
+        via)
             # The session flags come first, then the picker; everything after
             # the picker is the program's own and is left alone.
             local i

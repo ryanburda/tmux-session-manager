@@ -69,7 +69,8 @@ answers are [sanitized](../README.md#session-names) rather than refused; a name 
 `-p` prompt is refused, since it is not tsm's to rewrite.
 
 **NOTE:** The program runs once per verb, and the pickers ask every configuration for its
-`pattern`, so keep the top level cheap: anything expensive there is paid on every `create-or-switch`.
+`pattern`, so keep the top level cheap: anything expensive there is paid on every `tsm at` and
+`tsm via`.
 
 ## Pane addressing
 
@@ -290,7 +291,7 @@ Some useful `name` implementations:
     ;;
 ```
 
-**NOTE:** `create-or-switch -p` beats `name`: the flag is the last word, though it still *offers* what
+**NOTE:** the `-p` flag beats `name`: the flag is the last word, though it still *offers* what
 `name` returned, so pressing enter accepts it.
 
 ## Claiming directories

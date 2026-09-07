@@ -6,13 +6,13 @@
 #
 # A picker names a directory and nothing else: it takes no arguments, decides
 # nothing about the session that follows, and ends with one path in
-# PICKED_DIR. `tsm create-or-switch-exec` is what turns that into a session,
-# and it will run any program that prints a path just as readily -- these are
-# only the ones that come with tsm.
+# PICKED_DIR. `tsm via` is what turns that into a session, and it will run
+# any program that prints a path just as readily -- these are only the ones
+# that come with tsm.
 
 pickers() {
-  # The built-in picker names `tsm create-or-switch-exec` recognises before
-  # it falls back to running its argument as a program.
+  # The built-in picker names `tsm via` recognises before it falls back to
+  # running its argument as a program.
   printf '%s\n' dir git git-brief worktree bookmark
 }
 
@@ -270,7 +270,7 @@ pick_worktree() {
 pick_bookmark() {
   # A bookmarked directory, chosen with fzf. To go straight to one without
   # the fzf, `tsm bookmark-path <char>` prints it -- which makes it a picker
-  # of the other kind: `tsm create-or-switch-exec tsm bookmark-path m`.
+  # of the other kind: `tsm via tsm bookmark-path m`.
   local entries
   entries=$(bookmark_entries)
 

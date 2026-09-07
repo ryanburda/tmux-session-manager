@@ -15,7 +15,7 @@ _tsm_completions() {
     prev="${COMP_WORDS[COMP_CWORD-1]}"
     cmd="${COMP_WORDS[1]}"
 
-    subcmds="active last kill create-or-switch create-or-switch-exec bookmark-add bookmark-remove bookmark-path bookmark-status match logs help"
+    subcmds="active last kill at via bookmark-add bookmark-remove bookmark-path bookmark-status match logs help"
 
     # Completing the subcommand itself
     if [ "$COMP_CWORD" -eq 1 ]; then
@@ -30,13 +30,13 @@ _tsm_completions() {
             COMPREPLY=($(compgen -W "$active" -- "$cur"))
             return 0
             ;;
-        create-or-switch)
+        at)
             # A directory and the session flags, in either order.
             flags="-c --no-config -p --prompt-name"
             COMPREPLY=($(compgen -d -W "$flags" -- "$cur"))
             return 0
             ;;
-        create-or-switch-exec)
+        via)
             # The session flags come first, then the picker: a built-in name,
             # or any program that prints a path. Everything after the picker
             # is the program's own, so it is left alone.

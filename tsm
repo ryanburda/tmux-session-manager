@@ -55,12 +55,11 @@ Usage
   tsm kill [session]                       # Kill session (runs its kill hook if present)
   tsm last                                 # Switch to the most recent session that is still open
 
-  tsm create-or-switch <path> [-c] [-p]    # Start a session at a directory, or switch to the
+  tsm at <path> [-c] [-p]                  # Start a session at a directory, or switch to the
                                            # session already open there
 
-  tsm create-or-switch-exec [-c] [-p] <picker> [args]
-                                           # The same, at the directory <picker> prints. <picker> is
-                                           # a built-in name below or any program that prints a path
+  tsm via [-c] [-p] <picker> [args]        # The same, at the directory <picker> prints. <picker>
+                                           # is a built-in name below or a program printing a path
 
     -c, --no-config                        # Ignore any configuration claiming the picked path
     -p, --prompt-name                      # Prompt for the session name instead of using the default
@@ -78,9 +77,8 @@ Usage
 Pickers
   A picker names a directory and nothing else: it takes none of the flags
   above, decides nothing about the session, and prints one path on stdout.
-  These are the built-in ones; anything else create-or-switch-exec is given
-  is run as a program, so `zoxide query -i` or a script of your own is a
-  picker too.
+  These are the built-in ones; anything else `tsm via` is given is run as a
+  program, so `zoxide query -i` or a script of your own is a picker too.
 
   dir                                      # Any directory, with fzf
   git                                      # A git repository, with fzf
@@ -934,14 +932,14 @@ session_at() {
   switch_or_attach "$session_name"
 }
 
-create_or_switch() {
+at_path() {
   # Start a session at a directory, or switch to the session already open
   # there:
   #
-  #   tsm create-or-switch <path> [-c] [-p]
+  #   tsm at <path> [-c] [-p]
   #
-  # A path and nothing else. `create-or-switch-exec` is the same thing behind
-  # a program that prints the path instead.
+  # A path and nothing else. `tsm via` is the same thing with a program
+  # printing the path instead.
   local session_flags=() paths=() arg
   expand_short_flags "$@"
   for arg in "${EXPANDED_ARGS[@]}"; do
@@ -949,7 +947,7 @@ create_or_switch() {
       -c | --no-config) session_flags+=(--no-config) ;;
       -p | --prompt-name) session_flags+=(--prompt-name) ;;
       -*)
-        notify "Error: Unknown option '$arg' for 'tsm create-or-switch'"
+        notify "Error: Unknown option '$arg' for 'tsm at'"
         exit 1
         ;;
       *) paths+=("$arg") ;;
@@ -957,27 +955,27 @@ create_or_switch() {
   done
 
   if [ "${#paths[@]}" -ne 1 ]; then
-    notify "Error: 'tsm create-or-switch' takes one directory"
+    notify "Error: 'tsm at' takes one directory"
     exit 1
   fi
 
   session_at "${paths[0]}" ${session_flags+"${session_flags[@]}"}
 }
 
-create_or_switch_exec() {
+via_picker() {
   # Start a session at the directory a picker prints, or switch to the
   # session already open there:
   #
-  #   tsm create-or-switch-exec [-c] [-p] <picker> [picker args]
+  #   tsm via [-c] [-p] <picker> [picker args]
   #
   # The picker is a built-in name or any program that prints a path; the
   # arguments after it are the program's own, so the session flags have to
   # come first -- `-i` in `zoxide query -i` belongs to zoxide, not to tsm,
   # and there is no way to tell them apart after the fact.
   #
-  # Only the arguments before the picker are expanded and read as flags: the
-  # ones after it belong to the program, where -la is its own business and
-  # not two flags of tsm's.
+  # Only the arguments before the picker are read as flags, and only they are
+  # expanded: after it, -la is the program's business and not two flags of
+  # tsm's.
   local session_flags=() arg
   while [ $# -gt 0 ]; do
     case "$1" in
@@ -992,7 +990,7 @@ create_or_switch_exec() {
         -c | --no-config) session_flags+=(--no-config) ;;
         -p | --prompt-name) session_flags+=(--prompt-name) ;;
         *)
-          notify "Error: Unknown option '$arg' for 'tsm create-or-switch-exec'"
+          notify "Error: Unknown option '$arg' for 'tsm via'"
           exit 1
           ;;
       esac
@@ -1001,7 +999,7 @@ create_or_switch_exec() {
   done
 
   if [ $# -eq 0 ]; then
-    notify "Error: 'tsm create-or-switch-exec' takes a picker: $(pickers | tr '\n' ' ')or any program that prints a path"
+    notify "Error: 'tsm via' takes a picker: $(pickers | tr '\n' ' ')or any program that prints a path"
     exit 1
   fi
 
@@ -1095,7 +1093,7 @@ bookmark_path() {
   # Print the directory a bookmark points at. A picker in its own right: it
   # names a directory and nothing else, so
   #
-  #   tsm create-or-switch-exec tsm bookmark-path m
+  #   tsm via tsm bookmark-path m
   #
   # goes straight to a session at whatever m bookmarks, skipping the fzf the
   # `bookmark` picker opens.
@@ -1252,11 +1250,11 @@ case "$command" in
   kill)
     kill_session "$1"
     ;;
-  create-or-switch)
-    create_or_switch "$@"
+  at)
+    at_path "$@"
     ;;
-  create-or-switch-exec)
-    create_or_switch_exec "$@"
+  via)
+    via_picker "$@"
     ;;
   bookmark-add)
     bookmark_add "$1" "$2"
@@ -1290,8 +1288,8 @@ case "$command" in
     bookmark_entries
     ;;
   _pickers)
-    # Internal: the built-in picker names create-or-switch-exec takes, for
-    # the shell completions.
+    # Internal: the built-in picker names `tsm via` takes, for the shell
+    # completions.
     pickers
     ;;
   help)

@@ -31,14 +31,14 @@ function __tsm_bookmarks
     tsm _bookmark-entries 2>/dev/null | awk -F'\t' '{ d = $3; sub(/^[^ ]+ +/, "", d); print $1 "\t" d }'
 end
 
-# Helper function: the built-in picker names create-or-switch-exec takes
+# Helper function: the built-in picker names `tsm via` takes
 function __tsm_pickers
     tsm _pickers 2>/dev/null
 end
 
-# Helper function: true while create-or-switch-exec is still waiting for its
-# picker -- everything after the picker belongs to the program it names, so
-# there is nothing of tsm's left to complete
+# Helper function: true while `tsm via` is still waiting for its picker --
+# everything after the picker belongs to the program it names, so there is
+# nothing of tsm's left to complete
 function __tsm_needs_picker
     set -l tokens (commandline -opc)
     for tok in $tokens[3..-1]
@@ -54,8 +54,8 @@ complete -c tsm -f
 complete -c tsm -n '__fish_use_subcommand' -a active -d 'Switch to session'
 complete -c tsm -n '__fish_use_subcommand' -a last -d 'Switch to the most recent session that is still open'
 complete -c tsm -n '__fish_use_subcommand' -a kill -d 'Kill a session'
-complete -c tsm -n '__fish_use_subcommand' -a create-or-switch -d 'Start a session at a directory'
-complete -c tsm -n '__fish_use_subcommand' -a create-or-switch-exec -d 'Start a session at the directory a picker prints'
+complete -c tsm -n '__fish_use_subcommand' -a at -d 'Start a session at a directory'
+complete -c tsm -n '__fish_use_subcommand' -a via -d 'Start a session at the directory a picker prints'
 complete -c tsm -n '__fish_use_subcommand' -a bookmark-add -d 'Bookmark a directory at a character'
 complete -c tsm -n '__fish_use_subcommand' -a bookmark-remove -d 'Remove a bookmark'
 complete -c tsm -n '__fish_use_subcommand' -a bookmark-path -d 'Print the directory a bookmark points at'
@@ -66,14 +66,14 @@ complete -c tsm -n '__fish_use_subcommand' -a help -d 'Show help message'
 
 # Subcommand arguments
 complete -c tsm -n '__fish_seen_subcommand_from active kill' -xa '(__tsm_active_sessions)'
-# create-or-switch takes a directory and the session flags
-complete -c tsm -n '__fish_seen_subcommand_from create-or-switch' -ra '(__fish_complete_directories)'
-complete -c tsm -n '__fish_seen_subcommand_from create-or-switch' -xa '-c --no-config -p --prompt-name'
-# create-or-switch-exec takes the session flags first, then a picker: a
-# built-in name or any program that prints a path
-complete -c tsm -n '__fish_seen_subcommand_from create-or-switch-exec; and __tsm_needs_picker' -xa '(__tsm_pickers)' -d 'Built-in picker'
-complete -c tsm -n '__fish_seen_subcommand_from create-or-switch-exec; and __tsm_needs_picker' -xa '-c --no-config -p --prompt-name'
-complete -c tsm -n '__fish_seen_subcommand_from create-or-switch-exec; and __tsm_needs_picker' -xa '(__fish_complete_command)'
+# `tsm at` takes a directory and the session flags
+complete -c tsm -n '__fish_seen_subcommand_from at' -ra '(__fish_complete_directories)'
+complete -c tsm -n '__fish_seen_subcommand_from at' -xa '-c --no-config -p --prompt-name'
+# `tsm via` takes the session flags first, then a picker: a built-in name or
+# any program that prints a path
+complete -c tsm -n '__fish_seen_subcommand_from via; and __tsm_needs_picker' -xa '(__tsm_pickers)' -d 'Built-in picker'
+complete -c tsm -n '__fish_seen_subcommand_from via; and __tsm_needs_picker' -xa '-c --no-config -p --prompt-name'
+complete -c tsm -n '__fish_seen_subcommand_from via; and __tsm_needs_picker' -xa '(__fish_complete_command)'
 complete -c tsm -n '__fish_seen_subcommand_from bookmark-remove bookmark-path' -xa '(__tsm_bookmarks)'
 complete -c tsm -n '__fish_seen_subcommand_from bookmark-status' -xa '-s --style -c --current-style'
 complete -c tsm -n '__fish_seen_subcommand_from bookmark-add' -ra '(__fish_complete_directories)'
