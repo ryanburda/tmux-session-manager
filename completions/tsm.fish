@@ -36,16 +36,9 @@ end
 
 # Helper function: get bookmark characters and their directories
 function __tsm_bookmarks
-    set -l state_dir "$XDG_STATE_HOME"
-    if test -z "$state_dir"
-        set state_dir "$HOME/.local/state"
-    end
-
-    # Only asked for when there is something to list: with no bookmarks set,
-    # tsm says so, and inside tmux it says so in the status line.
-    if test -s "$state_dir/tsm/bookmarks.json"
-        tsm bookmark-list 2>/dev/null | awk 'length($1) == 1 { c = $1; sub(/^.[[:space:]]+/, ""); print c "\t" $0 }'
-    end
+    # The bookmark picker's own rows: character, directory, then the column
+    # it displays -- which makes a fine completion description.
+    tsm _bookmark-entries 2>/dev/null | awk -F'\t' '{ d = $3; sub(/^[^ ]+ +/, "", d); print $1 "\t" d }'
 end
 
 # Helper function: get the tsm-* programs on PATH, which tsm runs as
@@ -69,7 +62,6 @@ complete -c tsm -n '__fish_use_subcommand' -a kill -d 'Kill a session'
 complete -c tsm -n '__fish_use_subcommand' -a create-or-switch -d 'Start a session at the directory a picker names'
 complete -c tsm -n '__fish_use_subcommand' -a bookmark-add -d 'Bookmark a directory at a character'
 complete -c tsm -n '__fish_use_subcommand' -a bookmark-remove -d 'Remove a bookmark'
-complete -c tsm -n '__fish_use_subcommand' -a bookmark-list -d 'List all bookmarks, or browse them with fzf'
 complete -c tsm -n '__fish_use_subcommand' -a bookmark-status -d 'The open sessions bookmarks, for a tmux status line'
 complete -c tsm -n '__fish_use_subcommand' -a match -d 'Configurations claiming a path, best first'
 complete -c tsm -n '__fish_use_subcommand' -a logs -d 'Browse session logs'
@@ -86,7 +78,6 @@ complete -c tsm -n '__fish_seen_subcommand_from create-or-switch; and __fish_see
 complete -c tsm -n '__fish_seen_subcommand_from create-or-switch; and __fish_seen_subcommand_from bookmark' -xa '(__tsm_bookmarks)'
 complete -c tsm -n '__fish_seen_subcommand_from create-or-switch' -xa '-c --no-config -p --prompt-name'
 complete -c tsm -n '__fish_seen_subcommand_from bookmark-remove' -xa '(__tsm_bookmarks)'
-complete -c tsm -n '__fish_seen_subcommand_from bookmark-list' -xa '-f --fzf'
 complete -c tsm -n '__fish_seen_subcommand_from bookmark-status' -xa '-s --style -c --current-style'
 complete -c tsm -n '__fish_seen_subcommand_from bookmark-add' -ra '(__fish_complete_directories)'
 complete -c tsm -n '__fish_seen_subcommand_from match' -ra '(__fish_complete_directories)'

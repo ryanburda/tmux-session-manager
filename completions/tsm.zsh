@@ -35,14 +35,11 @@ _tsm_worktrees() {
 }
 
 _tsm_bookmarks() {
-    # Only asked for when there is something to list: with no bookmarks set,
-    # tsm says so, and inside tmux it says so in the status line.
-    local bookmarks_file="${XDG_STATE_HOME:-$HOME/.local/state}/tsm/bookmarks.json"
+    # The bookmark picker's own rows: character, directory, then the column
+    # it displays -- which makes a fine completion description.
     local bookmarks
-    if [[ -s "$bookmarks_file" ]]; then
-        bookmarks=(${(f)"$(tsm bookmark-list 2>/dev/null | awk 'length($1) == 1 { c = $1; sub(/^.[[:space:]]+/, ""); print c ":" $0 }')"})
-        _describe 'bookmark' bookmarks
-    fi
+    bookmarks=(${(f)"$(tsm _bookmark-entries 2>/dev/null | awk -F'\t' '{ d = $3; sub(/^[^ ]+ +/, "", d); print $1 ":" d }')"})
+    _describe 'bookmark' bookmarks
 }
 
 _tsm_pickers() {
@@ -59,7 +56,6 @@ _tsm_commands() {
         'create-or-switch:Start a session at the directory a picker names'
         'bookmark-add:Bookmark a directory at a character'
         'bookmark-remove:Remove a bookmark'
-        'bookmark-list:List all bookmarks, or browse them with fzf'
         'bookmark-status:The open sessions bookmarks, for a tmux status line'
         'match:Configurations claiming a path, best first'
         'logs:Browse session logs'
@@ -120,9 +116,6 @@ _tsm() {
             ;;
         bookmark-remove)
             _tsm_bookmarks
-            ;;
-        bookmark-list)
-            _values -s ' ' 'bookmark-list options' '-f' '--fzf'
             ;;
         bookmark-status)
             _values -s ' ' 'bookmark-status options' '-s' '--style' '-c' '--current-style'

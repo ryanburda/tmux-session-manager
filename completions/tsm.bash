@@ -13,11 +13,8 @@ _tsm_worktree_names() {
 }
 
 _tsm_bookmark_chars() {
-    # Only asked for when there is something to list: with no bookmarks set,
-    # tsm says so, and inside tmux it says so in the status line.
-    local bookmarks_file="${XDG_STATE_HOME:-$HOME/.local/state}/tsm/bookmarks.json"
-    [ -s "$bookmarks_file" ] || return
-    tsm bookmark-list 2>/dev/null | awk 'length($1) == 1 { print $1 }'
+    # The bookmark picker's own rows; the character is their first field.
+    tsm _bookmark-entries 2>/dev/null | cut -f1
 }
 
 _tsm_completions() {
@@ -29,7 +26,7 @@ _tsm_completions() {
 
     # Available subcommands, plus whatever tsm-* programs are on PATH: tsm
     # runs `tsm <name>` as `tsm-<name>` when <name> is not one of its own.
-    subcmds="active last kill create-or-switch bookmark-add bookmark-remove bookmark-list bookmark-status match logs help"
+    subcmds="active last kill create-or-switch bookmark-add bookmark-remove bookmark-status match logs help"
     subcmds="$subcmds $(tsm _external-commands 2>/dev/null)"
 
     # Completing the subcommand itself
@@ -72,10 +69,6 @@ _tsm_completions() {
             ;;
         bookmark-remove)
             COMPREPLY=($(compgen -W "$(_tsm_bookmark_chars)" -- "$cur"))
-            return 0
-            ;;
-        bookmark-list)
-            COMPREPLY=($(compgen -W "-f --fzf" -- "$cur"))
             return 0
             ;;
         bookmark-status)

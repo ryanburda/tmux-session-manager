@@ -27,9 +27,8 @@ Usage
     -c, --no-config                        # Ignore any configuration claiming the picked path
     -p, --prompt-name                      # Prompt for the session name instead of using the default
 
-  tsm bookmark-add [char] [path]           # Bookmark a directory (prompts for char; path defaults to the current directory)
-  tsm bookmark-remove [char]               # Remove a bookmark (prompts for char)
-  tsm bookmark-list [-f]                   # List bookmarks (-f, --fzf: browse them with fzf and start a session)
+  tsm bookmark-add <char> [path]           # Bookmark a directory (path defaults to the current directory)
+  tsm bookmark-remove <char>               # Remove a bookmark
   tsm bookmark-status [path]               # Bookmarks of the open sessions, for a tmux status line (-s, -c set its styles)
 
   tsm match [path]                         # Configurations claiming a path, best first (defaults to the current directory)
@@ -47,7 +46,7 @@ Pickers
   dir [path]                               # Any directory, with fzf, or the path given
   git                                      # A git repository, with fzf
   worktree [name]                          # A worktree of this repository, with fzf, or the one named
-  bookmark [char]                          # The directory bookmarked at char (prompts for char)
+  bookmark [char]                          # A bookmarked directory, with fzf, or the one keyed to char
 EOF
 
   # The tsm-* pickers that are actually installed, so `tsm help` says what
@@ -225,13 +224,6 @@ tsm_self() {
   esac
 
   echo "$self"
-}
-
-tmux_command_string() {
-  # Escape a shell command for use as a double-quoted argument to a tmux
-  # command that expands formats: tmux's parser acts on \, " and $, and #
-  # introduces a #{...} substitution (## is a literal #).
-  printf '%s' "$1" | sed -e 's/[\\"$]/\\&/g' -e 's/#/##/g'
 }
 
 expand_short_flags() {
@@ -541,64 +533,6 @@ check_bookmark_char() {
 
   notify "Error: a bookmark is keyed by a single printable character"
   exit 1
-}
-
-prompt_bookmark_char() {
-  # Ask for a bookmark character: a single keypress, like vim's m{char}.
-  #
-  # Inside tmux, command-prompt -1 asks in the status line and runs a command
-  # with the key; it cannot answer back, so tsm is re-invoked with the
-  # character substituted for {} in the given arguments. Outside tmux the
-  # character is read from the terminal and left in PROMPTED_BOOKMARK_CHAR.
-  #
-  # Returns non-zero when there is nothing left for the caller to do: tmux
-  # has been asked, or the prompt was backed out of.
-  #
-  # Args:
-  #   $1: prompt: what to ask for, without trailing punctuation
-  #   $@: the tsm arguments to run once the character is known, with {} where
-  #       the character goes
-  local prompt="$1"
-  shift
-
-  if [ -n "$TMUX" ]; then
-    # Single quotes around %%%: tmux escapes quotation marks a keypress can
-    # produce, and a shell reads nothing else inside them.
-    local cmd arg
-    cmd="$(printf '%q' "$(tsm_self)") _bookmark-prompted '%%%'"
-    for arg in "$@"; do
-      cmd="$cmd $(printf '%q' "$arg")"
-    done
-
-    tmux command-prompt -1 -p "$prompt:" "run-shell -b \"$(tmux_command_string "$cmd")\""
-    return 1
-  fi
-
-  local char
-
-  # Braces so the 2>/dev/null lasts only for the redirection; on the exec it
-  # would silence this shell's stderr for good.
-  if ! { exec 3< /dev/tty; } 2>/dev/null; then
-    notify "Error: no terminal to read a bookmark character from"
-    exit 1
-  fi
-
-  printf '%s: ' "$prompt" >&2
-  IFS= read -rsn 1 char <&3
-  exec 3<&-
-
-  # Enter and escape back out of the prompt.
-  case "$char" in
-    '' | $'\e')
-      printf '\n' >&2
-      return 1
-      ;;
-  esac
-
-  # Echoed back, since the keypress was read silently.
-  printf '%s\n' "$char" >&2
-
-  PROMPTED_BOOKMARK_CHAR="$char"
 }
 
 read_bookmarks() {
@@ -1034,38 +968,54 @@ pick_worktree() {
 }
 
 pick_bookmark() {
-  # The directory a bookmark character points at: $1 when one was given,
-  # otherwise the next key pressed. Returns non-zero when there is nothing
-  # left to do -- the prompt was backed out of, or tmux was asked and its
-  # answer re-enters tsm on its own.
+  # The directory a bookmark points at: the one keyed to $1 when a character
+  # was given, otherwise one chosen with fzf. Like every other picker, the
+  # argument is only there to skip the fzf.
   #
   # Args:
-  #   $1: char: a bookmark character, or empty to prompt for one
+  #   $1: char: a bookmark character, or empty to open the picker
   local char="$1"
 
-  # No character given: ask for one, the same keypress bookmark-add and
-  # bookmark-remove take. `tsm bookmark-list -f` is there for when the
-  # character will not come to mind.
-  if [ -z "$char" ]; then
-    if [ -z "$(read_bookmarks)" ]; then
-      notify "No bookmarks set"
+  if [ -n "$char" ]; then
+    check_bookmark_char "$char"
+
+    if ! PICKED_DIR=$(bookmark_directory "$char"); then
+      notify "Error: No bookmark '$char'"
       exit 1
     fi
 
-    # tmux's status line prompt cannot answer back, so the whole command is
-    # rebuilt for it to re-run -- session flags included, which is why
-    # create_or_switch leaves them in SESSION_FLAGS.
-    prompt_bookmark_char "Go to bookmark" \
-      create-or-switch bookmark ${SESSION_FLAGS+"${SESSION_FLAGS[@]}"} '{}' || return 1
-    char="$PROMPTED_BOOKMARK_CHAR"
+    return 0
   fi
 
-  check_bookmark_char "$char"
+  local entries
+  entries=$(bookmark_entries)
 
-  if ! PICKED_DIR=$(bookmark_directory "$char"); then
-    notify "Error: No bookmark '$char'"
+  if [ -z "$entries" ]; then
+    notify "No bookmarks set"
     exit 1
   fi
+
+  # ctrl-x removes the bookmark under the cursor, then rebuilds the list from
+  # disk. fzf hands a binding to a shell, so tsm's path is quoted for one;
+  # fzf itself quotes {1}.
+  local self
+  printf -v self '%q' "$(tsm_self)"
+
+  local selected
+  selected=$(printf '%s\n' "$entries" | fzf \
+    --cycle \
+    --delimiter=$'\t' \
+    --with-nth=3 \
+    --prompt "Bookmark > " \
+    --header $':: \e[33mctrl-x\e[0m to \e[31mremove\e[0m' \
+    --bind "ctrl-x:execute-silent($self bookmark-remove {1})+reload($self _bookmark-entries)")
+
+  [ -n "$selected" ] || return 1
+
+  # The row carries the directory in its second field, so the session is
+  # rooted at the bookmarked path rather than the ~ the row displayed.
+  local row="${selected#*$'\t'}"
+  PICKED_DIR="${row%%$'\t'*}"
 }
 
 ##############################################################
@@ -1100,6 +1050,7 @@ session_at() {
     exit 1
   fi
   selected="$resolved"
+
   # A session is identified by the directory it was started at, not by its
   # name: picking a directory that already has a session returns to it,
   # whatever it has been renamed to. Nothing is being created, so this is
@@ -1207,16 +1158,12 @@ create_or_switch() {
       ;;
   esac
 
-  # Global, so pick_bookmark can hand the flags back to tsm through tmux's
-  # status line prompt, which can only answer by re-invoking us.
-  SESSION_FLAGS=()
-
-  local picker_args=() arg
+  local session_flags=() picker_args=() arg
   expand_short_flags "$@"
   for arg in "${EXPANDED_ARGS[@]}"; do
     case "$arg" in
-      -c | --no-config) SESSION_FLAGS+=(--no-config) ;;
-      -p | --prompt-name) SESSION_FLAGS+=(--prompt-name) ;;
+      -c | --no-config) session_flags+=(--no-config) ;;
+      -p | --prompt-name) session_flags+=(--prompt-name) ;;
       -*)
         notify "Error: Unknown option '$arg' for 'tsm create-or-switch'"
         exit 1
@@ -1227,33 +1174,7 @@ create_or_switch() {
 
   run_picker "$picker" ${picker_args+"${picker_args[@]}"} || exit 0
 
-  session_at "$PICKED_DIR" ${SESSION_FLAGS+"${SESSION_FLAGS[@]}"}
-}
-
-bookmark_prompted() {
-  # Internal: what tmux's status line prompt runs once its key is pressed.
-  # The key comes first; the tsm command to run follows, with {} standing in
-  # for the character.
-  #
-  # Args:
-  #   $1: char: the key the prompt was answered with
-  #   $@: the tsm arguments to run, with {} standing in for the character
-  local char="$1"
-  shift
-
-  # Enter and escape back out of the prompt; tmux hands them over as
-  # ordinary characters, so this is where they stop.
-  case "$char" in
-    '' | $'\e' | $'\r') exit 0 ;;
-  esac
-
-  local args=() arg
-  for arg in "$@"; do
-    [ "$arg" = '{}' ] && arg="$char"
-    args+=("$arg")
-  done
-
-  exec "$0" "${args[@]}"
+  session_at "$PICKED_DIR" ${session_flags+"${session_flags[@]}"}
 }
 
 bookmark_add() {
@@ -1261,7 +1182,7 @@ bookmark_add() {
   # was bookmarking before -- the way setting a vim mark that is set does.
   #
   # Args:
-  #   $1: char: the bookmark character (prompted for when empty)
+  #   $1: char: the bookmark character
   #   $2: path: directory to bookmark (default: the current directory)
   local char="$1" path="${2:-$PWD}"
 
@@ -1289,12 +1210,12 @@ bookmark_add() {
       ;;
   esac
 
-  # The directory is named in the prompt: a key binding is how this is
-  # usually reached, and nothing else on screen says what is being
-  # bookmarked.
+  # tsm does not ask for the character itself: inside tmux a key binding
+  # asks with command-prompt -1 and passes the answer in (see the README),
+  # which is the only way it was ever reached.
   if [ -z "$char" ]; then
-    prompt_bookmark_char "Bookmark ${path/#"$HOME"/\~} as" bookmark-add '{}' "$path" || exit 0
-    char="$PROMPTED_BOOKMARK_CHAR"
+    notify "Error: 'tsm bookmark-add' needs a character to bookmark ${path/#"$HOME"/\~} at"
+    exit 1
   fi
 
   check_bookmark_char "$char"
@@ -1315,17 +1236,12 @@ bookmark_remove() {
   # Remove a bookmark.
   #
   # Args:
-  #   $1: char: the bookmark character to remove (prompted for when empty)
+  #   $1: char: the bookmark character to remove
   local char="$1"
 
   if [ -z "$char" ]; then
-    if [ -z "$(read_bookmarks)" ]; then
-      notify "No bookmarks set"
-      exit 1
-    fi
-
-    prompt_bookmark_char "Remove bookmark" bookmark-remove '{}' || exit 0
-    char="$PROMPTED_BOOKMARK_CHAR"
+    notify "Error: 'tsm bookmark-remove' needs a character"
+    exit 1
   fi
 
   check_bookmark_char "$char"
@@ -1340,38 +1256,6 @@ bookmark_remove() {
   refresh_status
 
   notify "Bookmark removed: $char"
-}
-
-bookmark_list() {
-  # Print every bookmark as "char    directory". With -f, browse them with
-  # fzf instead, and the bookmark picked starts a session.
-  local use_fzf="" entries char dir
-  expand_short_flags "$@"
-  for arg in "${EXPANDED_ARGS[@]}"; do
-    case "$arg" in
-      -f | --fzf) use_fzf=1 ;;
-      *)
-        notify "Error: Unknown option '$arg' for 'tsm bookmark-list'"
-        exit 1
-        ;;
-    esac
-  done
-
-  if [ -n "$use_fzf" ]; then
-    bookmark_pick
-    return
-  fi
-
-  entries=$(read_bookmarks)
-
-  if [ -z "$entries" ]; then
-    notify "No bookmarks set"
-    exit 1
-  fi
-
-  while IFS=$'\t' read -r char dir; do
-    printf '%s    %s\n' "$char" "${dir/#"$HOME"/\~}"
-  done <<< "$entries"
 }
 
 bookmark_status() {
@@ -1452,41 +1336,6 @@ bookmark_status() {
     '
 }
 
-bookmark_pick() {
-  # Browse the bookmarks with fzf and start a session at the one picked.
-  local entries
-  entries=$(bookmark_entries)
-
-  if [ -z "$entries" ]; then
-    notify "No bookmarks set"
-    exit 1
-  fi
-
-  # ctrl-x removes the bookmark under the cursor, then rebuilds the list from
-  # disk. fzf hands a binding to a shell, so tsm's path is quoted for one;
-  # fzf itself quotes {1}.
-  local self
-  printf -v self '%q' "$(tsm_self)"
-
-  local selected
-  selected=$(printf '%s\n' "$entries" | fzf \
-    --cycle \
-    --delimiter=$'\t' \
-    --with-nth=3 \
-    --prompt "Bookmark > " \
-    --header $':: \e[33mctrl-x\e[0m to \e[31mremove\e[0m' \
-    --bind "ctrl-x:execute-silent($self bookmark-remove {1})+reload($self _bookmark-entries)")
-
-  if [ -z "$selected" ]; then
-    exit 0
-  fi
-
-  # The row carries the directory in its second field, so the session is
-  # rooted at the bookmarked path rather than the ~ the picker displayed.
-  local row="${selected#*$'\t'}"
-  session_at "${row%%$'\t'*}"
-}
-
 browse_logs() {
   local session="$1"
 
@@ -1555,9 +1404,6 @@ case "$command" in
   bookmark-remove)
     bookmark_remove "$1"
     ;;
-  bookmark-list)
-    bookmark_list "$@"
-    ;;
   bookmark-status)
     bookmark_status "$@"
     ;;
@@ -1575,10 +1421,6 @@ case "$command" in
     # Internal: invoked by the session-created/session-closed hooks (see
     # README).
     refresh_status
-    ;;
-  _bookmark-prompted)
-    # Internal: what tmux's status line prompt runs once its key is pressed.
-    bookmark_prompted "$@"
     ;;
   _bookmark-entries)
     # Internal: rebuilds the bookmark picker's rows for its reload binding.

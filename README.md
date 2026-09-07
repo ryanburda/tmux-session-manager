@@ -101,21 +101,27 @@ bind-key l run-shell "tsm last"      # most recent session still open
 # Directory based sessions
 bind-key d popup -E "tsm create-or-switch dir"       # directory picker
 bind-key g popup -E "tsm create-or-switch git"       # git repository picker
-bind-key G popup -E "tsm create-or-switch git-brief"   # git picker with a fetched status brief (see Writing a picker)
 bind-key w popup -E "tsm create-or-switch worktree"  # worktree picker
-bind-key b run-shell -b "tsm create-or-switch bookmark"   # session at a bookmark (asks for its char)
-bind-key B popup -E "tsm bookmark-list -f"    # browse bookmarks with fzf
-bind-key m run-shell -b "tsm bookmark-add"    # bookmark the session's directory
-bind-key M run-shell -b "tsm bookmark-remove" # remove a bookmark
+bind-key b popup -E "tsm create-or-switch bookmark"  # bookmark picker
+
+# Bookmarking
+bind-key m command-prompt -1 -p "Set bookmark:"    "run-shell -b \"tsm bookmark-add '%%%'\""
+bind-key \' command-prompt -1 -p "Jump to bookmark:"    "run-shell -b \"tsm create-or-switch bookmark '%%%'\""
+bind-key M command-prompt -1 -p "Remove bookmark:" "run-shell -b \"tsm bookmark-remove '%%%'\""
 
 # Session logs
 bind-key L popup -E "tsm logs"
 ```
 
-The three bindings that ask for a character use `run-shell` rather than `popup -E`: the prompt is
-tmux's own, in the status line. `tsm bookmark-add` bound this way bookmarks the directory the
-session is rooted at; to bookmark the current pane's directory instead:
-`bind-key m run-shell -b "tsm bookmark-add '' '#{pane_current_path}'"`.
+The three bookmarking bindings ask in tmux's status line, so they need no popup: `-1` takes
+exactly one key and `%%%` substitutes it with quotation marks escaped. `'` and `;` are the two
+keys that cannot be answered with -- `;` is tmux's own command separator -- so do not bookmark
+at those. `tsm bookmark-add` bound this way bookmarks the directory the session is rooted at; to
+bookmark the current pane's directory instead:
+
+```tmux
+bind-key m command-prompt -1 -p "Set bookmark:" "run-shell -b \"tsm bookmark-add '%%%' '#{pane_current_path}'\""
+```
 
 <details>
 <summary><strong>Troubleshooting Keybinds</strong></summary>
@@ -156,9 +162,8 @@ tsm create-or-switch <picker> [-c] [-p] [arg]
   -c, --no-config                    # Ignore any configuration claiming the picked path
   -p, --prompt-name                  # Prompt for the session name instead of using the default
 
-tsm bookmark-add [char] [path]       # Bookmark a directory (prompts for char; path defaults to the current directory)
-tsm bookmark-remove [char]           # Remove a bookmark (prompts for char)
-tsm bookmark-list [-f]               # List bookmarks (-f, --fzf browses them with fzf and starts a session)
+tsm bookmark-add <char> [path]       # Bookmark a directory (path defaults to the current directory)
+tsm bookmark-remove <char>           # Remove a bookmark
 tsm bookmark-status [path]           # Bookmarks of the open sessions, for a tmux status line
 
 tsm match [path]                     # Configurations claiming a path, best first (defaults to the current directory)
@@ -173,7 +178,7 @@ The pickers `create-or-switch` takes, each with the argument that skips its fzf:
 dir [path]                           # Any directory, with fzf, or the path given
 git                                  # A git repository, with fzf
 worktree [name]                      # A worktree of this repository, with fzf, or the one named
-bookmark [char]                      # The directory bookmarked at char (prompts for char)
+bookmark [char]                      # A bookmarked directory, with fzf, or the one keyed to char
 <name>                               # tsm-<name> from PATH (see Writing a picker)
 ```
 
@@ -289,22 +294,25 @@ inside a git repo.
 
 ### `bookmark`
 
-A bookmark maps one printable character to one directory, the way vim marks do.
-`tsm create-or-switch bookmark m` goes straight to a session at whatever `m` bookmarks, with no
-fzf in the way. They are for the handful of directories you return to constantly.
+A bookmark maps one printable character to one directory, the way vim marks do. They are for the
+handful of directories you return to constantly.
+
+With no character it lists them in fzf, where `ctrl-x` removes the one under the cursor. With
+one, `tsm create-or-switch bookmark m` goes straight to a session at whatever `m` bookmarks --
+the same "the argument skips the fzf" the other pickers have.
 
 | command | description |
 |---------|-------------|
-| `tsm create-or-switch bookmark [char] [-c] [-p]` | Start a session at the directory bookmarked at `char` |
-| `tsm bookmark-add [char] [path]` | Bookmark a directory (default: the current directory) |
-| `tsm bookmark-remove [char]` | Remove the bookmark |
-| `tsm bookmark-list [-f]` | List bookmarks; `-f` browses them with fzf (`enter` starts a session, `ctrl-x` removes) |
+| `tsm create-or-switch bookmark [char] [-c] [-p]` | Start a session at a bookmarked directory |
+| `tsm bookmark-add <char> [path]` | Bookmark a directory (default: the current directory) |
+| `tsm bookmark-remove <char>` | Remove the bookmark |
 | `tsm bookmark-status [path]` | The open sessions' bookmarks, for a tmux status line |
 
-Bookmarking a character that is already set replaces it. Called without a character, the
-`bookmark` picker, `bookmark-add` and `bookmark-remove` take the next key pressed (`enter`/`escape` backs out).
-Inside tmux the prompt is in the status line, so a keybind needs no popup; outside tmux the
-character is read from the terminal. Bookmarks are stored in
+Bookmarking a character that is already set replaces it.
+
+`bookmark-add` and `bookmark-remove` take the character as an argument; `tsm` has no keypress
+prompt of its own. Inside tmux that is what `command-prompt -1` is for, and the
+[keybindings](#install) above reach all three by a single keypress. Bookmarks are stored in
 `${XDG_STATE_HOME:-~/.local/state}/tsm/bookmarks.json`.
 
 #### Status Line (`tsm bookmark-status`)
