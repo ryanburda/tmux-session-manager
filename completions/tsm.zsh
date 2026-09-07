@@ -94,7 +94,7 @@ _tsm() {
             fi
 
             case "$line[2]" in
-                dir)
+                dir|git)
                     _alternative \
                         'directories:directory:_files -/' \
                         'options:option:(-c --no-config -p --prompt-name)'

@@ -44,7 +44,7 @@ Pickers
   Anything on PATH called tsm-<name> is one.
 
   dir [path]                               # Any directory, with fzf, or the path given
-  git                                      # A git repository, with fzf
+  git [path]                               # A git repository, with fzf, or the path given
   worktree [name]                          # A worktree of this repository, with fzf, or the one named
   bookmark [char]                          # A bookmarked directory, with fzf, or the one keyed to char
 EOF
@@ -809,7 +809,7 @@ match_configs() {
 }
 
 ##############################################################
-# pickers: everything whose job is to name a directory        #
+# pickers: everything whose job is to name a directory       #
 ##############################################################
 pickers() {
   # The picker names `tsm create-or-switch` takes: the four built in, then
@@ -888,9 +888,19 @@ pick_dir() {
 }
 
 pick_git() {
-  # A git repository, chosen with fzf from TSM_GIT_DIRS_CMD. Takes no
-  # argument: a repository has no name short of its path, and a path is what
-  # `dir` takes.
+  # A git repository: $1 when one was given, otherwise one chosen with fzf
+  # from TSM_GIT_DIRS_CMD. The argument is a path, as `dir` takes -- the two
+  # differ only in what they list.
+  #
+  # Args:
+  #   $1: path: a repository directory, or empty to open the picker
+  local target="$1"
+
+  if [ -n "$target" ]; then
+    PICKED_DIR="$target"
+    return 0
+  fi
+
   local git_dirs_cmd="${TSM_GIT_DIRS_CMD:-$TSM_GIT_DIRS_CMD_DEFAULT}"
 
   local dirs
@@ -905,6 +915,7 @@ pick_git() {
 
   [ -n "$PICKED_DIR" ]
 }
+
 pick_worktree() {
   # Set PICKED_DIR to a worktree of the current repository: the one whose
   # directory is named $1, or one chosen with fzf. Returns non-zero when the
@@ -1018,9 +1029,9 @@ pick_bookmark() {
   PICKED_DIR="${row%%$'\t'*}"
 }
 
-##############################################################
-# the session: the one thing every picker ends in             #
-##############################################################
+###################################################
+# the session: the one thing every picker ends in #
+###################################################
 
 session_at() {
   # Switch to the session already open at a directory, or create one there.

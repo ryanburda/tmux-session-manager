@@ -52,7 +52,7 @@ _tsm_completions() {
 
             flags="-c --no-config -p --prompt-name"
             case "${COMP_WORDS[2]}" in
-                dir)
+                dir|git)
                     COMPREPLY=($(compgen -d -W "$flags" -- "$cur"))
                     ;;
                 worktree)

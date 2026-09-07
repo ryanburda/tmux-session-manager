@@ -73,7 +73,7 @@ complete -c tsm -n '__fish_seen_subcommand_from active kill' -xa '(__tsm_active_
 # create-or-switch takes a picker first, then the session flags and whatever
 # argument that picker takes
 complete -c tsm -n '__fish_seen_subcommand_from create-or-switch; and not __fish_seen_subcommand_from (__tsm_pickers)' -xa '(__tsm_pickers)'
-complete -c tsm -n '__fish_seen_subcommand_from create-or-switch; and __fish_seen_subcommand_from dir' -ra '(__fish_complete_directories)'
+complete -c tsm -n '__fish_seen_subcommand_from create-or-switch; and __fish_seen_subcommand_from dir git' -ra '(__fish_complete_directories)'
 complete -c tsm -n '__fish_seen_subcommand_from create-or-switch; and __fish_seen_subcommand_from worktree' -xa '(__tsm_worktrees)'
 complete -c tsm -n '__fish_seen_subcommand_from create-or-switch; and __fish_seen_subcommand_from bookmark' -xa '(__tsm_bookmarks)'
 complete -c tsm -n '__fish_seen_subcommand_from create-or-switch' -xa '-c --no-config -p --prompt-name'

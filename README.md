@@ -176,7 +176,7 @@ The pickers `create-or-switch` takes, each with the argument that skips its fzf:
 
 ```bash
 dir [path]                           # Any directory, with fzf, or the path given
-git                                  # A git repository, with fzf
+git [path]                           # A git repository, with fzf, or the path given
 worktree [name]                      # A worktree of this repository, with fzf, or the one named
 bookmark [char]                      # A bookmarked directory, with fzf, or the one keyed to char
 <name>                               # tsm-<name> from PATH (see Writing a picker)
@@ -211,9 +211,9 @@ every one of them:
   produced, so enter accepts it and anything typed replaces it. When the path already has a
   session, `-p` has nothing to name and simply switches to it.
 
-Anything that is not a flag is handed to the picker. The built-in three that have a name for
-their candidates take one, to skip the fzf: a path for `dir`, a worktree name for `worktree`, a
-bookmark character for `bookmark`.
+Anything that is not a flag is handed to the picker. All four built-in ones take an argument
+that skips the fzf: a path for `dir` and `git`, a worktree name for `worktree`, a bookmark
+character for `bookmark`.
 
 ### Session names
 
@@ -276,8 +276,8 @@ It lists paths and nothing else, so it appears immediately. [`git-brief`](#tsm-g
 the same picker with a git status brief beside each repository; it is a separate picker rather
 than a flag on this one.
 
-Unlike the other three it takes no argument: a repository has no name short of its path, and a
-path is what `dir` takes.
+Its argument is a path, the same one `dir` takes; the two pickers differ only in what they
+list.
 
 ![Launch Git Sessions](docs/git_picker.gif)
 
