@@ -22,14 +22,12 @@
 # counts are current. That is what makes this slower to appear than fzf-git,
 # which is there for when you just want the list.
 #
+# It checks the same repositories fzf-git lists, by the same find. To check
+# somewhere else, copy this file and change it -- there is no configuration,
+# because a program this short is easier to rewrite than to configure.
+#
 # Printing nothing and exiting 0 is how it declines to answer -- what happens
 # when you press escape. Anything that is not the path goes to stderr.
-#
-# Environment
-#   TSM_GIT_DIRS_CMD     the repositories to check; the same variable fzf-git
-#                        reads, and the same default
-#   TSM_GIT_FETCH_JOBS   how many repositories are fetched and inspected at
-#                        once (default 8)
 
 note() {
   # Anything that is not the answer: tmux display-message inside tmux, stderr
@@ -100,25 +98,38 @@ git_brief_row() {
   printf '%s\t%s  %b\n' "$dir" "$dir" "$brief"
 }
 
-# Single quoted, so $HOME and find's own escapes reach eval intact rather than
-# being expanded here.
-default_git_dirs_cmd='find "$HOME" -maxdepth 4 -name ".*" -prune -o -type d -exec test -e {}/.git \; -print -prune 2>/dev/null'
-
-dirs=$(eval "${TSM_GIT_DIRS_CMD:-$default_git_dirs_cmd}" | sort)
+# Looks for the .git itself rather than asking each directory whether it has
+# one, because .git is not always a directory: a linked worktree, and a
+# checkout of a bare clone, both carry a .git *file* holding a gitdir: line.
+# Matching by name finds those the same way it finds an ordinary clone. The
+# first -prune stops find descending into a .git it has found; the second
+# skips hidden directories, and comes second so that .git is not one of them.
+dirs=$(find "$HOME" -name .git -prune -print -o -name ".*" -prune 2>/dev/null \
+  | while IFS= read -r gitpath; do
+      if [ -d "$gitpath" ]; then
+        # No HEAD: a stray directory that happens to be called .git, not a
+        # repository. Bare: a repository with no working tree to open a
+        # session in -- the worktrees checked out beside it are found on
+        # their own, and are what you actually want to sit in.
+        [ -e "$gitpath/HEAD" ] || continue
+        grep -q '^[[:space:]]*bare = true' "$gitpath/config" 2>/dev/null && continue
+      fi
+      printf '%s\n' "${gitpath%/.git}"
+    done | sort)
 
 if [ -z "$dirs" ]; then
   note "No git repositories found"
   exit 1
 fi
 
-# Inspected in parallel, but bounded: each job opens a remote connection for
-# its fetch, and forking the whole list at once can hit the process limit. NUL
-# separation so repository paths with spaces survive. `|| true` because a
-# repository with nothing to report is the ordinary case, not an xargs failure.
+# Inspected 8 at a time: each job opens a remote connection for its fetch, and
+# forking the whole list at once can hit the process limit. NUL separation so
+# repository paths with spaces survive. `|| true` because a repository with
+# nothing to report is the ordinary case, not an xargs failure.
 export -f git_brief_row
 rows=$(
   printf '%s\n' "$dirs" | tr '\n' '\0' \
-    | xargs -0 -P "${TSM_GIT_FETCH_JOBS:-8}" -n 1 \
+    | xargs -0 -P 8 -n 1 \
             bash -c 'git_brief_row "$1" || true' _ \
     | LC_ALL=C sort
 )

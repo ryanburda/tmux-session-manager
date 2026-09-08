@@ -341,12 +341,39 @@ find "$HOME/code" -name ".*" -prune -o -type d \( -exec test -e {}/.git \; -prin
 
 #### `examples/fzf-git`
 
-By default finds all directories containing `.git` within 4 levels of `$HOME`. Set
-`TSM_GIT_DIRS_CMD` to change that; limiting it to where you keep projects is a good idea:
+Finds every git **working tree** under `$HOME`, at any depth, skipping hidden directories:
 
 ```bash
-export TSM_GIT_DIRS_CMD='find "$HOME/code" -maxdepth 4 -name ".git" 2>/dev/null | sed "s/\/\.git$//"'
+find "$HOME" -name .git -prune -print -o -name ".*" -prune 2>/dev/null \
+  | while IFS= read -r gitpath; do
+      if [ -d "$gitpath" ]; then
+        [ -e "$gitpath/HEAD" ] || continue
+        grep -q '^[[:space:]]*bare = true' "$gitpath/config" 2>/dev/null && continue
+      fi
+      printf '%s\n' "${gitpath%/.git}"
+    done
 ```
+
+It looks for the `.git` itself rather than asking each directory whether it has one, because
+`.git` is not always a directory. A **linked worktree**, and a **checkout of a bare clone**,
+each carry a `.git` *file* holding a `gitdir:` line; matching by name finds those the same way
+it finds an ordinary clone. The two `-prune`s do different jobs, and their order matters: the
+first stops `find` descending into a `.git` it has found, the second skips hidden directories
+and comes second so that `.git` is not treated as one of them.
+
+The loop then drops what you cannot open a session in:
+
+| skipped | why |
+|---|---|
+| a `.git` directory with no `HEAD` | not a repository -- a stray directory that happens to be named `.git` |
+| a `.git` directory with `bare = true` | a bare clone has no working tree; the worktrees checked out beside it are listed on their own, and are what you want to sit in |
+
+So the `~/code/project/.bare` layout lists `project/main` and `project/feature-x`, not `project`
+itself.
+
+As with `fzf-dir` there is nothing to configure: copy the file and change the `find` if you
+want it to look somewhere else -- rooting it at `$HOME/code` rather than `$HOME` is the usual
+change, and it is faster.
 
 It lists paths and nothing else, so it appears immediately. [`git-brief`](#tsm-git-brief) is
 the same list narrowed to the repositories that have changed, with a git status brief beside
@@ -396,15 +423,10 @@ Every repository is fetched before it is inspected, so the ahead/behind counts a
 that is the point of asking for a brief. It is also what makes this slower to appear than
 `git`, which is there for when you just want the list.
 
-Having no arguments, it reads its options from the environment:
-
-| variable | |
-|---|---|
-| `TSM_GIT_DIRS_CMD` | the repositories to check; the same variable `fzf-git` reads |
-| `TSM_GIT_FETCH_JOBS` | how many repositories are fetched and inspected at once (default 8) |
-
-Each job opens a remote connection for its fetch, so lower `TSM_GIT_FETCH_JOBS` if your
-connection is metered.
+It checks the repositories `fzf-git` lists, by the same `find`, and fetches 8 of them at a
+time. Neither is configurable -- copy the file and change it. The fetch parallelism is the one
+worth knowing about: each job opens a remote connection, so lower the `-P 8` on the `xargs` if
+your connection is metered.
 
 [`examples/fzf-git-brief`](examples/fzf-git-brief) is the longest of the four and the best one
 to copy: everything below its `fzf` call is just deciding what to list.
