@@ -3,13 +3,12 @@
 # fzf-worktree: prints the directory of a worktree of the current repository,
 # chosen with fzf. Must be run from inside a git repository.
 #
-# An example of the only thing `tsm via` asks for: a program that prints a
+# An example of the only thing `tsm at` asks for: a program that prints a
 # directory on stdout. Nothing in it is specific to tsm -- run it on its own
-# and it prints a path; run `tsm via fzf-worktree` and that path becomes a
-# session.
+# and it prints a path; hand that path to `tsm at` and it becomes a session.
 #
 #   ln -s "$PWD/examples/fzf-worktree" ~/.local/bin/fzf-worktree
-#   tsm via fzf-worktree
+#   tsm at "$(fzf-worktree)"
 #
 # Or copy it somewhere and change what it lists. It is self-contained on
 # purpose: nothing to source, nothing to install, one file to read.

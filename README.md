@@ -2,38 +2,33 @@
 
 `tsm` launches tmux sessions at directories. That's its whole job.
 
-Two commands start them. One takes the directory:
+One command starts them, and a directory is the only thing it wants:
 
 ```bash
 tsm at <path> [-c] [-p]
 ```
 
-The other takes an executable and uses whatever directory it prints:
+So anything that prints a directory can name one, through the shell's own command substitution.
+That is the whole of the integration, and `tsm` has no part in it: your shell runs the program,
+`tsm` gets a path. Some programs answer straight away:
 
 ```bash
-tsm via [-c] [-p] <program> [args]
-```
-
-That is the whole contract -- print a directory on stdout -- so a lot of programs already
-satisfy it. Some answer straight away:
-
-```bash
-tsm via git rev-parse --show-toplevel    # the root of the repo you are in
-tsm via pwd                              # the current directory
-tsm via mktemp -d                        # a fresh scratch session
+tsm at "$(git rev-parse --show-toplevel)"    # the root of the repo you are in
+tsm at "$(pwd)"                              # the current directory
+tsm at "$(mktemp -d)"                        # a fresh scratch session
 ```
 
 Others ask first, and print what you chose:
 
 ```bash
-tsm via zoxide query -i                  # your most-used directories
-tsm via dir-mark pick                    # a directory you marked
+tsm at "$(zoxide query -i)"                  # your most-used directories
+tsm at "$(dir-mark pick)"                    # a directory you marked
 ```
 
 `tsm` has nothing built in for either kind. It reserves no names, keeps no list, and has no
-plugin interface -- `git` above is git. Four example programs ship with it in
-[`examples/`](examples), and they are installed the way any other program is: put one on your
-PATH, or don't.
+plugin interface -- `git` above is git, run and finished before `tsm` starts. Four example
+programs ship with it in [`examples/`](examples), and they are installed the way any other
+program is: put one on your PATH, or don't.
 
 | example | prints |
 |---|---|
@@ -44,7 +39,7 @@ PATH, or don't.
 
 ```bash
 ln -s ~/.local/share/tmux-session-manager/examples/fzf-git ~/.local/bin/fzf-git
-tsm via fzf-git
+tsm at "$(fzf-git)"
 ```
 
 Each is one self-contained file: nothing to source, nothing to install, and no reason to keep
@@ -60,8 +55,8 @@ Once a directory is named, every session is created or entered the same way:
 3. **Otherwise:** create a plain session named after the directory.
 
 So `fzf-worktree` is not a different feature from `fzf-dir`. A program prints a directory and
-stops there -- no flags, no say in the session that follows -- which is why writing one of your
-own is worth so little.
+stops there -- no flags, no say in the session that follows, no knowledge that `tsm` exists --
+which is why writing one of your own is worth so little.
 
 See [Usage](#usage) for the full list of commands, and
 [Session Configuration](#session-configuration) for details on how to customize sessions.
@@ -80,7 +75,7 @@ opt-in, one symlink each, and those are what want `fzf`:
 
 ```bash
 ln -s ~/.local/share/tmux-session-manager/examples/fzf-git ~/.local/bin/fzf-git
-tsm via fzf-git
+tsm at "$(fzf-git)"
 ```
 
 <details>
@@ -140,26 +135,35 @@ bind-key X run-shell "tsm kill #{session_name}"   # kill current session (runs i
 bind-key l run-shell "tsm last"      # most recent session still open
 
 # Directory based sessions -- fzf-* are the examples, symlinked onto PATH
-bind-key d popup -E "tsm via fzf-dir"                         # any directory
-bind-key g popup -E "tsm via fzf-git"                         # a git repository
-bind-key G popup -E "tsm via fzf-git-brief"                   # repositories with changes
-bind-key w popup -E "tsm via fzf-worktree"                    # a worktree of this repo
-bind-key b popup -E "tsm via dir-mark pick"                   # a marked directory
-bind-key z popup -E "tsm via zoxide query -i"                 # anything that prints a path
-bind-key r run-shell "tsm via git rev-parse --show-toplevel"  # this repo's root
+bind-key d popup -E 'tsm at "$(fzf-dir)"'                         # any directory
+bind-key g popup -E 'tsm at "$(fzf-git)"'                         # a git repository
+bind-key G popup -E 'tsm at "$(fzf-git-brief)"'                   # repositories with changes
+bind-key w popup -E 'tsm at "$(fzf-worktree)"'                    # a worktree of this repo
+bind-key b popup -E 'tsm at "$(dir-mark pick)"'                   # a marked directory
+bind-key z popup -E 'tsm at "$(zoxide query -i)"'                 # anything that prints a path
+bind-key r run-shell 'tsm at "$(git rev-parse --show-toplevel)"'  # this repo's root
 
 # Marked directories (dir-mark)
 bind-key m command-prompt -1 -p "Set mark:"    "run-shell -b \"dir-mark set '%%%'\""
-bind-key \' command-prompt -1 -p "Go to mark:" "run-shell -b \"tsm via dir-mark path '%%%'\""
+bind-key \' command-prompt -1 -p "Go to mark:" { run-shell -b "tsm at \"$(dir-mark path '%%%')\"" }
 bind-key M command-prompt -1 -p "Remove mark:" "run-shell -b \"dir-mark remove '%%%'\""
 
 # Session logs
 bind-key L popup -E "tsm logs"
 ```
 
+**The quoting.** The substitution is your shell's, so the binding only has to reach the shell
+intact. tmux performs no replacements inside single quotes, so wrapping the whole command in
+them hands `sh` exactly what you wrote, the inner `"` included -- and those inner quotes are
+what keep a directory with a space in its name one argument. The unquoted
+`popup -E "tsm at $(fzf-dir)"` works right up until it meets `~/Documents/My Notes`.
+
+The `'` binding cannot be wrapped in single quotes, since `%%%` already sits inside a pair of
+them; tmux's braces do the same job and can hold quotes.
+
 The `dir-mark` bindings want [`dir-mark`][dir-mark], a separate tool that maps one character to
 one directory -- see [Marked directories](#marked-directories). It is not a dependency of
-`tsm`: `dir-mark path m` prints a path, which is all `tsm via` ever asks for.
+`tsm`: `dir-mark path m` prints a path, which is all `tsm at` ever asks for.
 
 Those three ask in tmux's status line, so they need no popup: `-1` takes exactly one key and
 `%%%` substitutes it with quotation marks escaped. `'` and `;` are the two keys that cannot be
@@ -179,9 +183,9 @@ answered with -- `;` is tmux's own command separator.
 > | **zsh** | zshenv → zprofile → zshrc → zlogin | zshenv → zshrc | zshenv only |
 > | **bash** | /etc/profile → (~/.bash_profile OR ~/.bash_login OR ~/.profile) | ~/.bashrc | $BASH_ENV only (if set) |
 >
-> The same goes for the program you hand `tsm via`, which is also looked up on PATH. Fallback:
-> use full paths in the bindings, e.g. `bind-key d popup -E
-> "~/.local/share/tmux-session-manager/tsm via ~/.local/share/tmux-session-manager/examples/fzf-dir"`.
+> The same goes for the program inside the substitution, which that same shell looks up on
+> PATH. Fallback: use full paths in the bindings, e.g. `bind-key d popup -E
+> '~/.local/share/tmux-session-manager/tsm at "$(~/.local/share/tmux-session-manager/examples/fzf-dir)"'`.
 >
 > The same file is where any environment your own program reads has to be set (e.g.
 > `FZF_DEFAULT_COMMAND`), or it will behave differently inside a tmux popup than in your shell.
@@ -201,8 +205,6 @@ tsm last                             # Switch to the most recent session that is
 tsm at <path> [-c] [-p]              # Start a session at a directory, or switch to the
                                      # session already open there
 
-tsm via [-c] [-p] <program> [args]   # The same, at the directory <program> prints
-
   -c, --no-config                    # Ignore any configuration claiming that path
   -p, --prompt-name                  # Prompt for the session name instead of using the default
 
@@ -210,14 +212,15 @@ tsm match [path]                     # Configurations claiming a path, best firs
 tsm logs [session]                   # Browse session logs
 ```
 
-`tsm via` takes a program -- any program that prints a path, with no list of names it treats
-specially (see [Writing your own](#writing-your-own)):
+A directory is all `tsm at` takes, so anything that prints one names it through the shell's own
+command substitution. There is nothing to register and no list of names `tsm` treats specially
+(see [Writing your own](#writing-your-own)):
 
 ```bash
-tsm via fzf-git                      # an example you symlinked onto PATH
-tsm via zoxide query -i
-tsm via dir-mark path m
-tsm via ~/bin/my-chooser --since yesterday
+tsm at "$(fzf-git)"                  # an example you symlinked onto PATH
+tsm at "$(zoxide query -i)"
+tsm at "$(dir-mark path m)"
+tsm at "$(~/bin/my-chooser --since yesterday)"
 ```
 
 The four examples each ask with fzf, take no arguments, and print the directory you chose. They
@@ -226,18 +229,22 @@ are ordinary programs, so running one on its own prints its answer:
 ```bash
 ln -s ~/.local/share/tmux-session-manager/examples/fzf-dir ~/.local/bin/fzf-dir
 fzf-dir                              # prints a directory
-tsm via fzf-dir                      # ...and that is the session
+tsm at "$(fzf-dir)"                  # ...and that is the session
 ```
+
+Press escape and `fzf-dir` prints nothing, so the substitution is empty and `tsm at` is left
+with no directory to open. It does nothing, which is the whole of "cancel": no exit status to
+arrange, nothing to special-case. Keep the quotation marks and a directory with a space in its
+name stays one argument.
 
 <a id="from-a-directory-to-a-session"></a>
 
 ## From a directory to a session
 
-A program hands `tsm via` one directory. That is all it does: it takes none of the session
-flags, decides nothing about the session that follows, and answers with one path. `tsm via`
-does everything else, so the rules below hold whatever produced the path -- an example that
-shipped with tsm, `zoxide`, or something you wrote. They hold for `tsm at <path>` too, which is
-the same thing with the directory already in hand.
+`tsm at` is handed one directory and takes it from there. Whatever produced that path -- typed
+out, an example that shipped with tsm, `zoxide`, something you wrote -- had one job and has
+already finished it: it decided nothing about the session that follows, and by the time `tsm`
+runs, all it has is a path. So the rules below hold for every one of them equally.
 
 A named directory becomes a session by the same three rules:
 
@@ -250,8 +257,7 @@ The first check is about the path, not the name: `tsm` records the directory a s
 started at on the session itself (`@tsm_path`), so naming a directory you already have open
 returns to that session, even if it has been renamed.
 
-The flags belong to `tsm via`, not to the program, so they mean the same thing behind every one
-of them:
+The flags are tsm's, and they mean the same thing however the directory arrived:
 
 - `-c`, `--no-config`: ignore the configuration claiming the directory (both its `name` and its
   `start`), leaving a bare session named after the directory.
@@ -259,11 +265,17 @@ of them:
   produced, so enter accepts it and anything typed replaces it. When the path already has a
   session, `-p` has nothing to name and simply switches to it.
 
-The flags come first, before the program: everything from the program's name onwards is that
-program's own, and `-i` in `tsm via zoxide query -i` belongs to `zoxide`. That is also why `tsm
-via` reserves no names -- `tsm via git rev-parse --show-toplevel` runs git, and nothing of
-tsm's shadows it. To go straight to a directory you already know, `tsm at <path>` skips the
-asking entirely.
+They can sit on either side of the path, because a program's own flags never meet them: `-i` in
+`tsm at "$(zoxide query -i)"` is inside the substitution, where the shell has already run
+`zoxide` and consumed it long before `tsm` starts.
+
+```bash
+tsm at -p "$(fzf-git)"
+tsm at "$(fzf-git)" -p
+```
+
+That is also why `tsm` shadows nothing. It sees a path and never a program name, so `git` in
+`tsm at "$(git rev-parse --show-toplevel)"` is git, and no name of tsm's could get in its way.
 
 ### Session names
 
@@ -390,8 +402,8 @@ repository is a different thing to ask for.
 is: branch, ahead/behind counts, and the size of the working diff.
 
 ```bash
-fzf-git-brief             # prints the path
-tsm via fzf-git-brief     # ...and opens the session
+fzf-git-brief                  # prints the path
+tsm at "$(fzf-git-brief)"      # ...and opens the session
 ```
 
 A repository earns a row by having **commits waiting upstream**, **commits not yet pushed**, or
@@ -451,11 +463,11 @@ subcommands; it is now a tool of its own, because naming a directory and opening
 one are two different jobs.
 
 ```bash
-tsm via dir-mark path m                  # a session at whatever m marks
-tsm via dir-mark pick                    # ...or at one you choose, with fzf
+tsm at "$(dir-mark path m)"              # a session at whatever m marks
+tsm at "$(dir-mark pick)"                # ...or at one you choose, with fzf
 ```
 
-That is the entire integration, and it is the same `tsm via` line anything else would use --
+That is the entire integration, and it is the same `tsm at` line anything else would use --
 `tsm` has no idea what a mark is. `dir-mark` also draws the marks that have a session open into
 the tmux status line; see its [README][dir-mark].
 
@@ -469,30 +481,31 @@ The contract is one directory on stdout, which means most of these satisfied it 
 **Ones that ask**
 
 ```bash
-tsm via zoxide query -i                             # your most-used directories
-tsm via env FZF_DEFAULT_COMMAND= fzf --walker=dir   # fzf's own directory walker
-tsm via fzf-git-brief                               # repositories with something to show
+tsm at "$(zoxide query -i)"                             # your most-used directories
+tsm at "$(FZF_DEFAULT_COMMAND= fzf --walker=dir)"       # fzf's own directory walker
+tsm at "$(fzf-git-brief)"                               # repositories with something to show
 ```
 
 fzf has walked the filesystem itself since 0.44, and `--walker=dir` restricts it to
 directories -- a directory chooser with no pipe and no `find`. Add
 `--walker-root=$HOME/code` to pin it to one tree instead of the current directory.
 
-The `env FZF_DEFAULT_COMMAND=` prefix is the catch. If you have `FZF_DEFAULT_COMMAND` set in
-your shell -- a very common `fd` one-liner -- fzf runs *that* instead of its walker, and
+The `FZF_DEFAULT_COMMAND=` prefix is the catch. If you have `FZF_DEFAULT_COMMAND` set in your
+shell -- a very common `fd` one-liner -- fzf runs *that* instead of its walker, and
 `--walker=dir` is silently ignored: you get files. Clearing it for the one call brings the
-walker back, and `env` is an ordinary program, so this still needs no shell. The same variable
-is why a bare `fzf` can behave differently inside a tmux popup than in your shell.
+walker back, and since the substitution is a shell, the bare assignment in front of the command
+is all that takes. The same variable is why a bare `fzf` can behave differently inside a tmux
+popup than in your shell.
 
 **Ones that just answer** -- no prompt, straight to a path:
 
 ```bash
-tsm via pwd                              # the current directory
-tsm via git rev-parse --show-toplevel    # the root of the repo you are in
-tsm via mktemp -d                        # a fresh scratch session, new directory every time
-tsm via dir-mark path m                  # whatever m marks (see dir-mark)
-tsm via xdg-user-dir DOCUMENTS           # ~/Documents, wherever XDG says that is
-tsm via systemd-path user-configuration  # ~/.config
+tsm at "$(pwd)"                              # the current directory
+tsm at "$(git rev-parse --show-toplevel)"    # the root of the repo you are in
+tsm at "$(mktemp -d)"                        # a fresh scratch session, new directory every time
+tsm at "$(dir-mark path m)"                  # whatever m marks (see dir-mark)
+tsm at "$(xdg-user-dir DOCUMENTS)"           # ~/Documents, wherever XDG says that is
+tsm at "$(systemd-path user-configuration)"  # ~/.config
 ```
 
 `git rev-parse --show-toplevel` is the one worth a keybind: from any subdirectory of a
@@ -500,24 +513,25 @@ repository it opens a session at the repository's root. `mktemp -d` is the throw
 empty directory, and therefore a new session, every time you press the key.
 
 ```tmux
-bind-key r run-shell "tsm via git rev-parse --show-toplevel"
-bind-key t run-shell "tsm via mktemp -d"
+bind-key r run-shell 'tsm at "$(git rev-parse --show-toplevel)"'
+bind-key t run-shell 'tsm at "$(mktemp -d)"'
 ```
 
-Note that none of these are special-cased anywhere in `tsm`. `git` here is git; `tsm` has no
-opinion about it and no name of its own that could get in the way.
+Note that none of these are special-cased anywhere in `tsm`. `git` here is git, run by the
+shell before `tsm` is started; `tsm` has no opinion about it and no name of its own that could
+get in the way.
 
 <a id="writing-your-own"></a>
 
 ## Writing your own
 
-A program hands `tsm via` a directory: it prints one path on stdout, says anything else on
-stderr, and stops. It never sees `-c` or `-p`, never decides whether to create or switch, and
-never touches the configuration that claims the path -- `tsm via` does all of that behind every
-program equally. Printing nothing and exiting 0 is how it declines to answer; a non-zero exit
-is passed on.
+There is no such thing as a tsm chooser. There is only a program that prints one path on
+stdout, says anything else on stderr, and stops -- and a `$( )` around it. It never sees `-c`
+or `-p`, never decides whether to create or switch, and never touches the configuration that
+claims the path; `tsm at` does all of that behind every path equally. Printing nothing is how
+it declines to answer, and `tsm at` with no directory does nothing.
 
-That is the entire contract, so it can be any executable, in any language, anywhere:
+So it can be any executable, in any language, anywhere:
 
 ```sh
 #!/bin/sh
@@ -527,56 +541,45 @@ ls -dt ~/code/*/ | head -n 1
 
 ```bash
 chmod +x ~/.local/bin/recent-repo
-tsm via -p recent-repo
+tsm at -p "$(recent-repo)"
 ```
 
-There is nothing to install and no naming convention to follow: `tsm via` looks its argument
-up the way a shell would, so a name on PATH, a relative path and an absolute path all work.
-Programs you did not write count too, as long as they print a directory -- see
-[Programs you already have](#programs-you-already-have).
+There is nothing to install and no naming convention to follow -- your shell resolves the name
+inside the substitution the way it resolves any other, so a name on PATH, a relative path and
+an absolute path all work. Programs you did not write count too, as long as they print a
+directory -- see [Programs you already have](#programs-you-already-have).
 
-Everything after the program's name is handed to that program, so `tsm` takes its own flags out
-first -- they come before it, and `-p` above is tsm's while `-i` in `tsm via zoxide query -i`
-is zoxide's.
-
-The one thing `tsm via` does *not* do is recognise names. There is no list of built-ins it
-checks first, so nothing you might want to run is shadowed -- in
-`tsm via git rev-parse --show-toplevel`, `git` is git. The four in [`examples/`](examples) have
-no more standing than that: they are files on your PATH that print a path, reaching the
-contract exactly the way yours does.
+`-p` above is tsm's, and it cannot be confused with the program's own flags: those live inside
+the substitution, which the shell has finished with before `tsm` is started. That is also why
+nothing you might want to run is shadowed -- in `tsm at "$(git rev-parse --show-toplevel)"`,
+`git` is git. The four in [`examples/`](examples) have no more standing than that: they are
+files on your PATH that print a path, reaching `tsm at` exactly the way yours does.
 
 ```bash
 fzf-git               # the example, printing its answer
-tsm via fzf-git       # ...and the session that follows
+tsm at "$(fzf-git)"   # ...and the session that follows
 ```
 
 ### A pipeline, without writing a file
 
-`tsm via` runs its argument directly rather than through a shell, so a pipeline cannot be
-handed to it as one string. Passing the shell itself is how you inline one:
+The substitution is a shell, so a pipeline needs nothing arranged for it:
 
 ```bash
-tsm via sh -c 'find . -type d | fzf'
+tsm at "$(find . -type d | fzf)"
 ```
 
-`sh` is the program and the pipeline is its argument, which is all the contract asks for: the
-path fzf selects is what `sh` prints. Bound in `~/.tmux.conf`, with the quotes nested:
+Bound in `~/.tmux.conf`, in single quotes so tmux hands `sh` the line unaltered:
 
 ```tmux
-bind-key f popup -E "tsm via sh -c 'find . -type d | fzf'"
+bind-key f popup -E 'tsm at "$(find . -type d | fzf)"'
 ```
 
-The flags still come first -- `tsm via -p sh -c '...'`. The `-c` after `sh` reaches
-`sh`, not `tsm`, even though `-c` is also `--no-config`; position is the only thing separating
-them.
+One thing to watch: `find .` searches the directory the shell was started in, which under
+`popup -E` is the current pane's. That is useful when you mean "somewhere below here" and
+surprising when you don't, so give it an absolute root (`find ~/code -type d`) if the binding
+should list the same thing wherever you press it.
 
-One thing to watch: `find .` searches the directory `tsm` was run from, which under `popup -E`
-is the current pane's. That is useful when you mean "somewhere below here" and surprising when
-you don't, so give it an absolute root (`find ~/code -type d`) if the binding should list the
-same thing wherever you press it.
-
-Past a one-liner, put it in a file instead. It costs nothing -- the thing you hand `tsm via` is
-only ever a program -- and it is easier to quote.
+Past a one-liner, put it in a file instead. It costs nothing, and it is easier to quote.
 
 ### Checking one
 
@@ -586,7 +589,7 @@ to learn:
 ```bash
 recent-repo
 fzf-git
-sh -c 'find . -type d | fzf'
+find . -type d | fzf
 ```
 
 The examples are no different. Each of the four in [`examples/`](examples) is a single file

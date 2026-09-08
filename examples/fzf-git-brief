@@ -6,13 +6,12 @@
 # and clean in the working tree is left out: there is nothing there to go and
 # look at, which is the only reason to reach for this.
 #
-# An example of the only thing `tsm via` asks for: a program that prints a
+# An example of the only thing `tsm at` asks for: a program that prints a
 # directory on stdout. Nothing in it is specific to tsm -- run it on its own
-# and it prints a path; run `tsm via fzf-git-brief` and that path becomes a
-# session.
+# and it prints a path; hand that path to `tsm at` and it becomes a session.
 #
 #   ln -s "$PWD/examples/fzf-git-brief" ~/.local/bin/fzf-git-brief
-#   tsm via fzf-git-brief
+#   tsm at "$(fzf-git-brief)"
 #
 # It is self-contained on purpose: nothing to source, nothing to install, one
 # file to read. This is the longest of the four examples and the one worth

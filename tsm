@@ -19,8 +19,6 @@ Usage
   tsm at <path> [-c] [-p]                  # Start a session at a directory, or switch to the
                                            # session already open there
 
-  tsm via [-c] [-p] <program> [args]       # The same, at the directory <program> prints
-
     -c, --no-config                        # Ignore any configuration claiming that path
     -p, --prompt-name                      # Prompt for the session name instead of using the default
 
@@ -29,18 +27,21 @@ Usage
 
   tsm help                                 # Show help message
 
-tsm via
-  The program is anything that prints a directory on stdout. It can answer
-  straight away, or ask -- tsm does not care which, and reserves no names:
+Choosing the directory
+  Anything that prints a directory can name one, through the shell's own
+  command substitution. tsm has nothing of its own for this. Some programs
+  answer straight away:
 
-  tsm via git rev-parse --show-toplevel    # the root of the repo you are in
-  tsm via mktemp -d                        # a fresh scratch session
-  tsm via zoxide query -i                  # asks: your most-used directories
-  tsm via ~/bin/my-chooser                 # one you wrote
+  tsm at "$(git rev-parse --show-toplevel)"  # the root of the repo you are in
+  tsm at "$(mktemp -d)"                      # a fresh scratch session
 
-  Everything after the program is the program's own, so the flags come
-  first: -i above belongs to zoxide. Printing nothing and exiting 0 is how a
-  program declines to answer; a non-zero exit is passed on.
+  Others ask first, and print what you chose:
+
+  tsm at "$(zoxide query -i)"                # your most-used directories
+  tsm at "$(~/bin/my-chooser)"               # one you wrote
+
+  A program that prints nothing has declined -- what pressing escape in a
+  chooser does -- and `tsm at` with no directory does nothing.
 
   Four example programs ship in the `examples` directory of the checkout.
   They are examples, not part of tsm -- symlink one onto your PATH if you
@@ -730,8 +731,8 @@ at_path() {
   #
   #   tsm at <path> [-c] [-p]
   #
-  # A path and nothing else. `tsm via` is the same thing with a program
-  # printing the path instead.
+  # A path and nothing else. Anything that prints a directory reaches this
+  # through the shell: `tsm at "$(fzf-dir)"`.
   local session_flags=() paths=() arg
   expand_short_flags "$@"
   for arg in "${EXPANDED_ARGS[@]}"; do
@@ -746,90 +747,18 @@ at_path() {
     esac
   done
 
-  if [ "${#paths[@]}" -ne 1 ]; then
+  if [ "${#paths[@]}" -gt 1 ]; then
     notify "Error: 'tsm at' takes one directory"
     exit 1
   fi
 
+  # No directory is the answer a chooser gives when it declines -- pressing
+  # escape leaves `tsm at "$(fzf-dir)"` with an empty argument, and an
+  # unquoted substitution leaves it with none at all. Neither is an error,
+  # and there is nothing to open.
+  [ -n "${paths[0]:-}" ] || exit 0
+
   session_at "${paths[0]}" ${session_flags+"${session_flags[@]}"}
-}
-
-run_program() {
-  # Set PROGRAM_DIR to the directory a program prints. Returns non-zero when
-  # it printed nothing and there is nothing left to do.
-  #
-  # The program is run with the arguments given; its stdout is the answer and
-  # everything else belongs on its stderr. There is no list of names tsm
-  # knows, which is what keeps it from shadowing anything: `git` here is git.
-  #
-  # Args:
-  #   $1: the program to run
-  #   $@: its arguments
-  local name="$1"
-  shift
-
-  PROGRAM_DIR=""
-
-  local program
-  program=$(command -v -- "$name" 2>/dev/null)
-
-  if [ -z "$program" ]; then
-    notify "Error: '$name' is not a program on PATH"
-    exit 1
-  fi
-
-  # Stdout is the answer, so a status is all a program has left to fail with;
-  # it is passed on rather than turned into a session at nowhere. Printing
-  # nothing and succeeding is how it declines to answer.
-  PROGRAM_DIR=$("$program" "$@") || exit $?
-
-  [ -n "$PROGRAM_DIR" ]
-}
-
-via_program() {
-  # Start a session at the directory a program prints, or switch to the
-  # session already open there:
-  #
-  #   tsm via [-c] [-p] <program> [program args]
-  #
-  # Any program that prints a path will do; the arguments after it are the
-  # program's own, so the session flags have to come first -- `-i` in
-  # `zoxide query -i` belongs to zoxide, not to tsm, and there is no way to
-  # tell them apart after the fact.
-  #
-  # Only the arguments before the program are read as flags, and only they
-  # are expanded: after it, -la is the program's business and not two flags
-  # of tsm's.
-  local session_flags=() arg
-  while [ $# -gt 0 ]; do
-    case "$1" in
-      --) shift; break ;;
-      -[!-]* | --*) ;;
-      *) break ;;
-    esac
-
-    expand_short_flags "$1"
-    for arg in "${EXPANDED_ARGS[@]}"; do
-      case "$arg" in
-        -c | --no-config) session_flags+=(--no-config) ;;
-        -p | --prompt-name) session_flags+=(--prompt-name) ;;
-        *)
-          notify "Error: Unknown option '$arg' for 'tsm via'"
-          exit 1
-          ;;
-      esac
-    done
-    shift
-  done
-
-  if [ $# -eq 0 ]; then
-    notify "Error: 'tsm via' takes a program that prints a path, such as 'zoxide query -i'"
-    exit 1
-  fi
-
-  run_program "$@" || exit 0
-
-  session_at "$PROGRAM_DIR" ${session_flags+"${session_flags[@]}"}
 }
 
 browse_logs() {
@@ -893,9 +822,6 @@ case "$command" in
     ;;
   at)
     at_path "$@"
-    ;;
-  via)
-    via_program "$@"
     ;;
   match)
     match_configs "$1"

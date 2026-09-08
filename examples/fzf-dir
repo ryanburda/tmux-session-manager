@@ -2,12 +2,12 @@
 #
 # fzf-dir: prints a directory, chosen with fzf.
 #
-# An example of the only thing `tsm via` asks for: a program that prints a
+# An example of the only thing `tsm at` asks for: a program that prints a
 # directory on stdout. Nothing in it is specific to tsm -- run it on its own
-# and it prints a path; run `tsm via fzf-dir` and that path becomes a session.
+# and it prints a path; hand that path to `tsm at` and it becomes a session.
 #
 #   ln -s "$PWD/examples/fzf-dir" ~/.local/bin/fzf-dir
-#   tsm via fzf-dir
+#   tsm at "$(fzf-dir)"
 #
 # It lists every directory under $HOME, at any depth, skipping hidden ones and
 # everything inside them. To list something else, copy this file and change

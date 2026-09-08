@@ -2,12 +2,12 @@
 #
 # fzf-git: prints the directory of a git repository, chosen with fzf.
 #
-# An example of the only thing `tsm via` asks for: a program that prints a
+# An example of the only thing `tsm at` asks for: a program that prints a
 # directory on stdout. Nothing in it is specific to tsm -- run it on its own
-# and it prints a path; run `tsm via fzf-git` and that path becomes a session.
+# and it prints a path; hand that path to `tsm at` and it becomes a session.
 #
 #   ln -s "$PWD/examples/fzf-git" ~/.local/bin/fzf-git
-#   tsm via fzf-git
+#   tsm at "$(fzf-git)"
 #
 # It finds every git working tree under $HOME, at any depth, skipping hidden
 # directories. To look somewhere else, copy this file and change the find --

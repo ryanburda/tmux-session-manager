@@ -4,8 +4,8 @@ A session configuration is an executable program that calls `tmux` commands dire
 no DSL and no YAML abstraction, so anything tmux can do a configuration can do, and `man tmux`
 is the reference for all of it.
 
-Configurations live in `${XDG_CONFIG_HOME:-~/.config}/tsm/` and are reached by the
-[`tsm via`](../README.md#from-a-directory-to-a-session) when one claims the directory it was given.
+Configurations live in `${XDG_CONFIG_HOME:-~/.config}/tsm/` and are reached by
+[`tsm at`](../README.md#from-a-directory-to-a-session) when one claims the directory it was given.
 
 ## The contract
 
@@ -69,8 +69,7 @@ answers are [sanitized](../README.md#session-names) rather than refused; a name 
 `-p` prompt is refused, since it is not tsm's to rewrite.
 
 **NOTE:** The program runs once per verb, and tsm asks every configuration for its
-`pattern`, so keep the top level cheap: anything expensive there is paid on every `tsm at` and
-`tsm via`.
+`pattern`, so keep the top level cheap: anything expensive there is paid on every `tsm at`.
 
 ## Pane addressing
 

@@ -10,7 +10,7 @@ _tsm_completions() {
     prev="${COMP_WORDS[COMP_CWORD-1]}"
     cmd="${COMP_WORDS[1]}"
 
-    subcmds="active last kill at via match logs help"
+    subcmds="active last kill at match logs help"
 
     # Completing the subcommand itself
     if [ "$COMP_CWORD" -eq 1 ]; then
@@ -29,22 +29,6 @@ _tsm_completions() {
             # A directory and the session flags, in either order.
             flags="-c --no-config -p --prompt-name"
             COMPREPLY=($(compgen -d -W "$flags" -- "$cur"))
-            return 0
-            ;;
-        via)
-            # The session flags come first, then the program: anything
-            # that prints a path. Everything after it is the program's
-            # own, so it is left alone.
-            flags="-c --no-config -p --prompt-name"
-            local i named=0
-            for (( i = 2; i < COMP_CWORD; i++ )); do
-                case "${COMP_WORDS[i]}" in
-                    -*) ;;
-                    *) named=1; break ;;
-                esac
-            done
-            [ "$named" -eq 0 ] &&
-                COMPREPLY=($(compgen -W "$flags" -c -- "$cur"))
             return 0
             ;;
         match)

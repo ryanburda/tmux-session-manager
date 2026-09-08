@@ -29,7 +29,6 @@ _tsm_commands() {
         'last:Switch to the most recent session that is still open'
         'kill:Kill a session'
         'at:Start a session at a directory'
-        'via:Start a session at the directory a program prints'
         'match:Configurations claiming a path, best first'
         'logs:Browse session logs'
         'help:Show help message'
@@ -54,18 +53,6 @@ _tsm() {
         at)
             _alternative \
                 'directories:directory:_files -/' \
-                'options:option:(-c --no-config -p --prompt-name)'
-            ;;
-        via)
-            # The session flags come first, then the program; everything
-            # after it is the program's own and is left alone.
-            local i
-            for (( i = 2; i < CURRENT; i++ )); do
-                [[ "$line[i]" == -* ]] || return
-            done
-
-            _alternative \
-                'commands:program:_command_names -e' \
                 'options:option:(-c --no-config -p --prompt-name)'
             ;;
         match)
