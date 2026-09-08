@@ -3,7 +3,12 @@
 CONFIG_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/tsm"
 STATE_DIR="${XDG_STATE_HOME:-$HOME/.local/state}/tsm"
 LOG_DIR="$STATE_DIR/logs"
+RECORD_DIR="$STATE_DIR/sessions"
 mkdir -p "$CONFIG_DIR" "$LOG_DIR"
+
+# The internal verb the tmux hook calls back on, and the string `tsm init`
+# greps for to recognise a hook it installed before.
+HOOK_VERB=_session_closed
 
 usage() {
   cat <<'EOF'
@@ -19,7 +24,7 @@ Usage:
   tsm match [path]                     # Configurations claiming a path (defaults to the current directory)
   tsm logs [session]                   # Browse configured session logs
   
-  tsm kill [session]                   # Kill session (runs its kill hook if present)
+  tsm init                             # Install the tmux hook that runs a configuration's `kill`
 
 See https://github.com/ryanburda/tmux-session-manager for more documentation
 EOF
@@ -40,12 +45,6 @@ notify() {
   fi
 }
 
-get_active_sessions() {
-  # Active session names, one per line. Formatted rather than cut out of
-  # `tmux ls`, which would split a name at its first colon.
-  tmux list-sessions -F '#{session_name}' 2>/dev/null
-}
-
 switch_or_attach() {
   # Switch to a session if inside tmux, attach otherwise.
   local session="$1"
@@ -54,6 +53,36 @@ switch_or_attach() {
   else
     tmux attach-session -t "=$session"
   fi
+}
+
+self_path() {
+  # Absolute path to this program. `tsm init` bakes it into the tmux hook:
+  # the server's PATH is whatever it inherited when it started, which need
+  # not hold the directory tsm was installed in.
+  local self="$0"
+  case "$self" in
+    */*) ;;
+    *) self=$(command -v -- "$self") || return 1 ;;
+  esac
+
+  printf '%s/%s\n' "$(cd "$(dirname "$self")" && pwd -P)" "$(basename "$self")"
+}
+
+session_record() {
+  # Path of a session's cleanup record: the file whose existence says a
+  # configuration built this session and is owed its `kill` when it closes.
+  # It holds the directory the session was started at, which the hook cannot
+  # read off the session itself -- tmux has freed @tsm_path and the session
+  # environment by the time session-closed fires.
+  #
+  # Keyed by session id under the server's pid: ids restart at $0 with every
+  # tmux server, so an id alone would be read back by an unrelated session of
+  # a later one.
+  #
+  # Args:
+  #   $1: pid: the tmux server's pid, #{pid}
+  #   $2: id: the session id, #{session_id}, leading `$` and all
+  printf '%s/%s/%s\n' "$RECORD_DIR" "$1" "${2#\$}"
 }
 
 session_paths() {
@@ -210,23 +239,6 @@ config_name_for_file() {
   case "$base" in *.*) base="${base%.*}" ;; esac
 
   printf '%s%s%s\n' "$dir" "$dot" "$base"
-}
-
-config_file_for_name() {
-  # Echo the path of the configuration named $1, or nothing with a non-zero
-  # status. A search, since the extension is not knowable from the name;
-  # first match in LC_ALL=C order wins.
-  #
-  # Args:
-  #   $1: name: a configuration name, as config_name_for_file produces
-  local want="$1" file
-  while IFS= read -r file; do
-    if [ "$(config_name_for_file "$file")" = "$want" ]; then
-      printf '%s\n' "$file"
-      return 0
-    fi
-  done < <(config_files)
-  return 1
 }
 
 run_config() {
@@ -394,61 +406,88 @@ session_name_prompt() {
 #################
 # api functions #
 #################
-kill_session() {
-  local session="$1"
-
-  # No session given: pick one with fzf.
-  if [ -z "$session" ]; then
-    local active_sessions
-    active_sessions=$(get_active_sessions)
-
-    if [ -z "$active_sessions" ]; then
-      notify "No active sessions to kill"
-      exit 1
-    fi
-
-    session=$(echo "$active_sessions" | fzf --cycle --prompt "Kill Session > ")
-
-    if [ -z "$session" ]; then
-      exit 0
-    fi
-  fi
-
-  if ! tmux has-session -t "=$session" 2>/dev/null; then
-    notify "Error: Session '$session' is not running"
+init_hook() {
+  # Install the tmux hook that runs a configuration's `kill`. Meant for
+  # tmux.conf, where it runs once per server:
+  #
+  #   run-shell "tsm init"
+  #
+  # The hook is global because a session's own options are already freed when
+  # session-closed fires: a hook set on the session never runs at all.
+  # Appended rather than set, so anyone else's session-closed hooks survive,
+  # and any hook a previous `tsm init` left behind is dropped first, so
+  # re-sourcing tmux.conf does not stack duplicates.
+  local self
+  if ! self=$(self_path); then
+    notify "Error: could not resolve the path to tsm"
     exit 1
   fi
+
+  # Unsetting an array element leaves the others at their own indexes, so the
+  # indexes collected here stay valid as they are removed.
+  local index
+  while IFS= read -r index; do
+    tmux set-hook -gu "session-closed[$index]"
+  done < <(tmux show-hooks -g 2>/dev/null \
+    | sed -n "s/^session-closed\[\([0-9]\{1,\}\)\].*$HOOK_VERB.*/\1/p")
+
+  tmux set-hook -ga session-closed \
+    "run-shell \"'$self' $HOOK_VERB '#{hook_session}' '#{pid}' '#{hook_session_name}'\"" || exit 1
+
+  # A tmux server that is killed outright closes no sessions and so fires no
+  # hooks, leaving its records behind. Reap the ones whose server is gone.
+  # Another live server's records are left alone: several may be running.
+  local dir pid
+  for dir in "$RECORD_DIR"/*/; do
+    [ -d "$dir" ] || continue
+    pid=$(basename "$dir")
+    case "$pid" in
+      *[!0-9]*) continue ;;
+    esac
+    kill -0 "$pid" 2>/dev/null || rm -rf "$dir"
+  done
+}
+
+session_closed() {
+  # The session-closed hook, called back by tmux. Runs the `kill` verb of the
+  # configuration claiming the directory the closed session was started at.
+  #
+  # The configuration is resolved again here rather than remembered from
+  # `start`, so the file that claims the directory now is the one that cleans
+  # up after it.
+  #
+  # Args:
+  #   $1: id: the closed session's id, #{hook_session}
+  #   $2: pid: the tmux server's pid, #{pid}
+  #   $3: session: the closed session's name, #{hook_session_name}
+  local id="$1" pid="$2" session="$3"
+
+  local record
+  record=$(session_record "$pid" "$id")
+
+  # No record: no configuration built this session -- it claimed no
+  # directory, was created with -c, or tsm did not create it at all. Nothing
+  # is owed, and every session tmux closes reaches this.
+  [ -f "$record" ] || exit 0
+
+  local root
+  root=$(cat "$record")
+  rm -f "$record"
+  [ -n "$root" ] || exit 0
+
+  local session_file
+  session_file=$(matching_config_for_root "$root") || exit 0
 
   local log_dir="$LOG_DIR/$session"
   local log_file="$log_dir/tsm.log"
   mkdir -p "$log_dir"
+  echo "[$(date '+%Y-%m-%d %H:%M:%S')] Killing session '$session' ($(config_name_for_file "$session_file"))" > "$log_file"
 
-  # The configuration that built the session is read back from the marker
-  # rather than resolved again, so it is torn down by the one that built it
-  # even if the patterns have since changed. A session created with -c
-  # recorded no marker and gets no cleanup.
-  local matching_config
-  matching_config=$(tmux show-environment -t "=$session" TSM_MATCHING_CONFIG 2>/dev/null | sed 's/^TSM_MATCHING_CONFIG=//')
-
-  local session_file=""
-  if [ -n "$matching_config" ]; then
-    session_file=$(config_file_for_name "$matching_config") || session_file=""
-  fi
-
-  # The kill hook runs in the background so the session goes away immediately
-  # rather than waiting on cleanup; tsm kills the session itself either way.
-  if [ -n "$session_file" ]; then
-    echo "[$(date '+%Y-%m-%d %H:%M:%S')] Killing session '$session'" > "$log_file"
-
-    # ROOT comes from @tsm_path, so `kill` sees the ROOT that `start` saw.
-    local session_root
-    session_root=$(path_for_session "$session")
-
-    nohup env SESSION="$session" ROOT="${session_root:-$HOME}" \
-      "$session_file" kill >> "$log_file" 2>&1 &
-  fi
-
-  tmux kill-session -t "=$session"
+  # Backgrounded so tmux's run-shell returns at once and the hook does not
+  # hold up the server while cleanup runs. ROOT comes from the record, so
+  # `kill` sees the ROOT that `start` saw.
+  nohup env SESSION="$session" ROOT="$root" \
+    "$session_file" kill >> "$log_file" 2>&1 &
 }
 
 match_configs() {
@@ -526,13 +565,9 @@ session_at() {
 
   # A configuration may claim the path with `pattern`, naming the session
   # (`name`) and building it (`start`). -c opts out of both.
-  local matching_file="" matching_config=""
+  local matching_file=""
   if [ -z "$no_config" ]; then
-    if matching_file=$(matching_config_for_root "$selected"); then
-      matching_config=$(config_name_for_file "$matching_file")
-    else
-      matching_file=""
-    fi
+    matching_file=$(matching_config_for_root "$selected") || matching_file=""
   fi
 
   # The configuration's name if it has an opinion, the directory's otherwise.
@@ -578,21 +613,33 @@ session_at() {
   # `=name:` is that session's current pane.
   tmux set-option -t "=$session_name:" @tsm_path "$selected"
 
+  # The session id and the server's pid key the cleanup record below. Read
+  # now, while there is still a session to read them from.
+  local session_id server_pid
+  read -r session_id server_pid < <(tmux display-message -p -t "=$session_name:" '#{session_id} #{pid}')
+
   if [ -n "$matching_file" ]; then
     # A session no configuration claimed runs no script, so it gets no log.
     local log_dir="$LOG_DIR/$session_name"
     local log_file="$log_dir/tsm.log"
     mkdir -p "$log_dir"
-    echo "[$(date '+%Y-%m-%d %H:%M:%S')] Starting session '$session_name'" > "$log_file"
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] Starting session '$session_name' ($(config_name_for_file "$matching_file"))" > "$log_file"
 
     # Subshell so a configuration aborting under its own `set -e` does not
-    # tear down a session tmux already created. The marker is recorded inside
-    # it: it is only true once the configuration has actually been applied,
-    # and kill_session reads it to know which file owns the cleanup.
+    # tear down a session tmux already created. The cleanup record is written
+    # inside it: it is only owed once the configuration has actually been
+    # applied, and it is what the session-closed hook reads to know a `kill`
+    # is due. A session no configuration claimed, or one created with -c,
+    # writes no record and is cleaned up after by nobody.
     (
       export SESSION="$session_name" ROOT="$selected"
       run_config "$matching_file" start
-      tmux set-environment -t "=$session_name" TSM_MATCHING_CONFIG "$matching_config"
+
+      if [ -n "$server_pid" ] && [ -n "$session_id" ]; then
+        record=$(session_record "$server_pid" "$session_id")
+        mkdir -p "$(dirname "$record")"
+        printf '%s\n' "$selected" > "$record"
+      fi
     ) >> "$log_file" 2>&1
   fi
 
@@ -685,9 +732,6 @@ command="$1"
 shift
 
 case "$command" in
-  kill)
-    kill_session "$1"
-    ;;
   at)
     at_path "$@"
     ;;
@@ -696,6 +740,12 @@ case "$command" in
     ;;
   logs)
     browse_logs "$1"
+    ;;
+  init)
+    init_hook
+    ;;
+  "$HOOK_VERB")
+    session_closed "$1" "$2" "$3"
     ;;
   help)
     usage

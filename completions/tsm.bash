@@ -10,7 +10,7 @@ _tsm_completions() {
     prev="${COMP_WORDS[COMP_CWORD-1]}"
     cmd="${COMP_WORDS[1]}"
 
-    subcmds="kill at match logs help"
+    subcmds="at match logs init help"
 
     # Completing the subcommand itself
     if [ "$COMP_CWORD" -eq 1 ]; then
@@ -20,11 +20,6 @@ _tsm_completions() {
 
     # Completing an argument to a subcommand
     case "$cmd" in
-        kill)
-            local active=$(tmux ls 2>/dev/null | awk -F: '{print $1}')
-            COMPREPLY=($(compgen -W "$active" -- "$cur"))
-            return 0
-            ;;
         at)
             # A directory and the session flags, in either order.
             flags="-c --no-config -p --prompt-name"

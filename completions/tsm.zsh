@@ -8,12 +8,6 @@
 # 2. Or source directly in .zshrc:
 #      source /path/to/tsm.zsh
 
-_tsm_active_sessions() {
-    local sessions
-    sessions=(${(f)"$(tmux ls 2>/dev/null | awk -F: '{print $1}')"})
-    _describe 'active session' sessions
-}
-
 _tsm_log_sessions() {
     local log_dir="${XDG_STATE_HOME:-$HOME/.local/state}/tsm/logs"
     local sessions
@@ -25,10 +19,10 @@ _tsm_log_sessions() {
 
 _tsm_commands() {
     local commands=(
-        'kill:Kill a session'
         'at:Start a session at a directory'
         'match:Configurations claiming a path, best first'
         'logs:Browse session logs'
+        'init:Install the tmux session-closed hook'
         'help:Show help message'
     )
 
@@ -45,9 +39,6 @@ _tsm() {
         && return 0
 
     case "$line[1]" in
-        kill)
-            _tsm_active_sessions
-            ;;
         at)
             _alternative \
                 'directories:directory:_files -/' \

@@ -126,11 +126,14 @@ ln -s ~/.local/share/tmux-session-manager/completions/tsm.fish ~/.config/fish/co
 `tsm` is best driven from tmux keybinds in `~/.tmux.conf`:
 
 ```bash
+run-shell "tsm init"                                          # run a configuration's `kill` when its session closes
 bind-key d popup -E 'tsm at "$(find $HOME type -d | fzf)"'    # any directory
-bind-key k popup -E "tsm kill"                                # kill session selector
-bind-key X run-shell "tsm kill #{session_name}"               # kill current session (runs its kill hook)
-bind-key l popup -E "tsm logs"                                # Configured session logs
+bind-key l popup -E "tsm logs"                                # configured session logs
 ```
+
+`tsm init` installs a global `session-closed` hook, and is the only line that has to be there:
+it is what runs a configuration's `kill` when its session goes away. Sessions are killed with
+tmux's own `kill-session`; tsm has no kill command.
 </details>
 
 ## Usage
@@ -145,7 +148,7 @@ tsm at <path> [-c] [-p]              # Start or switch to session at a directory
 tsm match [path]                     # Configurations claiming a path (defaults to the current directory)
 tsm logs [session]                   # Browse configured session logs
 
-tsm kill [session]                   # Kill session (runs its kill hook if present)
+tsm init                             # Install the tmux hook that runs a configuration's `kill`
 ```
 
 ## License
