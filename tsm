@@ -6,9 +6,10 @@ LOG_DIR="$STATE_DIR/logs"
 RECORD_DIR="$STATE_DIR/sessions"
 mkdir -p "$CONFIG_DIR" "$LOG_DIR"
 
-# The internal verb the tmux hook calls back on, and the string `tsm init`
-# greps for to recognise a hook it installed before.
-HOOK_VERB=_session_closed
+# The internal verbs the tmux hooks call back on. Each is also the string
+# `tsm init` greps for to recognise a hook it installed before.
+HOOK_CREATED=_session_created
+HOOK_CLOSED=_session_closed
 
 usage() {
   cat <<'EOF'
@@ -24,7 +25,7 @@ Usage:
   tsm match [path]                     # Configurations claiming a path (defaults to the current directory)
   tsm logs [session]                   # Browse configured session logs
   
-  tsm init                             # Install the tmux hook that runs a configuration's `kill`
+  tsm init                             # Install the tmux hooks tsm works through (put this in tmux.conf)
 
 See https://github.com/ryanburda/tmux-session-manager for more documentation
 EOF
@@ -46,12 +47,15 @@ notify() {
 }
 
 switch_or_attach() {
-  # Switch to a session if inside tmux, attach otherwise.
-  local session="$1"
+  # Switch to a session if inside tmux, attach otherwise. Takes a tmux target
+  # as-is, so callers pass `=name` for a name and `$id` for a session id; an
+  # id is what survives the rename the session-created hook may be about to
+  # make.
+  local target="$1"
   if [ -n "$TMUX" ]; then
-    tmux switch-client -t "=$session"
+    tmux switch-client -t "$target"
   else
-    tmux attach-session -t "=$session"
+    tmux attach-session -t "$target"
   fi
 }
 
@@ -103,18 +107,6 @@ session_for_path() {
   while IFS=$'\t' read -r name path; do
     [ "$path" = "$want" ] || continue
     printf '%s\n' "$name"
-    return 0
-  done < <(session_paths)
-  return 1
-}
-
-path_for_session() {
-  # Echo the path the session named $1 was started at, or nothing with a
-  # non-zero status.
-  local want="$1" name path
-  while IFS=$'\t' read -r name path; do
-    [ "$name" = "$want" ] || continue
-    printf '%s\n' "$path"
     return 0
   done < <(session_paths)
   return 1
@@ -336,38 +328,16 @@ config_session_name() {
   sanitize_session_name "$name"
 }
 
-report_name_collision() {
-  # Explain a name collision on stderr: the derived name, the directory it
-  # was derived for, and where the session holding it already lives.
-  #
-  # Args:
-  #   $1: name: the derived session name
-  #   $2: path: the directory a session is being created for
-  #   $3: existing: the directory the session already called $1 was started at
-  local name="$1" path="$2" existing="$3"
-  local red reset
-  red=$(tput setaf 1) reset=$(tput sgr0)
-
-  {
-    printf '%sSession name collision%s\n' "$red" "$reset"
-    printf '  %-18s%s\n' 'name' "$name"
-    printf '  %-18s%s\n' 'new session at' "$path"
-    printf '  %-18s%s\n' "'$name' is open at" "${existing:-(unknown)}"
-  } >&2
-}
-
 session_name_prompt() {
   # Prompt for a session name, offering $2 as the default. Echoes the name.
   #
   # Args:
   #   $1: path: the directory the session will be created at
   #   $2: session_name: the name to offer as the default
-  #   $3: quiet: optional; any value suppresses the path header
   local path="$1"
   local session_name="$2"
-  local quiet="$3"
 
-  [ -n "$quiet" ] || printf "%s\n" "$(tput setaf 8)$path$(tput sgr0)" >&2
+  printf "%s\n" "$(tput setaf 8)$path$(tput sgr0)" >&2
   while true; do
     local prompt="Enter session name"
     if ! tmux has-session -t "=$session_name" 2>/dev/null; then
@@ -406,33 +376,55 @@ session_name_prompt() {
 #################
 # api functions #
 #################
+install_hook() {
+  # Point one global tmux hook at one of tsm's internal verbs. Appended, so
+  # anyone else's hooks on it survive; any hook a previous `tsm init` left on
+  # it is dropped first, so re-sourcing tmux.conf does not stack duplicates.
+  #
+  # Args:
+  #   $1: hook: the tmux hook name
+  #   $2: verb: the tsm verb it calls back on
+  #   $3: self: absolute path to this program
+  local hook="$1" verb="$2" self="$3"
+
+  # Unsetting an array element leaves the others at their own indexes, so the
+  # indexes collected here stay valid as they are removed.
+  local index
+  while IFS= read -r index; do
+    tmux set-hook -gu "$hook[$index]"
+  done < <(tmux show-hooks -g 2>/dev/null \
+    | sed -n "s/^$hook\\[\\([0-9]\\{1,\\}\\)\\].*$verb.*/\\1/p")
+
+  tmux set-hook -ga "$hook" \
+    "run-shell \"'$self' $verb '#{hook_session}' '#{pid}' '#{hook_session_name}'\""
+}
+
+hook_installed() {
+  # Whether `tsm init` has run on this server. Everything a configuration
+  # does now happens in a hook, so a server without them is a tsm that
+  # quietly does nothing.
+  tmux show-hooks -g 2>/dev/null | grep -q -- "$HOOK_CREATED"
+}
+
 init_hook() {
-  # Install the tmux hook that runs a configuration's `kill`. Meant for
-  # tmux.conf, where it runs once per server:
+  # Install the two tmux hooks tsm works through. Meant for tmux.conf, where
+  # it runs once per server:
   #
   #   run-shell "tsm init"
   #
-  # The hook is global because a session's own options are already freed when
-  # session-closed fires: a hook set on the session never runs at all.
-  # Appended rather than set, so anyone else's session-closed hooks survive,
-  # and any hook a previous `tsm init` left behind is dropped first, so
-  # re-sourcing tmux.conf does not stack duplicates.
+  # session-created applies a configuration to a session tmux has just made;
+  # session-closed runs that configuration's `kill` when it goes away.
+  #
+  # Both are global. A session's own options are already freed when
+  # session-closed fires, so a hook set on the session never runs at all.
   local self
   if ! self=$(self_path); then
     notify "Error: could not resolve the path to tsm"
     exit 1
   fi
 
-  # Unsetting an array element leaves the others at their own indexes, so the
-  # indexes collected here stay valid as they are removed.
-  local index
-  while IFS= read -r index; do
-    tmux set-hook -gu "session-closed[$index]"
-  done < <(tmux show-hooks -g 2>/dev/null \
-    | sed -n "s/^session-closed\[\([0-9]\{1,\}\)\].*$HOOK_VERB.*/\1/p")
-
-  tmux set-hook -ga session-closed \
-    "run-shell \"'$self' $HOOK_VERB '#{hook_session}' '#{pid}' '#{hook_session_name}'\"" || exit 1
+  install_hook session-created "$HOOK_CREATED" "$self" || exit 1
+  install_hook session-closed "$HOOK_CLOSED" "$self" || exit 1
 
   # A tmux server that is killed outright closes no sessions and so fires no
   # hooks, leaving its records behind. Reap the ones whose server is gone.
@@ -446,6 +438,134 @@ init_hook() {
     esac
     kill -0 "$pid" 2>/dev/null || rm -rf "$dir"
   done
+}
+
+session_created() {
+  # The session-created hook, called back by tmux for every session it makes,
+  # however it was made. This is where a configuration is applied: tsm names
+  # the session, marks it, builds it and records it, all after the fact.
+  #
+  # Nothing happens unless a configuration claims the directory the session
+  # was created at, so a plain `tmux new-session` anywhere else behaves
+  # exactly as it always did.
+  #
+  # Args:
+  #   $1: id: the new session's id, #{hook_session}
+  #   $2: pid: the tmux server's pid, #{pid}
+  #   $3: name: the name tmux gave it, #{hook_session_name}
+  local id="$1" pid="$2" name="$3"
+
+  # The opt-out, and the equivalent of `tsm at -c`. It travels in the session
+  # environment because a hook runs under the tmux server and never sees the
+  # environment of whoever asked for the session:
+  #
+  #   tmux new-session -e TSM_NO_CONFIG=1 -c <dir>
+  tmux show-environment -t "$id" TSM_NO_CONFIG > /dev/null 2>&1 && exit 0
+
+  # Where the session was created, which is #{session_path} before anything
+  # has had the chance to cd away from it.
+  local path
+  path=$(tmux display-message -p -t "$id" '#{session_path}' 2>/dev/null)
+  [ -n "$path" ] || exit 0
+
+  local matching_file
+  matching_file=$(matching_config_for_root "$path") || exit 0
+
+  # One session per configured directory. A second session created at a
+  # claimed path would collide on the name and build the layout a second
+  # time, so the client that asked for it is sent to the session already
+  # there instead. Only configured paths are deduplicated; two sessions at an
+  # unclaimed directory are nobody's business but tmux's.
+  # Matched on @tsm_path alone, and never against the new session itself: it
+  # has no @tsm_path yet, and #{session_path} would match it to itself.
+  local other="" sid sname spath
+  while IFS=$'\t' read -r sid sname spath; do
+    [ "$sid" != "$id" ] || continue
+    [ -n "$spath" ] && [ "$spath" = "$path" ] || continue
+    other="$sname"
+    break
+  done < <(tmux list-sessions -F $'#{session_id}\t#{session_name}\t#{@tsm_path}' 2>/dev/null)
+
+  if [ -n "$other" ]; then
+    # Every client on the session about to go away is moved first, so none of
+    # them is detached along with it.
+    local client
+    while IFS= read -r client; do
+      [ -n "$client" ] && tmux switch-client -c "$client" -t "=$other" 2>/dev/null
+    done < <(tmux list-clients -t "$id" -F '#{client_name}' 2>/dev/null)
+
+    tmux kill-session -t "$id" 2>/dev/null
+    exit 0
+  fi
+
+  # Record the directory on the session itself; this is what identifies it.
+  # The trailing `:` is load-bearing: set-option takes a target pane, and an
+  # id alone is read as a pane id and fails to resolve, while `$id:` is that
+  # session's current pane.
+  tmux set-option -t "$id:" @tsm_path "$path"
+
+  name=$(rename_created_session "$id" "$name" "$matching_file" "$path")
+
+  local log_dir="$LOG_DIR/$name"
+  local log_file="$log_dir/tsm.log"
+  mkdir -p "$log_dir"
+  echo "[$(date '+%Y-%m-%d %H:%M:%S')] Starting session '$name' ($(config_name_for_file "$matching_file"))" > "$log_file"
+
+  # Subshell so a configuration aborting under its own `set -e` does not tear
+  # down a session tmux already created. The cleanup record is written inside
+  # it: it is only owed once the configuration has actually been applied, and
+  # it is what the session-closed hook reads to know a `kill` is due.
+  (
+    export SESSION="$name" ROOT="$path"
+    run_config "$matching_file" start
+
+    if [ -n "$pid" ] && [ -n "$id" ]; then
+      record=$(session_record "$pid" "$id")
+      mkdir -p "$(dirname "$record")"
+      printf '%s\n' "$path" > "$record"
+    fi
+  ) >> "$log_file" 2>&1
+}
+
+rename_created_session() {
+  # Give a session the name its configuration asks for, and echo the name it
+  # ends up with.
+  #
+  # A name that is already taken is kept rather than resolved: the hook has
+  # no terminal to prompt on, and a session left under the name tmux gave it
+  # is still a working session. It is said out loud instead, on the status
+  # line and in the log.
+  #
+  # Args:
+  #   $1: id: the session id
+  #   $2: name: the name tmux gave it
+  #   $3: file: the configuration claiming the directory
+  #   $4: path: the directory the session was created at
+  local id="$1" name="$2" file="$3" path="$4"
+
+  # A name tmux made up for itself is a plain integer; anything else was
+  # asked for, by `-s` or by `tsm at -p`, and is not tsm's to overwrite.
+  case "$name" in
+    '' | *[!0-9]*) printf '%s\n' "$name"; return ;;
+  esac
+  if tmux show-environment -t "$id" TSM_NAME_FIXED > /dev/null 2>&1; then
+    printf '%s\n' "$name"
+    return
+  fi
+
+  local want=""
+  want=$(config_session_name "$file" "$path")
+  [ -n "$want" ] || want=$(default_session_name "$path")
+  [ -n "$want" ] && [ "$want" != "$name" ] || { printf '%s\n' "$name"; return; }
+
+  if tmux has-session -t "=$want" 2>/dev/null; then
+    notify "tsm: '$want' is taken; session at $path left as '$name'"
+    printf '%s\n' "$name"
+    return
+  fi
+
+  tmux rename-session -t "$id" "$want" 2>/dev/null || { printf '%s\n' "$name"; return; }
+  printf '%s\n' "$want"
 }
 
 session_closed() {
@@ -559,44 +679,51 @@ session_at() {
   # also the answer -p gets.
   local existing
   if existing=$(session_for_path "$selected"); then
-    switch_or_attach "$existing"
+    switch_or_attach "=$existing"
     exit 0
   fi
 
-  # A configuration may claim the path with `pattern`, naming the session
-  # (`name`) and building it (`start`). -c opts out of both.
+  # A configuration may claim the path, and if one does the session-created
+  # hook applies it: naming the session, building it and recording it. That
+  # happens for any `tmux new-session`, so all that is left here is the two
+  # things a hook cannot do -- size the session for the client that is about
+  # to attach, and prompt for a name.
+  local new_args=()
+
+  # -c travels in the session environment, which is where the hook looks:
+  # nothing a client exports can reach a hook, the server being its parent.
+  [ -n "$no_config" ] && new_args+=(-e TSM_NO_CONFIG=1)
+
   local matching_file=""
-  if [ -z "$no_config" ]; then
-    matching_file=$(matching_config_for_root "$selected") || matching_file=""
+  [ -n "$no_config" ] || matching_file=$(matching_config_for_root "$selected") || matching_file=""
+
+  # A configuration claims the path but nothing would apply it, which is a
+  # baffling way to discover that `tsm init` is missing from tmux.conf.
+  if [ -n "$matching_file" ] && ! hook_installed; then
+    notify "Error: tsm init has not run on this tmux server; add 'run-shell \"tsm init\"' to your tmux.conf"
+    exit 1
   fi
 
-  # The configuration's name if it has an opinion, the directory's otherwise.
   local session_name=""
-  [ -n "$matching_file" ] && session_name=$(config_session_name "$matching_file" "$selected")
-  [ -n "$session_name" ] || session_name=$(default_session_name "$selected")
-
   if [ -n "$prompt_name" ]; then
-    # -p is the last word: the rules still make the suggestion, but anything
-    # typed over it wins. session_name_prompt returns rather than exits
-    # because an exit inside a command substitution only ends the subshell.
-    session_name=$(session_name_prompt "$selected" "$session_name") || exit 1
-  else
-    # The path is not open (settled above), so a session already holding this
-    # name is a genuine collision: two directories whose names landed on the
-    # same string. Switching there would go somewhere that was not asked for, so
-    # report it and ask for a name.
-    if tmux has-session -t "=$session_name" 2>/dev/null; then
-      local taken="$session_name" existing_path
-      existing_path=$(path_for_session "$taken")
-      report_name_collision "$taken" "$selected" "$existing_path"
+    # -p is the last word, so the name is settled before the session exists
+    # and the hook is told to leave it alone. The rules still make the
+    # suggestion: the configuration's `name` if it has an opinion, the
+    # directory's otherwise.
+    [ -n "$matching_file" ] && session_name=$(config_session_name "$matching_file" "$selected")
+    [ -n "$session_name" ] || session_name=$(default_session_name "$selected")
 
-      # quiet: the report already put the path on stderr.
-      session_name=$(session_name_prompt "$selected" "$taken" quiet) || {
-        # The prompt's error goes to stderr, which has nowhere to land under
-        # tmux's run-shell; notify becomes a tmux message there.
-        notify "Error: session '$taken' is already open at ${existing_path:-an unknown path}; $selected needs a name of its own"
-        exit 1
-      }
+    # session_name_prompt returns rather than exits because an exit inside a
+    # command substitution only ends the subshell.
+    session_name=$(session_name_prompt "$selected" "$session_name") || exit 1
+    new_args+=(-s "$session_name" -e TSM_NAME_FIXED=1)
+  elif [ -z "$matching_file" ]; then
+    # No configuration claims the path, so the hook will not touch this one
+    # and the directory has to name it here. A name already taken is left to
+    # tmux, which is what the hook does with a collision too.
+    session_name=$(default_session_name "$selected")
+    if [ -n "$session_name" ] && ! tmux has-session -t "=$session_name" 2>/dev/null; then
+      new_args+=(-s "$session_name")
     fi
   fi
 
@@ -605,45 +732,19 @@ session_at() {
 
   # Sized up front: tmux creates detached sessions at 80x24, and percentage
   # splits made before the client attaches drift once the real size arrives.
-  tmux new-session -d -s "$session_name" -c "$selected" ${width:+-x "$width"} ${height:+-y "$height"} || exit 1
+  # This is the reason to come through tsm at all rather than run
+  # `tmux new-session` and let the hook do the rest.
+  local session_id
+  session_id=$(tmux new-session -d -P -F '#{session_id}' -c "$selected" \
+    ${width:+-x "$width"} ${height:+-y "$height"} ${new_args+"${new_args[@]}"}) || exit 1
 
-  # Record the directory on the session itself; this is what identifies it.
-  # The trailing `:` is load-bearing: set-option takes a target pane, and
-  # `=name` alone is read as a pane target and fails to resolve, while
-  # `=name:` is that session's current pane.
-  tmux set-option -t "=$session_name:" @tsm_path "$selected"
+  # A session no configuration claimed is never touched by the hook, so it is
+  # marked here; the path is what identifies a session to `tsm at`.
+  tmux set-option -t "$session_id:" @tsm_path "$selected"
 
-  # The session id and the server's pid key the cleanup record below. Read
-  # now, while there is still a session to read them from.
-  local session_id server_pid
-  read -r session_id server_pid < <(tmux display-message -p -t "=$session_name:" '#{session_id} #{pid}')
-
-  if [ -n "$matching_file" ]; then
-    # A session no configuration claimed runs no script, so it gets no log.
-    local log_dir="$LOG_DIR/$session_name"
-    local log_file="$log_dir/tsm.log"
-    mkdir -p "$log_dir"
-    echo "[$(date '+%Y-%m-%d %H:%M:%S')] Starting session '$session_name' ($(config_name_for_file "$matching_file"))" > "$log_file"
-
-    # Subshell so a configuration aborting under its own `set -e` does not
-    # tear down a session tmux already created. The cleanup record is written
-    # inside it: it is only owed once the configuration has actually been
-    # applied, and it is what the session-closed hook reads to know a `kill`
-    # is due. A session no configuration claimed, or one created with -c,
-    # writes no record and is cleaned up after by nobody.
-    (
-      export SESSION="$session_name" ROOT="$selected"
-      run_config "$matching_file" start
-
-      if [ -n "$server_pid" ] && [ -n "$session_id" ]; then
-        record=$(session_record "$server_pid" "$session_id")
-        mkdir -p "$(dirname "$record")"
-        printf '%s\n' "$selected" > "$record"
-      fi
-    ) >> "$log_file" 2>&1
-  fi
-
-  switch_or_attach "$session_name"
+  # Switched to by id: the hook may be renaming it at this very moment, and
+  # an id survives that.
+  switch_or_attach "$session_id"
 }
 
 at_path() {
@@ -744,7 +845,10 @@ case "$command" in
   init)
     init_hook
     ;;
-  "$HOOK_VERB")
+  "$HOOK_CREATED")
+    session_created "$1" "$2" "$3"
+    ;;
+  "$HOOK_CLOSED")
     session_closed "$1" "$2" "$3"
     ;;
   help)

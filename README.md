@@ -126,14 +126,28 @@ ln -s ~/.local/share/tmux-session-manager/completions/tsm.fish ~/.config/fish/co
 `tsm` is best driven from tmux keybinds in `~/.tmux.conf`:
 
 ```bash
-run-shell "tsm init"                                          # run a configuration's `kill` when its session closes
+run-shell "tsm init"                                          # required: this is what applies configurations
 bind-key d popup -E 'tsm at "$(find $HOME type -d | fzf)"'    # any directory
+bind-key X kill-session                                       # kill the session; its `kill` hook runs
 bind-key l popup -E "tsm logs"                                # configured session logs
 ```
 
-`tsm init` installs a global `session-closed` hook, and is the only line that has to be there:
-it is what runs a configuration's `kill` when its session goes away. Sessions are killed with
-tmux's own `kill-session`; tsm has no kill command.
+`run-shell "tsm init"` is the only line that has to be there. It installs a `session-created`
+hook that names and builds any session created at a configured directory, and a
+`session-closed` hook that runs that configuration's `kill` afterwards. Because they are tmux
+hooks, plain tmux gets the configuration too:
+
+```bash
+tmux new-session -c ~/code/myproject      # named, built and torn down like `tsm at` does it
+```
+
+`tsm at` remains worth binding: from inside tmux `tmux new-session` refuses to nest, and `tsm
+at` also sizes the session to the client that is about to attach, which a hook cannot do. See
+[The hooks](docs/configured-sessions.md#the-hooks-tsm-init).
+
+**NOTE:** if your `~/.tmux.conf` sets `session-created` or `session-closed` with a bare
+`set-hook -g`, put `run-shell "tsm init"` after it -- tsm appends to those hooks, and a later
+`set-hook -g` clears them.
 </details>
 
 ## Usage
@@ -148,7 +162,7 @@ tsm at <path> [-c] [-p]              # Start or switch to session at a directory
 tsm match [path]                     # Configurations claiming a path (defaults to the current directory)
 tsm logs [session]                   # Browse configured session logs
 
-tsm init                             # Install the tmux hook that runs a configuration's `kill`
+tsm init                             # Install the tmux hooks tsm works through (put this in tmux.conf)
 ```
 
 ## License
