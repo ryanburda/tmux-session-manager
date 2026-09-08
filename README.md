@@ -45,11 +45,18 @@ Once a directory is passed to `tsm at <path>`, every session is created the same
 1. **Does a session already exist for that directory?**
 
     Switch to it.
+
+    A session is identified by the directory it started at, not by its name. `tsm` records that
+    directory on the session in the `@tsm_path` tmux option. `tsm at` compares its `path` argument
+    against every running session's `@tsm_path` to determine if a session exists already. This prevents
+    multiple sessions from being created at the same directory even if a session has been renamed.
+
 2. **Does a configuration claim that directory?**
 
     Use that configuration when creating/naming the session.
 
     See [Configured Sessions](docs/configured-sessions.md) for details on how to customize sessions.
+
 3. **Otherwise:**
 
     Create a plain session named after the directory.
