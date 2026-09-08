@@ -36,6 +36,8 @@ The [`examples/`](examples) directory has a few to copy and modify as needed:
 | [`fzf-git-brief`](examples/fzf-git-brief) | a git repository with unpushed, unpulled, or uncommitted work |
 | [`fzf-worktree`](examples/fzf-worktree) | a worktree of the repository you are in |
 
+It is a good idea to add commands to your `PATH` so they are accessible.
+
 ### Session creation
 
 Once a directory is passed to `tsm at <path>`, every session is created the same way:
@@ -47,7 +49,7 @@ Once a directory is passed to `tsm at <path>`, every session is created the same
 
     Use that configuration when creating/naming the session.
 
-    See [Session Configuration](#session-configuration) for details on how to customize sessions.
+    See [Configured Sessions](docs/configured-sessions.md) for details on how to customize sessions.
 3. **Otherwise:**
 
     Create a plain session named after the directory.
@@ -140,54 +142,6 @@ tsm logs [session]                   # Browse configured session logs
 tsm active [session]                 # Switch to an existing session
 tsm kill [session]                   # Kill session (runs its kill hook if present)
 ```
-
-## Session Configuration
-
-A session configuration is an executable program in `${XDG_CONFIG_HOME:-~/.config}/tsm/`. `tsm`
-runs it with a verb and reads its answer. That is the whole contract, so it can be written in
-any language:
-
-| Verb | Called when | Answer |
-|---|---|---|
-| `pattern` | resolving which configuration claims a directory | print an ERE of the directories claimed, on stdout |
-| `name` | naming the session **(optional)** | print the session name for the directory given as `$2`, on stdout |
-| `start` | after tmux has created the session | build the layout |
-| `kill` | when the session is killed **(optional)** | tear down what `start` built |
-
-```bash
-#!/bin/bash
-# ~/.config/tsm/work.sh   (chmod +x)
-# the layout for every repository directly under ~/code/work
-
-case "$1" in
-  pattern)
-    printf '%s\n' "^$HOME/code/work/[^/]+$"
-    ;;
-
-  start)
-    vim=$(tmux display-message -p -t "$SESSION" '#{pane_id}')
-    ai=$(tmux split-window -P -F '#{pane_id}' -h -l 35% -t "$vim" -c "$ROOT")
-    tmux send-keys -t "$vim" 'vim' Enter
-    tmux send-keys -t "$ai" 'ai' Enter
-    ;;
-esac
-```
-
-The essentials:
-
-- **The file must be executable**: that is what makes it a configuration.
-- `SESSION` (the session name) and `ROOT` (the claimed directory) are in the environment for
-  `start` and `kill`.
-- `pattern` is a POSIX extended regular expression tested against the resolved directory, so one
-  file can claim a whole tree. Anchor it (`^...$`) to claim a single directory.
-- When several patterns claim a directory, **the longest pattern wins**; `tsm match <path>`
-  shows the ranking. A catch-all `.*` always loses to anything more specific. Only the winner
-  runs, but a configuration is an ordinary executable: to build on a shared one, call its file
-  directly from your `start` and `kill`.
-- Output from `start` and `kill` lands in the session log, browsable with `tsm logs`.
-
-See **[Building a Session](docs/building-a-session.md)** for the full guide: the contract's
-rules, pane addressing, precedence, naming, services, logging, and examples in fish and Python.
 
 ## License
 
