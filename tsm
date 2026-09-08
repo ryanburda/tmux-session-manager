@@ -70,6 +70,13 @@ get_active_sessions() {
   tmux list-sessions -F '#{session_name}' 2>/dev/null
 }
 
+current_session() {
+  # The name of the session tsm was called from, or nothing when it was not
+  # called from inside tmux.
+  [ -n "$TMUX" ] || return
+  tmux display-message -p '#{session_name}' 2>/dev/null
+}
+
 switch_or_attach() {
   # Switch to a session if inside tmux, attach otherwise.
   local session="$1"
@@ -431,7 +438,24 @@ active_session() {
       exit 1
     fi
 
-    session=$(echo "$active_sessions" | fzf --cycle --prompt "Session > ")
+    # The session being switched from is not a destination: it is dropped
+    # from the list and named in the header instead. Nothing is dropped
+    # outside tmux, where there is no session to switch from.
+    local current
+    current=$(current_session)
+
+    local fzf_args=(--cycle --prompt "Session > ")
+    if [ -n "$current" ]; then
+      active_sessions=$(printf '%s\n' "$active_sessions" | grep -vxF -- "$current")
+      fzf_args+=(--header "$(printf ':: on \033[33m%s\033[0m' "$current")")
+
+      if [ -z "$active_sessions" ]; then
+        notify "No other active sessions"
+        exit 1
+      fi
+    fi
+
+    session=$(echo "$active_sessions" | fzf "${fzf_args[@]}")
 
     if [ -z "$session" ]; then
       exit 0
