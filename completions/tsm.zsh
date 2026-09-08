@@ -26,7 +26,6 @@ _tsm_log_sessions() {
 _tsm_commands() {
     local commands=(
         'active:Switch to session'
-        'last:Switch to the most recent session that is still open'
         'kill:Kill a session'
         'at:Start a session at a directory'
         'match:Configurations claiming a path, best first'

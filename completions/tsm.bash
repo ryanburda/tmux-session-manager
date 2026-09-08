@@ -10,7 +10,7 @@ _tsm_completions() {
     prev="${COMP_WORDS[COMP_CWORD-1]}"
     cmd="${COMP_WORDS[1]}"
 
-    subcmds="active last kill at match logs help"
+    subcmds="active kill at match logs help"
 
     # Completing the subcommand itself
     if [ "$COMP_CWORD" -eq 1 ]; then

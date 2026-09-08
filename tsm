@@ -3,7 +3,6 @@
 CONFIG_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/tsm"
 STATE_DIR="${XDG_STATE_HOME:-$HOME/.local/state}/tsm"
 LOG_DIR="$STATE_DIR/logs"
-HISTORY_FILE="$STATE_DIR/session_history"
 mkdir -p "$CONFIG_DIR" "$LOG_DIR"
 
 usage() {
@@ -14,7 +13,6 @@ Usage
   tsm                                      # Show help message
   tsm active [session]                     # Switch to an existing session
   tsm kill [session]                       # Kill session (runs its kill hook if present)
-  tsm last                                 # Switch to the most recent session that is still open
 
   tsm at <path> [-c] [-p]                  # Start a session at a directory, or switch to the
                                            # session already open there
@@ -70,46 +68,6 @@ get_active_sessions() {
   # Active session names, one per line. Formatted rather than cut out of
   # `tmux ls`, which would split a name at its first colon.
   tmux list-sessions -F '#{session_name}' 2>/dev/null
-}
-
-prune_history() {
-  # Drop sessions that are no longer running from HISTORY_FILE.
-  [ -f "$HISTORY_FILE" ] || return 0
-
-  local active
-  active=$(get_active_sessions)
-
-  # Whole-line keys, so a session name is never read as a pattern. Passed via
-  # the environment: -v would expand backslashes in a name.
-  TSM_ACTIVE="$active" awk '
-    BEGIN {
-      n = split(ENVIRON["TSM_ACTIVE"], names, "\n")
-      for (i = 1; i <= n; i++) live[names[i]]
-    }
-    $0 in live
-  ' "$HISTORY_FILE" > "$HISTORY_FILE.tmp" && mv "$HISTORY_FILE.tmp" "$HISTORY_FILE"
-}
-
-record_switch() {
-  # Append the session being switched away from to HISTORY_FILE for `tsm last`.
-  # Fired by the client-session-changed hook the user registers (see README).
-  #
-  # Args:
-  #   $1: from: the session that was left
-  #   $2: to: the session that was switched to
-  local from="$1" to="$2"
-
-  [ -n "$from" ] && [ "$from" != "$to" ] || return
-
-  # Prune + dedupe on every write bounds the file at one line per running
-  # session. -Fx matches the whole line literally, not as a regex.
-  prune_history
-  if [ -f "$HISTORY_FILE" ]; then
-    grep -Fxv -- "$from" "$HISTORY_FILE" > "$HISTORY_FILE.tmp" 2>/dev/null
-    mv "$HISTORY_FILE.tmp" "$HISTORY_FILE"
-  fi
-
-  echo "$from" >> "$HISTORY_FILE"
 }
 
 switch_or_attach() {
@@ -488,38 +446,6 @@ active_session() {
   switch_or_attach "$session"
 }
 
-last_session() {
-  # Switch to the most recently visited session that is still open: what
-  # `tmux switch-client -l` gets at, but robust to the previous session
-  # having been closed since. HISTORY_FILE is oldest first, so it is walked
-  # newest first for the first session that is not the current one.
-  if [ ! -f "$HISTORY_FILE" ]; then
-    notify "No session history yet -- see README for the tmux.conf hook 'tsm last' needs"
-    exit 1
-  fi
-
-  # Sessions closed since the last switch are still in the file here.
-  prune_history
-
-  local current=""
-  [ -n "$TMUX" ] && current=$(tmux display-message -p '#S' 2>/dev/null)
-
-  local target=""
-  while IFS= read -r session; do
-    if [ "$session" != "$current" ]; then
-      target="$session"
-      break
-    fi
-  done < <(tac "$HISTORY_FILE" 2>/dev/null || tail -r "$HISTORY_FILE" 2>/dev/null)
-
-  if [ -z "$target" ]; then
-    notify "No previous session still open"
-    exit 1
-  fi
-
-  switch_or_attach "$target"
-}
-
 kill_session() {
   local session="$1"
 
@@ -814,9 +740,6 @@ case "$command" in
   active)
     active_session "$1"
     ;;
-  last)
-    last_session
-    ;;
   kill)
     kill_session "$1"
     ;;
@@ -828,10 +751,6 @@ case "$command" in
     ;;
   logs)
     browse_logs "$1"
-    ;;
-  _record-switch)
-    # Internal: invoked by the client-session-changed hook (see README).
-    record_switch "$1" "$2"
     ;;
   help)
     usage

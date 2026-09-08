@@ -132,7 +132,6 @@ ln -s ~/.local/share/tmux-session-manager/completions/tsm.fish ~/.config/fish/co
 bind-key s popup -E "tsm active"     # active session switcher
 bind-key k popup -E "tsm kill"       # kill session selector
 bind-key X run-shell "tsm kill #{session_name}"   # kill current session (runs its kill hook)
-bind-key l run-shell "tsm last"      # most recent session still open
 
 # Directory based sessions -- fzf-* are the examples, symlinked onto PATH
 bind-key d popup -E 'tsm at "$(fzf-dir)"'                         # any directory
@@ -200,7 +199,6 @@ answered with -- `;` is tmux's own command separator.
 tsm                                  # Show help message
 tsm active [session]                 # Switch to an existing session
 tsm kill [session]                   # Kill session (runs its kill hook if present)
-tsm last                             # Switch to the most recent session that is still open
 
 tsm at <path> [-c] [-p]              # Start a session at a directory, or switch to the
                                      # session already open there
@@ -650,16 +648,6 @@ rules, pane addressing, precedence, naming, services, logging, and examples in f
 Browse the running sessions and switch to one.
 
 ![Session Switcher](docs/session_switcher.gif)
-
-## Last Session (`tsm last`)
-
-Switches to the most recently visited session that is still open: like
-`tmux switch-client -l`, but it keeps looking further back when the previous session has been
-closed. It needs one hook in `~/.tmux.conf` to see switches as they happen:
-
-```tmux
-set-hook -g client-session-changed 'run-shell "tsm _record-switch #{q:client_last_session} #{q:client_session}"'
-```
 
 ## License
 

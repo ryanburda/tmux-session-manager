@@ -29,7 +29,6 @@ complete -c tsm -f
 
 # Subcommands
 complete -c tsm -n '__fish_use_subcommand' -a active -d 'Switch to session'
-complete -c tsm -n '__fish_use_subcommand' -a last -d 'Switch to the most recent session that is still open'
 complete -c tsm -n '__fish_use_subcommand' -a kill -d 'Kill a session'
 complete -c tsm -n '__fish_use_subcommand' -a at -d 'Start a session at a directory'
 complete -c tsm -n '__fish_use_subcommand' -a match -d 'Configurations claiming a path, best first'
