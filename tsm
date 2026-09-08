@@ -9,41 +9,18 @@ usage() {
   cat <<'EOF'
 Tmux Session Manager
 
-Usage
-  tsm                                      # Show help message
-  tsm active [session]                     # Switch to an existing session
-  tsm kill [session]                       # Kill session (runs its kill hook if present)
-
-  tsm at <path> [-c] [-p]                  # Start a session at a directory, or switch to the
-                                           # session already open there
-
-    -c, --no-config                        # Ignore any configuration claiming that path
-    -p, --prompt-name                      # Prompt for the session name instead of using the default
-
-  tsm match [path]                         # Configurations claiming a path, best first (defaults to the current directory)
-  tsm logs [session]                       # Browse session logs
-
-  tsm help                                 # Show help message
-
-Choosing the directory
-  Anything that prints a directory can name one, through the shell's own
-  command substitution. tsm has nothing of its own for this. Some programs
-  answer straight away:
-
-  tsm at "$(git rev-parse --show-toplevel)"  # the root of the repo you are in
-  tsm at "$(mktemp -d)"                      # a fresh scratch session
-
-  Others ask first, and print what you chose:
-
-  tsm at "$(zoxide query -i)"                # your most-used directories
-  tsm at "$(~/bin/my-chooser)"               # one you wrote
-
-  A program that prints nothing has declined -- what pressing escape in a
-  chooser does -- and `tsm at` with no directory does nothing.
-
-  Four example programs ship in the `examples` directory of the checkout.
-  They are examples, not part of tsm -- symlink one onto your PATH if you
-  want it, or read one and write your own.
+Usage:
+  tsm                                  # Show help message
+  
+  tsm at <path> [-c] [-p]              # Start or switch to session at a directory
+    -c, --no-config                    # Ignore any configuration claiming that path
+    -p, --prompt-name                  # Prompt for the session name instead of using the default
+  
+  tsm match [path]                     # Configurations claiming a path (defaults to the current directory)
+  tsm logs [session]                   # Browse configured session logs
+  
+  tsm active [session]                 # Switch to an existing session
+  tsm kill [session]                   # Kill session (runs its kill hook if present)
 
 See https://github.com/ryanburda/tmux-session-manager for more documentation
 EOF
