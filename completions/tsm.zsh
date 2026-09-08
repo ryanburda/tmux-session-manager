@@ -25,7 +25,6 @@ _tsm_log_sessions() {
 
 _tsm_commands() {
     local commands=(
-        'active:Switch to session'
         'kill:Kill a session'
         'at:Start a session at a directory'
         'match:Configurations claiming a path, best first'
@@ -46,7 +45,7 @@ _tsm() {
         && return 0
 
     case "$line[1]" in
-        active|kill)
+        kill)
             _tsm_active_sessions
             ;;
         at)

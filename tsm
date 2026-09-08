@@ -19,7 +19,6 @@ Usage:
   tsm match [path]                     # Configurations claiming a path (defaults to the current directory)
   tsm logs [session]                   # Browse configured session logs
   
-  tsm active [session]                 # Switch to an existing session
   tsm kill [session]                   # Kill session (runs its kill hook if present)
 
 See https://github.com/ryanburda/tmux-session-manager for more documentation
@@ -45,13 +44,6 @@ get_active_sessions() {
   # Active session names, one per line. Formatted rather than cut out of
   # `tmux ls`, which would split a name at its first colon.
   tmux list-sessions -F '#{session_name}' 2>/dev/null
-}
-
-current_session() {
-  # The name of the session tsm was called from, or nothing when it was not
-  # called from inside tmux.
-  [ -n "$TMUX" ] || return
-  tmux display-message -p '#{session_name}' 2>/dev/null
 }
 
 switch_or_attach() {
@@ -402,51 +394,6 @@ session_name_prompt() {
 #################
 # api functions #
 #################
-active_session() {
-  local session="$1"
-
-  # No session given: pick one with fzf.
-  if [ -z "$session" ]; then
-    local active_sessions
-    active_sessions=$(get_active_sessions)
-
-    if [ -z "$active_sessions" ]; then
-      notify "No active sessions"
-      exit 1
-    fi
-
-    # The session being switched from is not a destination: it is dropped
-    # from the list and named in the header instead. Nothing is dropped
-    # outside tmux, where there is no session to switch from.
-    local current
-    current=$(current_session)
-
-    local fzf_args=(--cycle --prompt "Session > ")
-    if [ -n "$current" ]; then
-      active_sessions=$(printf '%s\n' "$active_sessions" | grep -vxF -- "$current")
-      fzf_args+=(--header "$(printf ':: on \033[33m%s\033[0m' "$current")")
-
-      if [ -z "$active_sessions" ]; then
-        notify "No other active sessions"
-        exit 1
-      fi
-    fi
-
-    session=$(echo "$active_sessions" | fzf "${fzf_args[@]}")
-
-    if [ -z "$session" ]; then
-      exit 0
-    fi
-  fi
-
-  if ! tmux has-session -t "=$session" 2>/dev/null; then
-    notify "Error: Session '$session' is not running"
-    exit 1
-  fi
-
-  switch_or_attach "$session"
-}
-
 kill_session() {
   local session="$1"
 
@@ -738,9 +685,6 @@ command="$1"
 shift
 
 case "$command" in
-  active)
-    active_session "$1"
-    ;;
   kill)
     kill_session "$1"
     ;;

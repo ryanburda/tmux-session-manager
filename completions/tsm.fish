@@ -28,7 +28,6 @@ end
 complete -c tsm -f
 
 # Subcommands
-complete -c tsm -n '__fish_use_subcommand' -a active -d 'Switch to session'
 complete -c tsm -n '__fish_use_subcommand' -a kill -d 'Kill a session'
 complete -c tsm -n '__fish_use_subcommand' -a at -d 'Start a session at a directory'
 complete -c tsm -n '__fish_use_subcommand' -a match -d 'Configurations claiming a path, best first'
@@ -36,7 +35,7 @@ complete -c tsm -n '__fish_use_subcommand' -a logs -d 'Browse session logs'
 complete -c tsm -n '__fish_use_subcommand' -a help -d 'Show help message'
 
 # Subcommand arguments
-complete -c tsm -n '__fish_seen_subcommand_from active kill' -xa '(__tsm_active_sessions)'
+complete -c tsm -n '__fish_seen_subcommand_from kill' -xa '(__tsm_active_sessions)'
 # `tsm at` takes a directory and the session flags
 complete -c tsm -n '__fish_seen_subcommand_from at' -ra '(__fish_complete_directories)'
 complete -c tsm -n '__fish_seen_subcommand_from at' -xa '-c --no-config -p --prompt-name'

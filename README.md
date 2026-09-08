@@ -127,7 +127,6 @@ ln -s ~/.local/share/tmux-session-manager/completions/tsm.fish ~/.config/fish/co
 
 ```bash
 bind-key d popup -E 'tsm at "$(find $HOME type -d | fzf)"'    # any directory
-bind-key a popup -E "tsm active"                              # active session switcher
 bind-key k popup -E "tsm kill"                                # kill session selector
 bind-key X run-shell "tsm kill #{session_name}"               # kill current session (runs its kill hook)
 bind-key l popup -E "tsm logs"                                # Configured session logs
@@ -146,7 +145,6 @@ tsm at <path> [-c] [-p]              # Start or switch to session at a directory
 tsm match [path]                     # Configurations claiming a path (defaults to the current directory)
 tsm logs [session]                   # Browse configured session logs
 
-tsm active [session]                 # Switch to an existing session
 tsm kill [session]                   # Kill session (runs its kill hook if present)
 ```
 
