@@ -1,0 +1,41 @@
+#!/usr/bin/env bash
+#
+# fzf-dir: prints a directory, chosen with fzf.
+#
+# An example of the only thing `tsm via` asks for: a program that prints a
+# directory on stdout. Nothing in it is specific to tsm -- run it on its own
+# and it prints a path; run `tsm via fzf-dir` and that path becomes a session.
+#
+#   ln -s "$PWD/examples/fzf-dir" ~/.local/bin/fzf-dir
+#   tsm via fzf-dir
+#
+# Or copy it somewhere and change the list. It is self-contained on purpose:
+# nothing to source, nothing to install, one file to read.
+#
+# Printing nothing and exiting 0 is how it declines to answer -- what happens
+# when you press escape. Anything that is not the path goes to stderr.
+#
+# Environment
+#   TSM_DIRS_CMD   command printing the directories to offer. The default
+#                  lists non-hidden directories within 4 levels of $HOME,
+#                  stopping at the root of each git repository.
+
+# Single quoted, so $HOME and find's own escapes reach eval intact rather than
+# being expanded here.
+default_dirs_cmd='find "$HOME" -maxdepth 4 -name ".*" -prune -o -type d \( -exec test -e {}/.git \; -print -prune -o -print \)'
+
+dirs_cmd="${TSM_DIRS_CMD:-$default_dirs_cmd}"
+
+# The process substitution lets the directory generator be killed once fzf
+# exits, rather than run out to the end of the tree.
+exec 3< <(eval "$dirs_cmd")
+dirs_pid=$!
+selected=$(fzf --cycle --prompt "Directory > " <&3)
+kill "$dirs_pid" 2>/dev/null
+wait "$dirs_pid" 2>/dev/null
+exec 3<&-
+
+# Backing out is not a failure: say nothing and succeed.
+[ -n "$selected" ] || exit 0
+
+printf '%s\n' "$selected"

@@ -1,0 +1,145 @@
+#!/usr/bin/env bash
+#
+# fzf-git-brief: prints the directory of a git repository that has something
+# to show -- commits waiting upstream, commits not yet pushed, or uncommitted
+# work (staged, unstaged or untracked). A repository level with its upstream
+# and clean in the working tree is left out: there is nothing there to go and
+# look at, which is the only reason to reach for this.
+#
+# An example of the only thing `tsm via` asks for: a program that prints a
+# directory on stdout. Nothing in it is specific to tsm -- run it on its own
+# and it prints a path; run `tsm via fzf-git-brief` and that path becomes a
+# session.
+#
+#   ln -s "$PWD/examples/fzf-git-brief" ~/.local/bin/fzf-git-brief
+#   tsm via fzf-git-brief
+#
+# It is self-contained on purpose: nothing to source, nothing to install, one
+# file to read. This is the longest of the four examples and the one worth
+# copying -- everything below the fzf call is just deciding what to list.
+#
+# Every repository is fetched before it is inspected, so the ahead/behind
+# counts are current. That is what makes this slower to appear than fzf-git,
+# which is there for when you just want the list.
+#
+# Printing nothing and exiting 0 is how it declines to answer -- what happens
+# when you press escape. Anything that is not the path goes to stderr.
+#
+# Environment
+#   TSM_GIT_DIRS_CMD     the repositories to check; the same variable fzf-git
+#                        reads, and the same default
+#   TSM_GIT_FETCH_JOBS   how many repositories are fetched and inspected at
+#                        once (default 8)
+
+note() {
+  # Anything that is not the answer: tmux display-message inside tmux, stderr
+  # outside it. Never stdout, which is reserved for the path -- and a program
+  # run from a tmux popup loses its stderr when the popup closes.
+  if [ -n "$TMUX" ]; then tmux display-message "$1"; else echo "$1" >&2; fi
+}
+
+git_brief_row() {
+  # One fzf row for the repo at $1 -- "<path>\t<path>  <brief>", the brief
+  # being branch ↑ahead ↓behind +added -removed ?untracked -- or nothing with
+  # a non-zero status when the repository has nothing to report.
+  #
+  # The fetch happens here rather than in a pass of its own, so one job both
+  # fetches and inspects a repository and there is no barrier between the two.
+  #
+  # Args:
+  #   $1: dir: the repository to inspect
+  local dir="$1"
+  local branch ahead behind stats added removed untracked
+
+  git -C "$dir" rev-parse --git-dir > /dev/null 2>&1 || return 1
+
+  git -C "$dir" fetch --quiet 2>/dev/null
+
+  # Empty on a detached HEAD, which is still worth showing when it is dirty.
+  branch=$(git -C "$dir" branch --show-current 2>/dev/null)
+  [ -n "$branch" ] || branch="(detached)"
+
+  # With no upstream both counts come out 0, so a repository whose branch has
+  # never been pushed is listed only if it has uncommitted work.
+  ahead=$(git -C "$dir" log @{u}..HEAD --oneline 2>/dev/null | wc -l | tr -d ' ')
+  behind=$(git -C "$dir" log HEAD..@{u} --oneline 2>/dev/null | wc -l | tr -d ' ')
+
+  # Against HEAD rather than the index, so staged work counts as a change too.
+  # Before the first commit there is no HEAD to compare against, and the index
+  # is measured against the empty tree instead.
+  if git -C "$dir" rev-parse --verify -q HEAD > /dev/null 2>&1; then
+    stats=$(git -C "$dir" diff HEAD --shortstat 2>/dev/null)
+  else
+    stats=$(git -C "$dir" diff --cached --shortstat 2>/dev/null)
+  fi
+  added=$(echo "$stats" | grep -o '[0-9]* insertion' | grep -o '[0-9]*')
+  removed=$(echo "$stats" | grep -o '[0-9]* deletion' | grep -o '[0-9]*')
+
+  # --exclude-standard so ignored files stay ignored, and --directory so a new
+  # directory counts once instead of once per file inside it -- both what
+  # `git status` itself shows.
+  untracked=$(git -C "$dir" ls-files --others --exclude-standard --directory \
+    --no-empty-directory 2>/dev/null | wc -l | tr -d ' ')
+
+  # Nothing waiting, nothing unpushed, nothing uncommitted, nothing new: no row.
+  [ "${ahead:-0}" -gt 0 ] || [ "${behind:-0}" -gt 0 ] \
+    || [ "${added:-0}" -gt 0 ] || [ "${removed:-0}" -gt 0 ] \
+    || [ "${untracked:-0}" -gt 0 ] || return 1
+
+  local blue='\033[34m' yellow='\033[33m' green='\033[32m' red='\033[31m'
+  local cyan='\033[36m' reset='\033[0m'
+  local brief="${blue}${branch}${reset}"
+  [ "${ahead:-0}" -gt 0 ] && brief+=" ${yellow}↑${ahead}${reset}"
+  [ "${behind:-0}" -gt 0 ] && brief+=" ${yellow}↓${behind}${reset}"
+  [ "${added:-0}" -gt 0 ] && brief+=" ${green}+${added}${reset}"
+  [ "${removed:-0}" -gt 0 ] && brief+=" ${red}-${removed}${reset}"
+  [ "${untracked:-0}" -gt 0 ] && brief+=" ${cyan}?${untracked}${reset}"
+
+  # The path is carried in a first column fzf is told not to display, so the
+  # brief can be coloured without the selection having to be parsed back out.
+  printf '%s\t%s  %b\n' "$dir" "$dir" "$brief"
+}
+
+# Single quoted, so $HOME and find's own escapes reach eval intact rather than
+# being expanded here.
+default_git_dirs_cmd='find "$HOME" -maxdepth 4 -name ".*" -prune -o -type d -exec test -e {}/.git \; -print -prune 2>/dev/null'
+
+dirs=$(eval "${TSM_GIT_DIRS_CMD:-$default_git_dirs_cmd}" | sort)
+
+if [ -z "$dirs" ]; then
+  note "No git repositories found"
+  exit 1
+fi
+
+# Inspected in parallel, but bounded: each job opens a remote connection for
+# its fetch, and forking the whole list at once can hit the process limit. NUL
+# separation so repository paths with spaces survive. `|| true` because a
+# repository with nothing to report is the ordinary case, not an xargs failure.
+export -f git_brief_row
+rows=$(
+  printf '%s\n' "$dirs" | tr '\n' '\0' \
+    | xargs -0 -P "${TSM_GIT_FETCH_JOBS:-8}" -n 1 \
+            bash -c 'git_brief_row "$1" || true' _ \
+    | LC_ALL=C sort
+)
+
+checked=$(printf '%s\n' "$dirs" | wc -l | tr -d ' ')
+changed=0
+[ -n "$rows" ] && changed=$(printf '%s\n' "$rows" | wc -l | tr -d ' ')
+
+if [ -z "$rows" ]; then
+  note "Nothing to show: none of the $checked repositories checked have changes"
+  exit 1
+fi
+
+# The header says how many of the repositories checked had changes, so an
+# empty-looking list is distinguishable from a short one.
+header=$(printf ':: \033[33m%s\033[0m of \033[33m%s\033[0m repositories have changes' \
+  "$changed" "$checked")
+
+selected=$(printf '%s\n' "$rows" \
+  | fzf --ansi --cycle --delimiter=$'\t' --with-nth=2 --prompt "Repo > " --header "$header")
+
+[ -n "$selected" ] || exit 0
+
+printf '%s\n' "${selected%%	*}"

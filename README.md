@@ -8,55 +8,65 @@ Two commands start them. One takes the directory:
 tsm at <path> [-c] [-p]
 ```
 
-The other takes a [picker](#pickers) -- any program that prints a directory -- and runs it:
+The other takes an executable and uses whatever directory it prints:
 
 ```bash
 tsm via [-c] [-p] <program> [args]
 ```
 
-That is the whole contract, so a lot of programs are already pickers:
+That is the whole contract -- print a directory on stdout -- so a lot of programs already
+satisfy it. Some answer straight away:
 
 ```bash
-tsm via zoxide query -i                  # your most-used directories
 tsm via git rev-parse --show-toplevel    # the root of the repo you are in
+tsm via pwd                              # the current directory
 tsm via mktemp -d                        # a fresh scratch session
 ```
 
-Four pickers come with `tsm` and ask with fzf. They are reached through `tsm pick`, which
-prints a path like any other picker:
-
-| `tsm pick ...` | names |
-|---|---|
-| `dir` | any directory on the filesystem |
-| `git` | a git repository |
-| `git-brief` | a git repository that has something to show |
-| `worktree` | a worktree of the current repository |
+Others ask first, and print what you chose:
 
 ```bash
-tsm via tsm pick git
+tsm via zoxide query -i                  # your most-used directories
+tsm via dir-mark pick                    # a directory you marked
 ```
 
-`tsm via` reserves no names at all, which is why `git` above is git and not the built-in `git`
-picker. See [Pickers you already have](#pickers-you-already-have) for more of them.
+`tsm` has nothing built in for either kind. It reserves no names, keeps no list, and has no
+plugin interface -- `git` above is git. Four example programs ship with it in
+[`examples/`](examples), and they are installed the way any other program is: put one on your
+PATH, or don't.
 
-Once a path is named, every session is created or entered the same way:
+| example | prints |
+|---|---|
+| [`examples/fzf-dir`](examples/fzf-dir) | a directory, chosen with fzf |
+| [`examples/fzf-git`](examples/fzf-git) | a git repository, chosen with fzf |
+| [`examples/fzf-git-brief`](examples/fzf-git-brief) | a git repository that has something to show |
+| [`examples/fzf-worktree`](examples/fzf-worktree) | a worktree of the current repository |
+
+```bash
+ln -s ~/.local/share/tmux-session-manager/examples/fzf-git ~/.local/bin/fzf-git
+tsm via fzf-git
+```
+
+Each is one self-contained file: nothing to source, nothing to install, and no reason to keep
+tsm's copy if you would rather copy it somewhere and change what it lists. See
+[Writing your own](#writing-your-own), and [Programs you already have](#programs-you-already-have)
+for the ones on your machine already.
+
+Once a directory is named, every session is created or entered the same way:
 
 1. **Does a session already exist for that directory?** Switch to it.
 2. **Does a configuration claim that directory?** Use that configuration
    when creating/naming the session.
 3. **Otherwise:** create a plain session named after the directory.
 
-So `worktree` is not a different feature from `dir`. A picker names a directory and stops
-there -- no flags, no say in the session that follows -- which is why writing your own is
-worth so little: print a path on stdout. There is no plugin interface to learn and nothing to
-register. See [Writing a picker](#writing-a-picker).
+So `fzf-worktree` is not a different feature from `fzf-dir`. A program prints a directory and
+stops there -- no flags, no say in the session that follows -- which is why writing one of your
+own is worth so little.
 
 See [Usage](#usage) for the full list of commands, and
 [Session Configuration](#session-configuration) for details on how to customize sessions.
 
 ## Install
-
-Requires `fzf`.
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/ryanburda/tmux-session-manager/main/install.sh | sh
@@ -64,6 +74,14 @@ curl -fsSL https://raw.githubusercontent.com/ryanburda/tmux-session-manager/main
 
 This clones the repository to `${XDG_DATA_HOME:-~/.local/share}/tmux-session-manager` and symlinks
 `tsm` into `~/.local/bin`. Re-run it any time to update.
+
+It links `tsm` and nothing else. `tsm` itself needs only `bash` and `tmux`; the examples are
+opt-in, one symlink each, and those are what want `fzf`:
+
+```bash
+ln -s ~/.local/share/tmux-session-manager/examples/fzf-git ~/.local/bin/fzf-git
+tsm via fzf-git
+```
 
 <details>
 <summary><strong style="font-size: 1.25em;">Custom Installation</strong></summary>
@@ -87,8 +105,7 @@ ln -s ~/git/tmux-session-manager/tsm ~/.local/bin/tsm
 <details>
 <summary><strong style="font-size: 1.25em;">Shell Completions</strong></summary>
 
-Completions cover active session names, directories, the built-in picker names, and
-sessions with logs. Paths below assume the install script's checkout location; substitute your own if you
+Completions cover active session names, directories, and sessions with logs. Paths below assume the install script's checkout location; substitute your own if you
 cloned elsewhere.
 
 **Bash**: add to `~/.bashrc`:
@@ -122,11 +139,11 @@ bind-key k popup -E "tsm kill"       # kill session selector
 bind-key X run-shell "tsm kill #{session_name}"   # kill current session (runs its kill hook)
 bind-key l run-shell "tsm last"      # most recent session still open
 
-# Directory based sessions
-bind-key d popup -E "tsm via tsm pick dir"                    # directory picker
-bind-key g popup -E "tsm via tsm pick git"                    # git repository picker
-bind-key G popup -E "tsm via tsm pick git-brief"              # repositories with changes
-bind-key w popup -E "tsm via tsm pick worktree"               # worktree picker
+# Directory based sessions -- fzf-* are the examples, symlinked onto PATH
+bind-key d popup -E "tsm via fzf-dir"                         # any directory
+bind-key g popup -E "tsm via fzf-git"                         # a git repository
+bind-key G popup -E "tsm via fzf-git-brief"                   # repositories with changes
+bind-key w popup -E "tsm via fzf-worktree"                    # a worktree of this repo
 bind-key b popup -E "tsm via dir-mark pick"                   # a marked directory
 bind-key z popup -E "tsm via zoxide query -i"                 # anything that prints a path
 bind-key r run-shell "tsm via git rev-parse --show-toplevel"  # this repo's root
@@ -142,7 +159,7 @@ bind-key L popup -E "tsm logs"
 
 The `dir-mark` bindings want [`dir-mark`][dir-mark], a separate tool that maps one character to
 one directory -- see [Marked directories](#marked-directories). It is not a dependency of
-`tsm`: `dir-mark path m` prints a path, which makes it a picker like any other.
+`tsm`: `dir-mark path m` prints a path, which is all `tsm via` ever asks for.
 
 Those three ask in tmux's status line, so they need no popup: `-1` takes exactly one key and
 `%%%` substitutes it with quotation marks escaped. `'` and `;` are the two keys that cannot be
@@ -162,11 +179,12 @@ answered with -- `;` is tmux's own command separator.
 > | **zsh** | zshenv → zprofile → zshrc → zlogin | zshenv → zshrc | zshenv only |
 > | **bash** | /etc/profile → (~/.bash_profile OR ~/.bash_login OR ~/.profile) | ~/.bashrc | $BASH_ENV only (if set) |
 >
-> Fallback: use `tsm`'s full path in the bindings, e.g.
-> `bind-key d popup -E "~/.local/share/tmux-session-manager/tsm via tsm pick dir"`.
+> The same goes for the program you hand `tsm via`, which is also looked up on PATH. Fallback:
+> use full paths in the bindings, e.g. `bind-key d popup -E
+> "~/.local/share/tmux-session-manager/tsm via ~/.local/share/tmux-session-manager/examples/fzf-dir"`.
 >
 > If you set a custom `TSM_DIRS_CMD`, define it in the same file as your PATH (e.g. `~/.zshenv`),
-> or the `dir` picker will show different lists inside and outside tmux popups.
+> or `fzf-dir` will show different lists inside and outside tmux popups.
 
 </details>
 
@@ -185,46 +203,43 @@ tsm at <path> [-c] [-p]              # Start a session at a directory, or switch
 
 tsm via [-c] [-p] <program> [args]   # The same, at the directory <program> prints
 
-  -c, --no-config                    # Ignore any configuration claiming the picked path
+  -c, --no-config                    # Ignore any configuration claiming that path
   -p, --prompt-name                  # Prompt for the session name instead of using the default
-
-tsm pick <picker>                    # Print the directory a built-in picker names
 
 tsm match [path]                     # Configurations claiming a path, best first (defaults to the current directory)
 tsm logs [session]                   # Browse session logs
 ```
 
-The pickers that come with `tsm`. Each asks with fzf, takes no arguments, and prints the path
-it was pointed at:
+`tsm via` takes a program -- any program that prints a path, with no list of names it treats
+specially (see [Writing your own](#writing-your-own)):
 
 ```bash
-tsm pick dir                         # Any directory
-tsm pick git                         # A git repository
-tsm pick git-brief                   # A git repository that has something to show
-tsm pick worktree                    # A worktree of this repository
-```
-
-`tsm via` takes a program, and `tsm pick` is one of them -- there is no list of names it treats
-specially (see [Writing a picker](#writing-a-picker)):
-
-```bash
-tsm via tsm pick git
+tsm via fzf-git                      # an example you symlinked onto PATH
 tsm via zoxide query -i
 tsm via dir-mark path m
-tsm via ~/bin/my-picker --since yesterday
+tsm via ~/bin/my-chooser --since yesterday
 ```
 
-<a id="directory-pickers"></a>
+The four examples each ask with fzf, take no arguments, and print the directory you chose. They
+are ordinary programs, so running one on its own prints its answer:
 
-## Pickers
+```bash
+ln -s ~/.local/share/tmux-session-manager/examples/fzf-dir ~/.local/bin/fzf-dir
+fzf-dir                              # prints a directory
+tsm via fzf-dir                      # ...and that is the session
+```
 
-A picker names a directory. That is all it does: it takes none of the session flags, decides
-nothing about the session that follows, and answers with one path. `tsm via` does everything
-else, so the rules below hold whichever picker produced the path -- the five built in, or one
-you wrote. They hold for `tsm at <path>` too, which is the same thing with the picking already
-done.
+<a id="from-a-directory-to-a-session"></a>
 
-A picked directory becomes a session by the same three rules:
+## From a directory to a session
+
+A program hands `tsm via` one directory. That is all it does: it takes none of the session
+flags, decides nothing about the session that follows, and answers with one path. `tsm via`
+does everything else, so the rules below hold whatever produced the path -- an example that
+shipped with tsm, `zoxide`, or something you wrote. They hold for `tsm at <path>` too, which is
+the same thing with the directory already in hand.
+
+A named directory becomes a session by the same three rules:
 
 1. **A session is already open at that path?** Switch to it.
 2. **A configuration's `pattern` claims the path?** Its `name` names the session, and its `start`
@@ -232,10 +247,10 @@ A picked directory becomes a session by the same three rules:
 3. **Otherwise:** a bare session named after the directory.
 
 The first check is about the path, not the name: `tsm` records the directory a session was
-started at on the session itself (`@tsm_path`), so picking a directory you already have open
+started at on the session itself (`@tsm_path`), so naming a directory you already have open
 returns to that session, even if it has been renamed.
 
-The flags belong to `tsm via`, not to the picker, so they mean the same thing behind every one
+The flags belong to `tsm via`, not to the program, so they mean the same thing behind every one
 of them:
 
 - `-c`, `--no-config`: ignore the configuration claiming the directory (both its `name` and its
@@ -244,11 +259,11 @@ of them:
   produced, so enter accepts it and anything typed replaces it. When the path already has a
   session, `-p` has nothing to name and simply switches to it.
 
-The flags come first, before the picker: everything from the picker's name onwards is the
-picker's own, and `-i` in `tsm via zoxide query -i` belongs to `zoxide`. That is also why `tsm
-via` reserves no names: `tsm via git rev-parse --show-toplevel` runs git, and the built-in
-`git` picker is `tsm pick git`, a program like any other. To go straight to a directory you
-already know, `tsm at <path>` skips the picking entirely.
+The flags come first, before the program: everything from the program's name onwards is that
+program's own, and `-i` in `tsm via zoxide query -i` belongs to `zoxide`. That is also why `tsm
+via` reserves no names -- `tsm via git rev-parse --show-toplevel` runs git, and nothing of
+tsm's shadows it. To go straight to a directory you already know, `tsm at <path>` skips the
+asking entirely.
 
 ### Session names
 
@@ -283,7 +298,24 @@ Enter session name:
 directory a configuration claims: name sessions after their branch, group a tree under a
 `work/` prefix, and so on. See [Naming the session](docs/building-a-session.md#naming-the-session).
 
-### `dir`
+### The examples
+
+The four in [`examples/`](examples) are not part of `tsm` -- they are programs it happens to
+ship, each one self-contained in a single file. Symlink the ones you want onto your PATH, or
+copy one somewhere and change what it lists:
+
+```bash
+tsm=~/.local/share/tmux-session-manager
+ln -s $tsm/examples/fzf-dir       ~/.local/bin/fzf-dir
+ln -s $tsm/examples/fzf-git       ~/.local/bin/fzf-git
+ln -s $tsm/examples/fzf-git-brief ~/.local/bin/fzf-git-brief
+ln -s $tsm/examples/fzf-worktree  ~/.local/bin/fzf-worktree
+```
+
+All four ask with fzf, because that is the interesting half to show. Nothing requires it: a
+program that prints `$PWD` and exits is just as valid, and the section below has several.
+
+#### `examples/fzf-dir`
 
 By default fzf lists non-hidden directories within 4 levels of `$HOME`, stopping at the root of
 each git repository. Set `TSM_DIRS_CMD` (in `~/.zshenv` / `~/.bashrc`) to any command that
@@ -296,9 +328,9 @@ export TSM_DIRS_CMD='{
 }'
 ```
 
-![Launch Directory Sessions](docs/directory_picker.gif)
+![Launch Directory Sessions](docs/directory_example.gif)
 
-### `git`
+#### `examples/fzf-git`
 
 By default finds all directories containing `.git` within 4 levels of `$HOME`. Set
 `TSM_GIT_DIRS_CMD` to change that; limiting it to where you keep projects is a good idea:
@@ -308,28 +340,28 @@ export TSM_GIT_DIRS_CMD='find "$HOME/code" -maxdepth 4 -name ".git" 2>/dev/null 
 ```
 
 It lists paths and nothing else, so it appears immediately. [`git-brief`](#tsm-git-brief) is
-the same picker narrowed to the repositories that have changed, with a git status brief beside
-each; it is a separate picker rather than a flag on this one, because fetching every repository
-is a different thing to ask for.
+the same list narrowed to the repositories that have changed, with a git status brief beside
+each; it is a separate program rather than a flag on this one, because fetching every
+repository is a different thing to ask for.
 
-![Launch Git Sessions](docs/git_picker.gif)
+![Launch Git Sessions](docs/git_example.gif)
 
 <a id="tsm-git-brief"></a>
 
-### `git-brief`
+#### `examples/fzf-git-brief`
 
-The `git` picker, narrowed to the repositories that have something to show and annotated with
-what it is: branch, ahead/behind counts, and the size of the working diff.
+`fzf-git`, narrowed to the repositories that have something to show and annotated with what it
+is: branch, ahead/behind counts, and the size of the working diff.
 
 ```bash
-tsm pick git-brief        # prints the path
-tsm via tsm pick git-brief   # ...and opens the session
+fzf-git-brief             # prints the path
+tsm via fzf-git-brief     # ...and opens the session
 ```
 
 A repository earns a row by having **commits waiting upstream**, **commits not yet pushed**, or
 **uncommitted work** -- staged, unstaged or untracked. One that is level with its upstream and
 clean is left out: there is nothing there to go and look at, which is the only reason to open
-this picker. The fzf header says how many of the repositories checked made the list, so a short
+this at all. The fzf header says how many of the repositories checked made the list, so a short
 list is distinguishable from a broken search:
 
 ```
@@ -346,36 +378,36 @@ it is non-zero:
 | `+31 -4` | lines added and removed since the last commit, staged and unstaged counted together |
 | `?3` | three untracked entries; a new directory counts once, and ignored files never |
 
-When nothing has changed it says so and exits rather than opening an empty picker.
+When nothing has changed it says so and exits rather than opening an empty list.
 
 The one state it cannot judge is a branch with **no upstream**: there is nothing to measure
 "unpushed" against, so such a repository is listed only when it has uncommitted work of its own.
 
 Every repository is fetched before it is inspected, so the ahead/behind counts are current --
-that is the point of asking for a brief. It is also what makes this picker slower to appear than
+that is the point of asking for a brief. It is also what makes this slower to appear than
 `git`, which is there for when you just want the list.
 
 Having no arguments, it reads its options from the environment:
 
 | variable | |
 |---|---|
-| `TSM_GIT_DIRS_CMD` | the repositories to check; the same variable the built-in `git` picker reads |
+| `TSM_GIT_DIRS_CMD` | the repositories to check; the same variable `fzf-git` reads |
 | `TSM_GIT_FETCH_JOBS` | how many repositories are fetched and inspected at once (default 8) |
 
 Each job opens a remote connection for its fetch, so lower `TSM_GIT_FETCH_JOBS` if your
 connection is metered.
 
-Its source is `pick_git_brief` in [`lib/pickers.sh`](lib/pickers.sh); copy it as the starting
-point for a picker of your own.
+[`examples/fzf-git-brief`](examples/fzf-git-brief) is the longest of the four and the best one
+to copy: everything below its `fzf` call is just deciding what to list.
 
 <a id="git-worktrees"></a>
 
-### `worktree`
+#### `examples/fzf-worktree`
 
 A worktree of the current repository, in a session named `repo/worktree`. Must be run from
 inside a git repo.
 
-![Launch Worktree Sessions](docs/worktree_picker.gif)
+![Launch Worktree Sessions](docs/worktree_example.gif)
 
 <a id="bookmarks"></a>
 <a id="marked-directories"></a>
@@ -396,32 +428,32 @@ That is the entire integration, and it is the same `tsm via` line anything else 
 `tsm` has no idea what a mark is. `dir-mark` also draws the marks that have a session open into
 the tmux status line; see its [README][dir-mark].
 
-<a id="pickers-you-already-have"></a>
+<a id="programs-you-already-have"></a>
 
-## Pickers you already have
+## Programs you already have
 
-A picker is any program that prints a directory, which means most of these were pickers before
+The contract is one directory on stdout, which means most of these satisfied it long before
 `tsm` existed. None of them need installing beyond what you have.
 
-**Interactive**
+**Ones that ask**
 
 ```bash
 tsm via zoxide query -i                             # your most-used directories
 tsm via env FZF_DEFAULT_COMMAND= fzf --walker=dir   # fzf's own directory walker
-tsm via tsm pick git-brief                          # repositories with something to show
+tsm via fzf-git-brief                               # repositories with something to show
 ```
 
 fzf has walked the filesystem itself since 0.44, and `--walker=dir` restricts it to
-directories -- an fzf directory picker with no pipe and no `find`. Add
+directories -- a directory chooser with no pipe and no `find`. Add
 `--walker-root=$HOME/code` to pin it to one tree instead of the current directory.
 
 The `env FZF_DEFAULT_COMMAND=` prefix is the catch. If you have `FZF_DEFAULT_COMMAND` set in
 your shell -- a very common `fd` one-liner -- fzf runs *that* instead of its walker, and
 `--walker=dir` is silently ignored: you get files. Clearing it for the one call brings the
 walker back, and `env` is an ordinary program, so this still needs no shell. The same variable
-is why a bare `fzf` picker can behave differently inside a tmux popup than in your shell.
+is why a bare `fzf` can behave differently inside a tmux popup than in your shell.
 
-**Deterministic** -- no picking, just a path:
+**Ones that just answer** -- no prompt, straight to a path:
 
 ```bash
 tsm via pwd                              # the current directory
@@ -444,14 +476,17 @@ bind-key t run-shell "tsm via mktemp -d"
 Note that none of these are special-cased anywhere in `tsm`. `git` here is git; `tsm` has no
 opinion about it and no name of its own that could get in the way.
 
-## Writing a picker
+<a id="writing-your-own"></a>
 
-A picker names a directory: it prints one path on stdout, says anything else on stderr, and
-stops. It never sees `-c` or `-p`, never decides whether to create or switch, and never touches
-the configuration that claims the path -- `tsm via` does all of that behind every picker
-equally. Printing nothing and exiting 0 is how it backs out; a non-zero exit is passed on.
+## Writing your own
 
-That is the entire contract, so a picker is any executable, in any language, anywhere:
+A program hands `tsm via` a directory: it prints one path on stdout, says anything else on
+stderr, and stops. It never sees `-c` or `-p`, never decides whether to create or switch, and
+never touches the configuration that claims the path -- `tsm via` does all of that behind every
+program equally. Printing nothing and exiting 0 is how it declines to answer; a non-zero exit
+is passed on.
+
+That is the entire contract, so it can be any executable, in any language, anywhere:
 
 ```sh
 #!/bin/sh
@@ -466,25 +501,23 @@ tsm via -p recent-repo
 
 There is nothing to install and no naming convention to follow: `tsm via` looks its argument
 up the way a shell would, so a name on PATH, a relative path and an absolute path all work.
-Programs you did not write are pickers too, as long as they print a directory -- see
-[Pickers you already have](#pickers-you-already-have).
+Programs you did not write count too, as long as they print a directory -- see
+[Programs you already have](#programs-you-already-have).
 
-Everything after the picker's name is handed to the picker, so `tsm` takes its own flags out
-first -- they come before the picker, and `-p` above is tsm's while `-i` in
-`tsm via zoxide query -i` is zoxide's.
+Everything after the program's name is handed to that program, so `tsm` takes its own flags out
+first -- they come before it, and `-p` above is tsm's while `-i` in `tsm via zoxide query -i`
+is zoxide's.
 
 The one thing `tsm via` does *not* do is recognise names. There is no list of built-ins it
 checks first, so nothing you might want to run is shadowed -- in
-`tsm via git rev-parse --show-toplevel`, `git` is git, not tsm's `git` picker. The pickers that
-ship with `tsm` reach the contract the same way everything else does, through a program that
-prints a path:
+`tsm via git rev-parse --show-toplevel`, `git` is git. The four in [`examples/`](examples) have
+no more standing than that: they are files on your PATH that print a path, reaching the
+contract exactly the way yours does.
 
 ```bash
-tsm pick git          # the built-in picker, printing its answer
-tsm via tsm pick git  # ...and the session that follows
+fzf-git               # the example, printing its answer
+tsm via fzf-git       # ...and the session that follows
 ```
-
-They take no arguments, so `tsm pick git rev-parse` is an error rather than a surprise.
 
 ### A pipeline, without writing a file
 
@@ -495,14 +528,14 @@ handed to it as one string. Passing the shell itself is how you inline one:
 tsm via sh -c 'find . -type d | fzf'
 ```
 
-`sh` is the picker and the pipeline is its argument, which is all the contract asks for: the
+`sh` is the program and the pipeline is its argument, which is all the contract asks for: the
 path fzf selects is what `sh` prints. Bound in `~/.tmux.conf`, with the quotes nested:
 
 ```tmux
 bind-key f popup -E "tsm via sh -c 'find . -type d | fzf'"
 ```
 
-The flags still come before the picker -- `tsm via -p sh -c '...'`. The `-c` after `sh` reaches
+The flags still come first -- `tsm via -p sh -c '...'`. The `-c` after `sh` reaches
 `sh`, not `tsm`, even though `-c` is also `--no-config`; position is the only thing separating
 them.
 
@@ -511,22 +544,24 @@ is the current pane's. That is useful when you mean "somewhere below here" and s
 you don't, so give it an absolute root (`find ~/code -type d`) if the binding should list the
 same thing wherever you press it.
 
-Past a one-liner, put it in a file instead. It costs nothing now that a picker is just a
-program, and it is easier to quote.
+Past a one-liner, put it in a file instead. It costs nothing -- the thing you hand `tsm via` is
+only ever a program -- and it is easier to quote.
 
-### Checking a picker
+### Checking one
 
-To see what a picker answers, run it. It is a program, so there is nothing tsm-specific to
-learn:
+To see what a program answers, run it. That is the whole of it; there is nothing tsm-specific
+to learn:
 
 ```bash
 recent-repo
-tsm pick git
+fzf-git
 sh -c 'find . -type d | fzf'
 ```
 
-The built-in pickers live in [`lib/pickers.sh`](lib/pickers.sh) and follow the same contract,
-one `PICKED_DIR` at a time; `pick_git_brief` is the fullest example.
+The examples are no different. Each of the four in [`examples/`](examples) is a single file
+following this exact contract -- a path on stdout, messages on stderr, nothing printed when you
+press escape -- and [`fzf-git-brief`](examples/fzf-git-brief) is the longest one and the best
+to copy.
 
 ## Session Configuration
 

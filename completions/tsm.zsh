@@ -23,13 +23,6 @@ _tsm_log_sessions() {
     fi
 }
 
-_tsm_pickers() {
-    # The built-in picker names; `tsm pick` takes one of these.
-    local pickers
-    pickers=(${(f)"$(tsm _pickers 2>/dev/null)"})
-    _describe 'picker' pickers
-}
-
 _tsm_commands() {
     local commands=(
         'active:Switch to session'
@@ -37,7 +30,6 @@ _tsm_commands() {
         'kill:Kill a session'
         'at:Start a session at a directory'
         'via:Start a session at the directory a program prints'
-        'pick:Print the directory a built-in picker names'
         'match:Configurations claiming a path, best first'
         'logs:Browse session logs'
         'help:Show help message'
@@ -65,8 +57,8 @@ _tsm() {
                 'options:option:(-c --no-config -p --prompt-name)'
             ;;
         via)
-            # The session flags come first, then the picker; everything after
-            # the picker is the program's own and is left alone.
+            # The session flags come first, then the program; everything
+            # after it is the program's own and is left alone.
             local i
             for (( i = 2; i < CURRENT; i++ )); do
                 [[ "$line[i]" == -* ]] || return
@@ -75,10 +67,6 @@ _tsm() {
             _alternative \
                 'commands:program:_command_names -e' \
                 'options:option:(-c --no-config -p --prompt-name)'
-            ;;
-        pick)
-            # One built-in picker name and nothing else.
-            (( CURRENT == 2 )) && _tsm_pickers
             ;;
         match)
             _files -/

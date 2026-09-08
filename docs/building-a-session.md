@@ -5,7 +5,7 @@ no DSL and no YAML abstraction, so anything tmux can do a configuration can do, 
 is the reference for all of it.
 
 Configurations live in `${XDG_CONFIG_HOME:-~/.config}/tsm/` and are reached by the
-[directory pickers](../README.md#directory-sessions) when one claims the directory you picked.
+[`tsm via`](../README.md#from-a-directory-to-a-session) when one claims the directory it was given.
 
 ## The contract
 
@@ -68,7 +68,7 @@ session named `my.project` would be created and then be unreachable. Derived nam
 answers are [sanitized](../README.md#session-names) rather than refused; a name you type at the
 `-p` prompt is refused, since it is not tsm's to rewrite.
 
-**NOTE:** The program runs once per verb, and the pickers ask every configuration for its
+**NOTE:** The program runs once per verb, and tsm asks every configuration for its
 `pattern`, so keep the top level cheap: anything expensive there is paid on every `tsm at` and
 `tsm via`.
 
@@ -262,7 +262,7 @@ claims:
 
 Only the first line of output is used, whitespace-trimmed. A configuration that does not handle
 `name`, prints nothing, or fails gets the default derivation; a naming scheme with no opinion
-about a particular directory is normal and should not wedge the pickers. What it does print is
+about a particular directory is normal and should not wedge tsm. What it does print is
 sanitized rather than refused (every character outside `[A-Za-z0-9_-/]` becomes `_`), since
 names usually come from things the configuration does not control: `feature/v1.2` is a
 reasonable thing to hand back, and it arrives as `feature/v1_2`.
@@ -297,7 +297,7 @@ Some useful `name` implementations:
 ## Claiming directories
 
 `pattern` is a [POSIX extended regular expression](https://pubs.opengroup.org/onlinepubs/9699919799/basedefs/V1_chap09.html#tag_09_04)
-tested against the resolved directory you picked, so one file can claim a whole tree ("every
+tested against the resolved directory, so one file can claim a whole tree ("every
 repository under `~/code/work` gets this layout") without a file per repository.
 
 The match is unanchored, so anchor it yourself when you mean it:

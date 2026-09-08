@@ -1,0 +1,63 @@
+#!/usr/bin/env bash
+#
+# fzf-worktree: prints the directory of a worktree of the current repository,
+# chosen with fzf. Must be run from inside a git repository.
+#
+# An example of the only thing `tsm via` asks for: a program that prints a
+# directory on stdout. Nothing in it is specific to tsm -- run it on its own
+# and it prints a path; run `tsm via fzf-worktree` and that path becomes a
+# session.
+#
+#   ln -s "$PWD/examples/fzf-worktree" ~/.local/bin/fzf-worktree
+#   tsm via fzf-worktree
+#
+# Or copy it somewhere and change what it lists. It is self-contained on
+# purpose: nothing to source, nothing to install, one file to read.
+#
+# Printing nothing and exiting 0 is how it declines to answer -- what happens
+# when you press escape. Anything that is not the path goes to stderr.
+
+note() {
+  # Anything that is not the answer: tmux display-message inside tmux, stderr
+  # outside it. Never stdout, which is reserved for the path -- and a program
+  # run from a tmux popup loses its stderr when the popup closes.
+  if [ -n "$TMUX" ]; then tmux display-message "$1"; else echo "$1" >&2; fi
+}
+
+worktree_data=$(git worktree list --porcelain 2>/dev/null | awk '
+  /^worktree / { path = substr($0, 10); branch = "" }
+  /^branch / { branch = substr($0, 8); sub("refs/heads/", "", branch) }
+  /^bare$/ { path = "" }
+  /^$/ { if (path != "") print path "\t" (branch != "" ? branch : "(detached)"); path = ""; branch = "" }
+  END { if (path != "") print path "\t" (branch != "" ? branch : "(detached)") }
+')
+
+if [ -z "$worktree_data" ]; then
+  note "No worktrees found"
+  exit 1
+fi
+
+# Header labels are measured alongside the values so short columns still widen
+# to fit them. fzf indents --header by the two columns its pointer takes, so
+# the header lines up with the rows on its own.
+name_label='wt' branch_label='branch'
+max_name=${#name_label} max_branch=${#branch_label}
+while IFS=$'\t' read -r wt branch; do
+  wt_name="${wt##*/}"
+  (( ${#wt_name} > max_name )) && max_name=${#wt_name}
+  (( ${#branch} > max_branch )) && max_branch=${#branch}
+done <<< "$worktree_data"
+
+fzf_input=$(echo "$worktree_data" | while IFS=$'\t' read -r wt branch; do
+  printf '%s\t%-*s  \033[32m%-*s\033[0m  %s\n' "$wt" "$max_name" "${wt##*/}" "$max_branch" "$branch" "$wt"
+done)
+header=$(printf '%-*s  %-*s  %s' "$max_name" "$name_label" "$max_branch" "$branch_label" 'path')
+
+# The path rides along in a first column fzf is told not to display, so the
+# columns can be coloured without the selection having to be parsed back out.
+selected=$(echo "$fzf_input" \
+  | fzf --ansi --cycle --with-nth=2 --delimiter=$'\t' --prompt "Worktree > " --header "$header")
+
+[ -n "$selected" ] || exit 0
+
+printf '%s\n' "${selected%%	*}"

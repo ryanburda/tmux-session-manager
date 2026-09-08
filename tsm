@@ -6,44 +6,6 @@ LOG_DIR="$STATE_DIR/logs"
 HISTORY_FILE="$STATE_DIR/session_history"
 mkdir -p "$CONFIG_DIR" "$LOG_DIR"
 
-TSM_DIRS_CMD_DEFAULT='find "$HOME" -maxdepth 4 -name ".*" -prune -o -type d \( -exec test -e {}/.git \; -print -prune -o -print \)'
-TSM_GIT_DIRS_CMD_DEFAULT='find "$HOME" -maxdepth 4 -name ".*" -prune -o -type d -exec test -e {}/.git \; -print -prune 2>/dev/null'
-
-tsm_source_dir() {
-  # The directory tsm itself lives in, with any symlinks followed: tsm is
-  # normally installed as a symlink on PATH, and the pickers it sources sit
-  # beside the real file rather than beside the link.
-  local src="$0" dir
-
-  case "$src" in
-    */*) ;;
-    *) src=$(command -v -- "$src" 2>/dev/null) || src="$0" ;;
-  esac
-
-  while [ -L "$src" ]; do
-    dir=$(cd -P "$(dirname -- "$src")" && pwd)
-    src=$(readlink -- "$src")
-
-    # A relative link is relative to the directory the link is in.
-    case "$src" in
-      /*) ;;
-      *) src="$dir/$src" ;;
-    esac
-  done
-
-  cd -P "$(dirname -- "$src")" && pwd
-}
-
-TSM_SOURCE_DIR=$(tsm_source_dir)
-
-# The pickers live in a file of their own: they are the one part of tsm that
-# is about choosing a directory rather than about the session that follows.
-# shellcheck source=lib/pickers.sh
-if ! . "$TSM_SOURCE_DIR/lib/pickers.sh"; then
-  echo "tsm: could not read $TSM_SOURCE_DIR/lib/pickers.sh" >&2
-  exit 1
-fi
-
 usage() {
   cat <<'EOF'
 Tmux Session Manager
@@ -59,28 +21,30 @@ Usage
 
   tsm via [-c] [-p] <program> [args]       # The same, at the directory <program> prints
 
-    -c, --no-config                        # Ignore any configuration claiming the picked path
+    -c, --no-config                        # Ignore any configuration claiming that path
     -p, --prompt-name                      # Prompt for the session name instead of using the default
-
-  tsm pick <picker>                        # Print the directory a built-in picker names
 
   tsm match [path]                         # Configurations claiming a path, best first (defaults to the current directory)
   tsm logs [session]                       # Browse session logs
 
   tsm help                                 # Show help message
 
-Pickers
-  A picker names a directory and nothing else: it takes none of the flags
-  above, decides nothing about the session, and prints one path on stdout.
-  Any program that does that is one, so `tsm via zoxide query -i` works, and
-  so does a script of your own. These come with tsm, via `tsm pick <name>`:
+tsm via
+  The program is anything that prints a directory on stdout. It can answer
+  straight away, or ask -- tsm does not care which, and reserves no names:
 
-  dir                                      # Any directory, with fzf
-  git                                      # A git repository, with fzf
-  git-brief                                # A git repository with something to show, with fzf
-  worktree                                 # A worktree of this repository, with fzf
+  tsm via git rev-parse --show-toplevel    # the root of the repo you are in
+  tsm via mktemp -d                        # a fresh scratch session
+  tsm via zoxide query -i                  # asks: your most-used directories
+  tsm via ~/bin/my-chooser                 # one you wrote
 
-  tsm via tsm pick git                     # ...and that is how one becomes a session
+  Everything after the program is the program's own, so the flags come
+  first: -i above belongs to zoxide. Printing nothing and exiting 0 is how a
+  program declines to answer; a non-zero exit is passed on.
+
+  Four example programs ship in the `examples` directory of the checkout.
+  They are examples, not part of tsm -- symlink one onto your PATH if you
+  want it, or read one and write your own.
 
 See https://github.com/ryanburda/tmux-session-manager for more documentation
 EOF
@@ -643,14 +607,14 @@ match_configs() {
 }
 
 ###################################################
-# the session: the one thing every picker ends in #
+# the session: where every path ends up #
 ###################################################
 
 session_at() {
   # Switch to the session already open at a directory, or create one there.
   #
   # Args:
-  #   $1: path: the directory a picker named
+  #   $1: path: the directory to start the session at
   #   $@: --no-config, --prompt-name
   local selected="$1"
   shift
@@ -665,7 +629,7 @@ session_at() {
 
   selected="${selected/#\~/$HOME}"
 
-  # Resolved here rather than in the pickers: a session is identified by the
+  # Resolved here rather than by the caller: a session is identified by the
   # directory it was started at, so every path has to arrive in the same
   # form no matter who printed it.
   local resolved
@@ -676,7 +640,7 @@ session_at() {
   selected="$resolved"
 
   # A session is identified by the directory it was started at, not by its
-  # name: picking a directory that already has a session returns to it,
+  # name: naming a directory that already has a session returns to it,
   # whatever it has been renamed to. Nothing is being created, so this is
   # also the answer -p gets.
   local existing
@@ -709,7 +673,7 @@ session_at() {
   else
     # The path is not open (settled above), so a session already holding this
     # name is a genuine collision: two directories whose names landed on the
-    # same string. Switching there would go somewhere that was not picked, so
+    # same string. Switching there would go somewhere that was not asked for, so
     # report it and ask for a name.
     if tmux has-session -t "=$session_name" 2>/dev/null; then
       local taken="$session_name" existing_path
@@ -790,20 +754,52 @@ at_path() {
   session_at "${paths[0]}" ${session_flags+"${session_flags[@]}"}
 }
 
-via_picker() {
-  # Start a session at the directory a picker prints, or switch to the
+run_program() {
+  # Set PROGRAM_DIR to the directory a program prints. Returns non-zero when
+  # it printed nothing and there is nothing left to do.
+  #
+  # The program is run with the arguments given; its stdout is the answer and
+  # everything else belongs on its stderr. There is no list of names tsm
+  # knows, which is what keeps it from shadowing anything: `git` here is git.
+  #
+  # Args:
+  #   $1: the program to run
+  #   $@: its arguments
+  local name="$1"
+  shift
+
+  PROGRAM_DIR=""
+
+  local program
+  program=$(command -v -- "$name" 2>/dev/null)
+
+  if [ -z "$program" ]; then
+    notify "Error: '$name' is not a program on PATH"
+    exit 1
+  fi
+
+  # Stdout is the answer, so a status is all a program has left to fail with;
+  # it is passed on rather than turned into a session at nowhere. Printing
+  # nothing and succeeding is how it declines to answer.
+  PROGRAM_DIR=$("$program" "$@") || exit $?
+
+  [ -n "$PROGRAM_DIR" ]
+}
+
+via_program() {
+  # Start a session at the directory a program prints, or switch to the
   # session already open there:
   #
-  #   tsm via [-c] [-p] <picker> [picker args]
+  #   tsm via [-c] [-p] <program> [program args]
   #
-  # The picker is a built-in name or any program that prints a path; the
-  # arguments after it are the program's own, so the session flags have to
-  # come first -- `-i` in `zoxide query -i` belongs to zoxide, not to tsm,
-  # and there is no way to tell them apart after the fact.
+  # Any program that prints a path will do; the arguments after it are the
+  # program's own, so the session flags have to come first -- `-i` in
+  # `zoxide query -i` belongs to zoxide, not to tsm, and there is no way to
+  # tell them apart after the fact.
   #
-  # Only the arguments before the picker are read as flags, and only they are
-  # expanded: after it, -la is the program's business and not two flags of
-  # tsm's.
+  # Only the arguments before the program are read as flags, and only they
+  # are expanded: after it, -la is the program's business and not two flags
+  # of tsm's.
   local session_flags=() arg
   while [ $# -gt 0 ]; do
     case "$1" in
@@ -827,30 +823,13 @@ via_picker() {
   done
 
   if [ $# -eq 0 ]; then
-    notify "Error: 'tsm via' takes a program that prints a path, such as 'tsm pick dir'"
+    notify "Error: 'tsm via' takes a program that prints a path, such as 'zoxide query -i'"
     exit 1
   fi
 
-  run_picker "$@" || exit 0
+  run_program "$@" || exit 0
 
-  session_at "$PICKED_DIR" ${session_flags+"${session_flags[@]}"}
-}
-
-pick_command() {
-  # Print the directory a built-in picker names:
-  #
-  #   tsm pick <name>
-  #
-  # A picker in the ordinary sense -- a program printing one path -- which is
-  # how the built-in ones reach `tsm via` without tsm reserving their names:
-  #
-  #   tsm via tsm pick git
-  #
-  # Backing out of the fzf prints nothing and succeeds, the same way any
-  # other picker declines to answer.
-  pick_builtin "$@" || exit 0
-
-  printf '%s\n' "$PICKED_DIR"
+  session_at "$PROGRAM_DIR" ${session_flags+"${session_flags[@]}"}
 }
 
 browse_logs() {
@@ -916,10 +895,7 @@ case "$command" in
     at_path "$@"
     ;;
   via)
-    via_picker "$@"
-    ;;
-  pick)
-    pick_command "$@"
+    via_program "$@"
     ;;
   match)
     match_configs "$1"
@@ -930,11 +906,6 @@ case "$command" in
   _record-switch)
     # Internal: invoked by the client-session-changed hook (see README).
     record_switch "$1" "$2"
-    ;;
-  _pickers)
-    # Internal: the built-in picker names `tsm pick` takes, for the shell
-    # completions.
-    pickers
     ;;
   help)
     usage

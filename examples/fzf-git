@@ -1,0 +1,51 @@
+#!/usr/bin/env bash
+#
+# fzf-git: prints the directory of a git repository, chosen with fzf.
+#
+# An example of the only thing `tsm via` asks for: a program that prints a
+# directory on stdout. Nothing in it is specific to tsm -- run it on its own
+# and it prints a path; run `tsm via fzf-git` and that path becomes a session.
+#
+#   ln -s "$PWD/examples/fzf-git" ~/.local/bin/fzf-git
+#   tsm via fzf-git
+#
+# Or copy it somewhere and change the list. It is self-contained on purpose:
+# nothing to source, nothing to install, one file to read.
+#
+# It lists paths and nothing else, so it appears at once. fzf-git-brief beside
+# it is the same list narrowed to the repositories that have something to
+# show, with the state of each one alongside.
+#
+# Printing nothing and exiting 0 is how it declines to answer -- what happens
+# when you press escape. Anything that is not the path goes to stderr.
+#
+# Environment
+#   TSM_GIT_DIRS_CMD   command printing the repositories to offer. The
+#                      default finds every directory holding a .git within 4
+#                      levels of $HOME.
+
+note() {
+  # Anything that is not the answer: tmux display-message inside tmux, stderr
+  # outside it. Never stdout, which is reserved for the path -- and a program
+  # run from a tmux popup loses its stderr when the popup closes.
+  if [ -n "$TMUX" ]; then tmux display-message "$1"; else echo "$1" >&2; fi
+}
+
+# Single quoted, so $HOME and find's own escapes reach eval intact rather than
+# being expanded here.
+default_git_dirs_cmd='find "$HOME" -maxdepth 4 -name ".*" -prune -o -type d -exec test -e {}/.git \; -print -prune 2>/dev/null'
+
+git_dirs_cmd="${TSM_GIT_DIRS_CMD:-$default_git_dirs_cmd}"
+
+dirs=$(eval "$git_dirs_cmd" | sort)
+
+if [ -z "$dirs" ]; then
+  note "No git repositories found"
+  exit 1
+fi
+
+selected=$(printf '%s\n' "$dirs" | fzf --cycle --prompt "Repo > ")
+
+[ -n "$selected" ] || exit 0
+
+printf '%s\n' "$selected"

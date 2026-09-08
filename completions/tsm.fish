@@ -24,15 +24,10 @@ function __tsm_log_sessions
     end
 end
 
-# Helper function: the built-in picker names `tsm pick` takes
-function __tsm_pickers
-    tsm _pickers 2>/dev/null
-end
-
-# Helper function: true while `tsm via` is still waiting for its picker --
-# everything after the picker belongs to the program it names, so there is
-# nothing of tsm's left to complete
-function __tsm_needs_picker
+# Helper function: true while `tsm via` is still waiting for its program --
+# everything after it belongs to that program, so there is nothing of tsm's
+# left to complete
+function __tsm_needs_program
     set -l tokens (commandline -opc)
     for tok in $tokens[3..-1]
         string match -q -- '-*' $tok; or return 1
@@ -49,7 +44,6 @@ complete -c tsm -n '__fish_use_subcommand' -a last -d 'Switch to the most recent
 complete -c tsm -n '__fish_use_subcommand' -a kill -d 'Kill a session'
 complete -c tsm -n '__fish_use_subcommand' -a at -d 'Start a session at a directory'
 complete -c tsm -n '__fish_use_subcommand' -a via -d 'Start a session at the directory a program prints'
-complete -c tsm -n '__fish_use_subcommand' -a pick -d 'Print the directory a built-in picker names'
 complete -c tsm -n '__fish_use_subcommand' -a match -d 'Configurations claiming a path, best first'
 complete -c tsm -n '__fish_use_subcommand' -a logs -d 'Browse session logs'
 complete -c tsm -n '__fish_use_subcommand' -a help -d 'Show help message'
@@ -60,9 +54,7 @@ complete -c tsm -n '__fish_seen_subcommand_from active kill' -xa '(__tsm_active_
 complete -c tsm -n '__fish_seen_subcommand_from at' -ra '(__fish_complete_directories)'
 complete -c tsm -n '__fish_seen_subcommand_from at' -xa '-c --no-config -p --prompt-name'
 # `tsm via` takes the session flags first, then any program that prints a path
-complete -c tsm -n '__fish_seen_subcommand_from via; and __tsm_needs_picker' -xa '-c --no-config -p --prompt-name'
-complete -c tsm -n '__fish_seen_subcommand_from via; and __tsm_needs_picker' -xa '(__fish_complete_command)'
-# `tsm pick` takes one built-in picker name
-complete -c tsm -n '__fish_seen_subcommand_from pick' -xa '(__tsm_pickers)'
+complete -c tsm -n '__fish_seen_subcommand_from via; and __tsm_needs_program' -xa '-c --no-config -p --prompt-name'
+complete -c tsm -n '__fish_seen_subcommand_from via; and __tsm_needs_program' -xa '(__fish_complete_command)'
 complete -c tsm -n '__fish_seen_subcommand_from match' -ra '(__fish_complete_directories)'
 complete -c tsm -n '__fish_seen_subcommand_from logs' -xa '(__tsm_log_sessions)'

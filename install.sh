@@ -21,13 +21,13 @@ die() {
 command -v git > /dev/null 2>&1 || die "git is required but was not found on PATH"
 command -v tmux > /dev/null 2>&1 || die "tmux is required but was not found on PATH"
 
-# Not fatal: the commands install fine and only some subcommands need this.
+# Not fatal: tsm itself never runs fzf -- only the examples that ask do.
 command -v fzf > /dev/null 2>&1 ||
-    echo "install.sh: warning: fzf was not found on PATH; the session pickers require it." >&2
+    echo "install.sh: warning: fzf was not found on PATH; the examples require it." >&2
 
 # Fetch (or update) the source checkout that the symlink points at. Only tsm
-# itself is linked: it follows the link to find lib/pickers.sh beside the real
-# file, so the checkout has to stay where it is.
+# itself is linked. The programs in examples/ are opt-in and self-contained:
+# symlink one, or copy it somewhere and change it.
 if [ -d "$TSM_HOME/.git" ]; then
     echo "Updating existing checkout at $TSM_HOME"
     git -C "$TSM_HOME" fetch --quiet origin
@@ -46,7 +46,6 @@ src="$TSM_HOME/tsm"
 dest="$BIN_DIR/tsm"
 
 [ -f "$src" ] || die "expected $src to exist"
-[ -f "$TSM_HOME/lib/pickers.sh" ] || die "expected $TSM_HOME/lib/pickers.sh to exist"
 
 if [ -e "$dest" ] && [ ! -L "$dest" ]; then
     die "$dest exists and is not a symlink; remove it and retry"
@@ -69,5 +68,12 @@ esac
 
 echo
 echo "Done. Run 'tsm help' to see its usage."
+echo
+echo "'tsm via' takes any program that prints a directory. Four examples are"
+echo "in $TSM_HOME/examples; symlink the ones you want onto your PATH:"
+echo
+echo "    ln -s $TSM_HOME/examples/fzf-git $BIN_DIR/fzf-git"
+echo "    tsm via fzf-git"
+echo
 echo "Shell completions are not installed by this script; see the Shell Completions"
 echo "section of $TSM_HOME/README.md for the one-liner for your shell."
