@@ -183,8 +183,8 @@ answered with -- `;` is tmux's own command separator.
 > use full paths in the bindings, e.g. `bind-key d popup -E
 > "~/.local/share/tmux-session-manager/tsm via ~/.local/share/tmux-session-manager/examples/fzf-dir"`.
 >
-> If you set a custom `TSM_DIRS_CMD`, define it in the same file as your PATH (e.g. `~/.zshenv`),
-> or `fzf-dir` will show different lists inside and outside tmux popups.
+> The same file is where any environment your own program reads has to be set (e.g.
+> `FZF_DEFAULT_COMMAND`), or it will behave differently inside a tmux popup than in your shell.
 
 </details>
 
@@ -317,15 +317,24 @@ program that prints `$PWD` and exits is just as valid, and the section below has
 
 #### `examples/fzf-dir`
 
-By default fzf lists non-hidden directories within 4 levels of `$HOME`, stopping at the root of
-each git repository. Set `TSM_DIRS_CMD` (in `~/.zshenv` / `~/.bashrc`) to any command that
-prints directories:
+The shortest of the four, and the whole of it:
 
 ```bash
-export TSM_DIRS_CMD='{
-  find "$HOME" -maxdepth 1 -name ".*" -prune -o -type d -print;
-  find "$HOME/code" -maxdepth 4 -name ".*" -prune -o -type d \( -exec test -e {}/.git \; -print -prune -o -print \);
-}'
+selected=$(find "$HOME" -name ".*" -prune -o -type d -print \
+  | fzf --cycle --prompt "Directory > ")
+
+[ -n "$selected" ] || exit 0
+
+printf '%s\n' "$selected"
+```
+
+Every directory under `$HOME`, at any depth, skipping hidden ones and everything inside them.
+There is nothing to configure: to list something else, copy the file and change the `find`. A
+narrower one that stops at each repository root, for instance, and so never descends into
+`node_modules` or `target`:
+
+```bash
+find "$HOME/code" -name ".*" -prune -o -type d \( -exec test -e {}/.git \; -print -prune -o -print \)
 ```
 
 ![Launch Directory Sessions](docs/directory_example.gif)

@@ -9,31 +9,16 @@
 #   ln -s "$PWD/examples/fzf-dir" ~/.local/bin/fzf-dir
 #   tsm via fzf-dir
 #
-# Or copy it somewhere and change the list. It is self-contained on purpose:
-# nothing to source, nothing to install, one file to read.
+# It lists every directory under $HOME, at any depth, skipping hidden ones and
+# everything inside them. To list something else, copy this file and change
+# the find -- there is no configuration, because a program this short is
+# easier to rewrite than to configure.
 #
 # Printing nothing and exiting 0 is how it declines to answer -- what happens
 # when you press escape. Anything that is not the path goes to stderr.
-#
-# Environment
-#   TSM_DIRS_CMD   command printing the directories to offer. The default
-#                  lists non-hidden directories within 4 levels of $HOME,
-#                  stopping at the root of each git repository.
 
-# Single quoted, so $HOME and find's own escapes reach eval intact rather than
-# being expanded here.
-default_dirs_cmd='find "$HOME" -maxdepth 4 -name ".*" -prune -o -type d \( -exec test -e {}/.git \; -print -prune -o -print \)'
-
-dirs_cmd="${TSM_DIRS_CMD:-$default_dirs_cmd}"
-
-# The process substitution lets the directory generator be killed once fzf
-# exits, rather than run out to the end of the tree.
-exec 3< <(eval "$dirs_cmd")
-dirs_pid=$!
-selected=$(fzf --cycle --prompt "Directory > " <&3)
-kill "$dirs_pid" 2>/dev/null
-wait "$dirs_pid" 2>/dev/null
-exec 3<&-
+selected=$(find "$HOME" -name ".*" -prune -o -type d -print \
+  | fzf --cycle --prompt "Directory > ")
 
 # Backing out is not a failure: say nothing and succeed.
 [ -n "$selected" ] || exit 0
