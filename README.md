@@ -6,21 +6,39 @@
 tsm at <path>
 ```
 
-The path can be the result of a command:
-
+The `path` argument can be:
+- a specific path:
+```bash
+tsm at "$HOME/code/project_name"
+```
+- the result of a command:
 ```bash
 tsm at "$(git rev-parse --show-toplevel)"    # the root of the repo you are in
 tsm at "$(mktemp -d)"                        # a fresh scratch session
 ```
-
-Commands can even be interactive:
-
+- or even an interactive command:
 ```bash
 tsm at "$(find $HOME type -d | fzf)"         # fuzzy find directories
 tsm at "$(zoxide query -i)"                  # your most-used directories
 ```
 
-Once a directory is picked, every session is created or entered the same way:
+### Writing your own directory picker commands:
+
+Any program that prints a directory works with `tsm at "$(<cmd>)"`.
+This means you can write your own to fit a particular need.
+
+The [`examples/`](examples) directory has a few to copy and modify as needed:
+
+| Command | Prints |
+|---|---|
+| [`fzf-dir`](examples/fzf-dir) | any directory under `$HOME`, chosen with fzf |
+| [`fzf-git`](examples/fzf-git) | the directory of a git repository, chosen with fzf |
+| [`fzf-git-brief`](examples/fzf-git-brief) | a git repository with unpushed, unpulled, or uncommitted work |
+| [`fzf-worktree`](examples/fzf-worktree) | a worktree of the repository you are in |
+
+### Session creation
+
+Once a directory is passed to `tsm at <path>`, every session is created the same way:
 
 1. **Does a session already exist for that directory?**
 
@@ -28,13 +46,13 @@ Once a directory is picked, every session is created or entered the same way:
 2. **Does a configuration claim that directory?**
 
     Use that configuration when creating/naming the session.
+
+    See [Session Configuration](#session-configuration) for details on how to customize sessions.
 3. **Otherwise:**
 
     Create a plain session named after the directory.
 
 See [Usage](#usage) for the full list of commands.
-
-See [Session Configuration](#session-configuration) for details on how to customize sessions.
 
 ## Install
 
