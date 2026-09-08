@@ -1,20 +1,16 @@
 #!/usr/bin/env bash
 #
-# fzf-worktree: prints the directory of a worktree of the current repository,
-# chosen with fzf. Must be run from inside a git repository.
+# A reference `tsm at $(<cmd>)` command
 #
-# An example of the only thing `tsm at` asks for: a program that prints a
-# directory on stdout. Nothing in it is specific to tsm -- run it on its own
-# and it prints a path; hand that path to `tsm at` and it becomes a session.
+# Add to your path and modify as needed to use:
+# ```
+# cp "<tsm-repo-root>/examples/fzf-worktree" ~/.local/bin/fzf-worktree
+# tsm at "$(fzf-worktree)"
+# ```
 #
-#   ln -s "$PWD/examples/fzf-worktree" ~/.local/bin/fzf-worktree
-#   tsm at "$(fzf-worktree)"
-#
-# Or copy it somewhere and change what it lists. It is self-contained on
-# purpose: nothing to source, nothing to install, one file to read.
-#
-# Printing nothing and exiting 0 is how it declines to answer -- what happens
-# when you press escape. Anything that is not the path goes to stderr.
+# fzf-worktree:
+#   Prints the directory of a worktree of the current repository, chosen with fzf.
+#   Must be run from inside a git repository.
 
 note() {
   # Anything that is not the answer: tmux display-message inside tmux, stderr
@@ -39,18 +35,17 @@ fi
 # Header labels are measured alongside the values so short columns still widen
 # to fit them. fzf indents --header by the two columns its pointer takes, so
 # the header lines up with the rows on its own.
-name_label='wt' branch_label='branch'
-max_name=${#name_label} max_branch=${#branch_label}
+path_label='path' branch_label='branch'
+max_path=${#path_label} max_branch=${#branch_label}
 while IFS=$'\t' read -r wt branch; do
-  wt_name="${wt##*/}"
-  (( ${#wt_name} > max_name )) && max_name=${#wt_name}
+  (( ${#wt} > max_path )) && max_path=${#wt}
   (( ${#branch} > max_branch )) && max_branch=${#branch}
 done <<< "$worktree_data"
 
 fzf_input=$(echo "$worktree_data" | while IFS=$'\t' read -r wt branch; do
-  printf '%s\t%-*s  \033[32m%-*s\033[0m  %s\n' "$wt" "$max_name" "${wt##*/}" "$max_branch" "$branch" "$wt"
+  printf '%s\t%-*s  \033[32m%-*s\033[0m\n' "$wt" "$max_path" "$wt" "$max_branch" "$branch"
 done)
-header=$(printf '%-*s  %-*s  %s' "$max_name" "$name_label" "$max_branch" "$branch_label" 'path')
+header=$(printf '%-*s  %s' "$max_path" "$path_label" "$branch_label")
 
 # The path rides along in a first column fzf is told not to display, so the
 # columns can be coloured without the selection having to be parsed back out.

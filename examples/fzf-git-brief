@@ -1,32 +1,21 @@
 #!/usr/bin/env bash
 #
-# fzf-git-brief: prints the directory of a git repository that has something
-# to show -- commits waiting upstream, commits not yet pushed, or uncommitted
-# work (staged, unstaged or untracked). A repository level with its upstream
-# and clean in the working tree is left out: there is nothing there to go and
-# look at, which is the only reason to reach for this.
+# A reference `tsm at $(<cmd>)` command
 #
-# An example of the only thing `tsm at` asks for: a program that prints a
-# directory on stdout. Nothing in it is specific to tsm -- run it on its own
-# and it prints a path; hand that path to `tsm at` and it becomes a session.
+# Add to your path and modify as needed to use:
+# ```
+# cp "<tsm-repo-root>/examples/fzf-git-brief" ~/.local/bin/fzf-git-brief
+# tsm at "$(fzf-git-brief)"
+# ```
 #
-#   ln -s "$PWD/examples/fzf-git-brief" ~/.local/bin/fzf-git-brief
-#   tsm at "$(fzf-git-brief)"
-#
-# It is self-contained on purpose: nothing to source, nothing to install, one
-# file to read. This is the longest of the four examples and the one worth
-# copying -- everything below the fzf call is just deciding what to list.
+# fzf-git-brief:
+#   Prints the directory of a git repository that has:
+#     - commits waiting upstream
+#     - commits not yet pushed
+#     - uncommitted work (staged, unstaged or untracked)
 #
 # Every repository is fetched before it is inspected, so the ahead/behind
-# counts are current. That is what makes this slower to appear than fzf-git,
-# which is there for when you just want the list.
-#
-# It checks the same repositories fzf-git lists, by the same find. To check
-# somewhere else, copy this file and change it -- there is no configuration,
-# because a program this short is easier to rewrite than to configure.
-#
-# Printing nothing and exiting 0 is how it declines to answer -- what happens
-# when you press escape. Anything that is not the path goes to stderr.
+# counts are current. That is what makes this somewhat slow to appear.
 
 note() {
   # Anything that is not the answer: tmux display-message inside tmux, stderr

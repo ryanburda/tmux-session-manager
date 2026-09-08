@@ -1,25 +1,15 @@
 #!/usr/bin/env bash
 #
-# fzf-git: prints the directory of a git repository, chosen with fzf.
+# A reference `tsm at $(<cmd>)` command
 #
-# An example of the only thing `tsm at` asks for: a program that prints a
-# directory on stdout. Nothing in it is specific to tsm -- run it on its own
-# and it prints a path; hand that path to `tsm at` and it becomes a session.
+# Add to your path and modify as needed to use:
+# ```
+# cp "<tsm-repo-root>/examples/fzf-git" ~/.local/bin/fzf-git
+# tsm at "$(fzf-git)"
+# ```
 #
-#   ln -s "$PWD/examples/fzf-git" ~/.local/bin/fzf-git
-#   tsm at "$(fzf-git)"
-#
-# It finds every git working tree under $HOME, at any depth, skipping hidden
-# directories. To look somewhere else, copy this file and change the find --
-# there is no configuration, because a program this short is easier to rewrite
-# than to configure.
-#
-# It lists paths and nothing else, so it appears at once. fzf-git-brief beside
-# it is the same list narrowed to the repositories that have something to
-# show, with the state of each one alongside.
-#
-# Printing nothing and exiting 0 is how it declines to answer -- what happens
-# when you press escape. Anything that is not the path goes to stderr.
+# fzf-git:
+#   prints the directory of a git repository, chosen with fzf.
 
 note() {
   # Anything that is not the answer: tmux display-message inside tmux, stderr

@@ -1,24 +1,17 @@
 #!/usr/bin/env bash
 #
-# fzf-dir: prints a directory, chosen with fzf.
+# A reference `tsm at $(<cmd>)` command
 #
-# An example of the only thing `tsm at` asks for: a program that prints a
-# directory on stdout. Nothing in it is specific to tsm -- run it on its own
-# and it prints a path; hand that path to `tsm at` and it becomes a session.
+# Add to your path and modify as needed to use:
+# ```
+# cp "<tsm-repo-root>/examples/fzf-dir" ~/.local/bin/fzf-dir
+# tsm at "$(fzf-dir)"
+# ```
 #
-#   ln -s "$PWD/examples/fzf-dir" ~/.local/bin/fzf-dir
-#   tsm at "$(fzf-dir)"
-#
-# It lists every directory under $HOME, at any depth, skipping hidden ones and
-# everything inside them. To list something else, copy this file and change
-# the find -- there is no configuration, because a program this short is
-# easier to rewrite than to configure.
-#
-# Printing nothing and exiting 0 is how it declines to answer -- what happens
-# when you press escape. Anything that is not the path goes to stderr.
+# fzf-dir:
+#   prints a directory, chosen with fzf.
 
-selected=$(find "$HOME" -name ".*" -prune -o -type d -print \
-  | fzf --cycle --prompt "Directory > ")
+selected=$(find "$HOME" -name ".*" -prune -o -type d -print | fzf --cycle --prompt "Directory > ")
 
 # Backing out is not a failure: say nothing and succeed.
 [ -n "$selected" ] || exit 0
