@@ -55,21 +55,39 @@ Once a directory is passed to `tsm at <path>`, every session is created the same
 
 ### Session teardown
 
-Creating a session has one entry point. Ending one has many, and none of them is `tsm`'s:
-`bind-key X kill-session`, a kill picker, the last pane's shell exiting, or a client attached
-in another terminal all close a session without `tsm` being asked. A configuration's `kill`
-therefore runs from a tmux `session-closed` hook rather than from a command:
+A session built by a configuration's `start` should always get its matching `kill`. `tsm`
+therefore hangs teardown off a `session-closed` hook rather than a command, so `kill` is
+invoked whether you kill the session explicitly or its last pane simply exits:
 
 ```bash
-run-shell "tsm init"      # in ~/.tmux.conf, installs the hook
+# Add this to ~/.tmux.conf to install the hook
+run-shell "tsm init"
 ```
+
+That last case is the one that matters, and it is why there is no session-killing command to
+parallel `tsm at`. A shell exiting closes the session without anything asking `tsm` to.
+Sessions killed outside of `tsm`'s control are still handled correctly.
 
 The hook fires for every session tmux closes but it acts only on sessions `tsm at` built from
 a configuration. Everything else closes exactly as it would on a server with no `tsm` on it.
 
-See [Why one hook](docs/configured-sessions.md#why-one-hook-tsm-init) for the details.
+## Usage
 
-See [Usage](#usage) for the full list of commands.
+```bash
+# Show help message
+tsm
+
+# Start or switch to session at a directory
+tsm at <path> [-c] [-p]
+  -c, --no-config          # Ignore any configuration claiming that path
+  -p, --prompt-name        # Prompt for the session name instead of using the default
+
+# Configurations claiming a path (defaults to the current directory)
+tsm match [path]
+
+# Install the hook that cleans up configured sessions (put this in tmux.conf)
+tsm init
+```
 
 ## Install
 
@@ -127,20 +145,6 @@ autoload -Uz compinit && compinit
 ln -s ~/.local/share/tmux-session-manager/completions/tsm.fish ~/.config/fish/completions/
 ```
 </details>
-
-## Usage
-
-```bash
-tsm                                  # Show help message
-
-tsm at <path> [-c] [-p]              # Start or switch to session at a directory
-  -c, --no-config                    # Ignore any configuration claiming that path
-  -p, --prompt-name                  # Prompt for the session name instead of using the default
-
-tsm match [path]                     # Configurations claiming a path (defaults to the current directory)
-
-tsm init                             # Install the hook that cleans up configured sessions (put this in tmux.conf)
-```
 
 ## License
 
