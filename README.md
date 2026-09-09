@@ -13,6 +13,8 @@ tsm at "$HOME/code/project_name"
 ```
 - or even the result of a command:
 ```bash
+# your current working directory
+tsm at "$(pwd)"
 # the root of the repo you are currently in
 tsm at "$(git rev-parse --show-toplevel)"
 # a fresh scratch directory
