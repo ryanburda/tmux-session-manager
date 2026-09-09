@@ -403,7 +403,13 @@ hook_installed() {
   # Whether `tsm init` has run on this server. Everything a configuration
   # does now happens in a hook, so a server without them is a tsm that
   # quietly does nothing.
-  tmux show-hooks -g 2>/dev/null | grep -q -- "$HOOK_CREATED"
+  #
+  # No server at all is not that: the `tmux new-session` about to start one
+  # sources tmux.conf, and the hooks arrive with it. Only a server that is
+  # already up can be missing them, so an unreachable one answers yes.
+  local hooks
+  hooks=$(tmux show-hooks -g 2>/dev/null) || return 0
+  printf '%s\n' "$hooks" | grep -q -- "$HOOK_CREATED"
 }
 
 init_hook() {
