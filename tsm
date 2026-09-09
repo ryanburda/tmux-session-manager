@@ -718,13 +718,7 @@ session_at() {
 }
 
 at_path() {
-  # Start a session at a directory, or switch to the session already open
-  # there:
-  #
-  #   tsm at <path> [-c] [-p]
-  #
-  # A path and nothing else. Anything that prints a directory reaches this
-  # through the shell: `tsm at "$(fzf-dir)"`.
+  # Start a session at a directory, or switch to the session already open there
   local session_flags=() paths=() arg
   expand_short_flags "$@"
   for arg in "${EXPANDED_ARGS[@]}"; do
@@ -745,9 +739,9 @@ at_path() {
   fi
 
   # No directory is the answer a chooser gives when it declines -- pressing
-  # escape leaves `tsm at "$(fzf-dir)"` with an empty argument, and an
-  # unquoted substitution leaves it with none at all. Neither is an error,
-  # and there is nothing to open.
+  # escape leaves `tsm at "$(find $HOME -type d | fzf)"` with an empty
+  # argument, and an unquoted substitution leaves it with none at all.
+  # Neither is an error, and there is nothing to open.
   [ -n "${paths[0]:-}" ] || exit 0
 
   session_at "${paths[0]}" ${session_flags+"${session_flags[@]}"}

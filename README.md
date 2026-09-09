@@ -22,22 +22,6 @@ tsm at "$(find $HOME type -d | fzf)"         # fuzzy find directories
 tsm at "$(zoxide query -i)"                  # your most-used directories
 ```
 
-### Writing your own directory picker commands:
-
-Any program that prints a directory works with `tsm at "$(<cmd>)"`.
-This means you can write your own to fit a particular need.
-
-The [`examples/`](examples) directory has a few to copy and modify as needed:
-
-| Command | Prints |
-|---|---|
-| [`fzf-dir`](examples/fzf-dir) | any directory under `$HOME`, chosen with fzf |
-| [`fzf-git`](examples/fzf-git) | the directory of a git repository, chosen with fzf |
-| [`fzf-git-brief`](examples/fzf-git-brief) | a git repository with unpushed, unpulled, or uncommitted work |
-| [`fzf-worktree`](examples/fzf-worktree) | a worktree of the repository you are in |
-
-It is a good idea to add commands to your `PATH` so they are accessible.
-
 ### Session creation
 
 Once a directory is passed to `tsm at <path>`, every session is created the same way:
