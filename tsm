@@ -16,14 +16,13 @@ Tmux Session Manager
 
 Usage:
   tsm                                  # Show help message
-  
+
   tsm at <path> [-c] [-p]              # Start or switch to session at a directory
     -c, --no-config                    # Ignore any configuration claiming that path
     -p, --prompt-name                  # Prompt for the session name instead of using the default
-  
+
   tsm match [path]                     # Configurations claiming a path (defaults to the current directory)
-  tsm logs [session]                   # Browse configured session logs
-  
+
   tsm init                             # Install the hook that cleans up configured sessions (put this in tmux.conf)
 
 See https://github.com/ryanburda/tmux-session-manager for more documentation
@@ -754,46 +753,6 @@ at_path() {
   session_at "${paths[0]}" ${session_flags+"${session_flags[@]}"}
 }
 
-browse_logs() {
-  local session="$1"
-
-  local search_dir
-  if [ -n "$session" ]; then
-    search_dir="$LOG_DIR/$session"
-    if [ ! -d "$search_dir" ]; then
-      notify "Error: No log directory found for session '$session'"
-      exit 1
-    fi
-  else
-    search_dir="$LOG_DIR"
-  fi
-
-  local log_files
-  log_files=$(find "$search_dir" -type f -name '*.log' 2>/dev/null | sed "s|^$LOG_DIR/||" | sort)
-
-  if [ -z "$log_files" ]; then
-    notify "No log files found"
-    exit 1
-  fi
-
-  local selected
-  selected=$(echo "$log_files" | fzf \
-    --cycle \
-    --bind=ctrl-d:preview-half-page-down \
-    --bind=ctrl-u:preview-half-page-up \
-    --bind="ctrl-o:execute(${EDITOR:-vi} '$LOG_DIR/{}')" \
-    --prompt "Logs > " \
-    --header $':: \e[33mEnter\e[0m to \e[31mtail\e[0m | \e[33mctrl-o\e[0m to \e[31mopen in editor\e[0m | \e[33mctrl-d\e[0m to \e[31mpreview page down\e[0m | \e[33mctrl-u\e[0m to \e[31mpreview page up\e[0m' \
-    --preview "tail -n 100000 -f '$LOG_DIR/{}'" \
-    --preview-window follow)
-
-  if [ -z "$selected" ]; then
-    exit 0
-  fi
-
-  tail -n 1000 -f "$LOG_DIR/$selected"
-}
-
 # Parse arguments
 if [ $# -eq 0 ]; then
   usage
@@ -809,9 +768,6 @@ case "$command" in
     ;;
   match)
     match_configs "$1"
-    ;;
-  logs)
-    browse_logs "$1"
     ;;
   init)
     init_hook

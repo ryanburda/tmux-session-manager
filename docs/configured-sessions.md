@@ -464,8 +464,8 @@ tmux new-session -c ~/code/myproject   # an ordinary tmux session, start to fini
 
 Output from `start` and `kill` is redirected to
 `${XDG_STATE_HOME:-~/.local/state}/tsm/logs/<session-name>/tsm.log`. A session that matched no
-configuration, or was created with `-c`, runs no program and gets no log. `tsm logs` browses
-all log files with fzf; the preview tails the highlighted file.
+configuration, or was created with `-c`, runs no program and gets no log. They are ordinary
+files: `tail -f` one, open it in an editor, or point a picker at the directory.
 
 A `kill` that fails has nowhere to complain to -- the session is already gone -- so its log is
 the place to look when cleanup does not happen.
@@ -474,7 +474,7 @@ the place to look when cleanup does not happen.
 invocation's output.
 
 **NOTE:** Output from multiple backgrounded processes may interleave. To avoid that, give each
-its own file in the session's log directory; these are browsable with `tsm logs` too:
+its own file in the session's log directory:
 
 ```bash
 docker compose up --detach > "$HOME/.local/state/tsm/logs/$SESSION/docker.log" 2>&1 &

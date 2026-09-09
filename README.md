@@ -63,19 +63,17 @@ Once a directory is passed to `tsm at <path>`, every session is created the same
 
 ### Session teardown
 
-Creating a session has one entry point. Ending one has none: `bind-key X kill-session`, a kill
-picker, the last pane's shell exiting, or a client attached in another terminal all close a
-session without going through `tsm`. A configuration's `kill` therefore runs from a tmux
-`session-closed` hook rather than from a command:
+Creating a session has one entry point. Ending one has many, and none of them is `tsm`'s:
+`bind-key X kill-session`, a kill picker, the last pane's shell exiting, or a client attached
+in another terminal all close a session without `tsm` being asked. A configuration's `kill`
+therefore runs from a tmux `session-closed` hook rather than from a command:
 
 ```bash
 run-shell "tsm init"      # in ~/.tmux.conf, installs the hook
 ```
 
-The hook fires for every session tmux closes, and nearly all of them stop at its first check.
-It acts only on sessions `tsm at` built from a configuration, which are the only ones that
-leave a cleanup record behind. Everything else closes exactly as it would on a server with no
-`tsm` on it.
+The hook fires for every session tmux closes but it acts only on sessions `tsm at` built from
+a configuration. Everything else closes exactly as it would on a server with no `tsm` on it.
 
 See [Why one hook](docs/configured-sessions.md#why-one-hook-tsm-init) for the details.
 
@@ -115,7 +113,7 @@ ln -s ~/git/tmux-session-manager/tsm ~/.local/bin/tsm
 <details>
 <summary><strong style="font-size: 1.25em;">Shell Completions</strong></summary>
 
-Completions cover active session names, directories, and sessions with logs. Paths below assume the install script's checkout location; substitute your own if you
+Completions cover subcommands, their flags, and directories. Paths below assume the install script's checkout location; substitute your own if you
 cloned elsewhere.
 
 **Bash**: add to `~/.bashrc`:
@@ -147,7 +145,6 @@ ln -s ~/.local/share/tmux-session-manager/completions/tsm.fish ~/.config/fish/co
 run-shell "tsm init"                                          # required: runs a configuration's `kill` on session close
 bind-key d popup -E 'tsm at "$(find $HOME type -d | fzf)"'    # any directory
 bind-key X kill-session                                       # kill the session; its `kill` hook runs
-bind-key l popup -E "tsm logs"                                # configured session logs
 ```
 
 `tsm at` is how a configuration gets applied: it names the session, runs the configuration's
@@ -172,7 +169,6 @@ tsm at <path> [-c] [-p]              # Start or switch to session at a directory
   -p, --prompt-name                  # Prompt for the session name instead of using the default
 
 tsm match [path]                     # Configurations claiming a path (defaults to the current directory)
-tsm logs [session]                   # Browse configured session logs
 
 tsm init                             # Install the hook that cleans up configured sessions (put this in tmux.conf)
 ```

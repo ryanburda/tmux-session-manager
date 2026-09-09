@@ -10,7 +10,7 @@ _tsm_completions() {
     prev="${COMP_WORDS[COMP_CWORD-1]}"
     cmd="${COMP_WORDS[1]}"
 
-    subcmds="at match logs init help"
+    subcmds="at match init help"
 
     # Completing the subcommand itself
     if [ "$COMP_CWORD" -eq 1 ]; then
@@ -28,14 +28,6 @@ _tsm_completions() {
             ;;
         match)
             COMPREPLY=($(compgen -d -- "$cur"))
-            return 0
-            ;;
-        logs)
-            local log_dir="${XDG_STATE_HOME:-$HOME/.local/state}/tsm/logs"
-            if [ -d "$log_dir" ]; then
-                local sessions=$(for dir in "$log_dir"/*/; do [ -d "$dir" ] && basename "$dir"; done 2>/dev/null)
-                COMPREPLY=($(compgen -W "$sessions" -- "$cur"))
-            fi
             return 0
             ;;
     esac

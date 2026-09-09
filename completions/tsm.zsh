@@ -8,20 +8,10 @@
 # 2. Or source directly in .zshrc:
 #      source /path/to/tsm.zsh
 
-_tsm_log_sessions() {
-    local log_dir="${XDG_STATE_HOME:-$HOME/.local/state}/tsm/logs"
-    local sessions
-    if [[ -d "$log_dir" ]]; then
-        sessions=(${(f)"$(for dir in "$log_dir"/*/; do [[ -d "$dir" ]] && basename "$dir"; done 2>/dev/null)"})
-        _describe 'session with logs' sessions
-    fi
-}
-
 _tsm_commands() {
     local commands=(
         'at:Start a session at a directory'
         'match:Configurations claiming a path, best first'
-        'logs:Browse session logs'
         'init:Install the tmux session-closed hook'
         'help:Show help message'
     )
@@ -46,9 +36,6 @@ _tsm() {
             ;;
         match)
             _files -/
-            ;;
-        logs)
-            _tsm_log_sessions
             ;;
     esac
 }
