@@ -61,6 +61,24 @@ Once a directory is passed to `tsm at <path>`, every session is created the same
 
     Create a plain session named after the directory.
 
+### Session teardown
+
+Creating a session has one entry point. Ending one has none: `bind-key X kill-session`, a kill
+picker, the last pane's shell exiting, or a client attached in another terminal all close a
+session without going through `tsm`. A configuration's `kill` therefore runs from a tmux
+`session-closed` hook rather than from a command:
+
+```bash
+run-shell "tsm init"      # in ~/.tmux.conf, installs the hook
+```
+
+The hook fires for every session tmux closes, and nearly all of them stop at its first check.
+It acts only on sessions `tsm at` built from a configuration, which are the only ones that
+leave a cleanup record behind. Everything else closes exactly as it would on a server with no
+`tsm` on it.
+
+See [Why one hook](docs/configured-sessions.md#why-one-hook-tsm-init) for the details.
+
 See [Usage](#usage) for the full list of commands.
 
 ## Install
@@ -136,11 +154,8 @@ bind-key l popup -E "tsm logs"                                # configured sessi
 `start`, and switches to it. Nothing else does that -- a plain `tmux new-session` at a
 configured directory is an ordinary tmux session, because that is what you asked for.
 
-`run-shell "tsm init"` installs a single `session-closed` hook, which runs a configuration's
-`kill` when the session it built goes away. It is needed because there is no command to hang
-cleanup off: `X`, a kill picker, the last pane exiting and `tmux kill-server` all end a session
-without going through tsm. The hook does nothing for a session `tsm at` did not build. See
-[Why one hook](docs/configured-sessions.md#why-one-hook-tsm-init).
+`run-shell "tsm init"` is what runs a configuration's `kill` afterwards, however the session
+ends. See [Session teardown](#session-teardown).
 
 **NOTE:** if your `~/.tmux.conf` sets `session-closed` with a bare `set-hook -g`, put
 `run-shell "tsm init"` after it -- tsm appends to that hook, and a later `set-hook -g` clears
