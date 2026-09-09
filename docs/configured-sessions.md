@@ -4,10 +4,9 @@ A session configuration is an executable program that calls `tmux` commands dire
 no DSL and no YAML abstraction, so anything tmux can do a configuration can do, and `man tmux`
 is the reference for all of it.
 
-Configurations live in `${XDG_CONFIG_HOME:-~/.config}/tsm/` and are applied by two tmux hooks
-that [`tsm init`](#the-hooks-tsm-init) installs. Anything that creates a session at a claimed
-directory gets the configuration -- `tsm at`, a keybind, a script, or `tmux new-session -c`
-typed by hand.
+Configurations live in `${XDG_CONFIG_HOME:-~/.config}/tsm/`. `tsm at` applies the one claiming
+the directory you open; a tmux hook that [`tsm init`](#why-one-hook-tsm-init) installs runs its
+`kill` when the session closes, however it closes.
 
 ## The contract
 
@@ -18,8 +17,8 @@ execs it), which is why a configuration can be written in any language, or be a 
 | --- | --- | --- |
 | `pattern` | resolving which configuration claims a directory | print an ERE of the directories it claims, on stdout |
 | `name` | naming the session, before it exists | print the session name for the directory given as `$2`, on stdout |
-| `start` | after tmux has created the session ([`tsm init`](#the-hooks-tsm-init)) | build the layout |
-| `kill` | asynchronously, when the session closes ([`tsm init`](#the-hooks-tsm-init)) | tear down what `start` built |
+| `start` | after `tsm at` has created the session | build the layout |
+| `kill` | asynchronously, when the session closes ([`tsm init`](#why-one-hook-tsm-init)) | tear down what `start` built |
 
 Three rules make it work in every language:
 
@@ -53,11 +52,10 @@ the whole path identifies it:
   work/web.py             ->  configuration "work/web"
 ```
 
-tsm owns the session's lifecycle: its [`session-created` hook](#the-hooks-tsm-init) names the
-session tmux has just made and runs your `start` in it, and its `session-closed` hook runs your
-`kill` after tmux closes it. Everything beyond `pattern` is optional and describes
-what you want *beyond* a plain session named after its directory. The smallest useful
-configuration:
+tsm owns the session's lifecycle: `tsm at` names the session, creates it and runs your `start`
+in it, and a [`session-closed` hook](#why-one-hook-tsm-init) runs your `kill` after tmux closes
+it. Everything beyond `pattern` is optional and describes what you want *beyond* a plain
+session named after its directory. The smallest useful configuration:
 
 ```bash
 #!/bin/bash
@@ -403,82 +401,64 @@ slow commands with `&` so they don't block startup; their output is captured in 
     ;;
 ```
 
-## The hooks (`tsm init`)
+## Why one hook (`tsm init`)
 
-tsm has no command that creates a session and no command that kills one. Both ends are tmux
-hooks, installed once from `~/.tmux.conf`:
+Configurations are applied by `tsm at`, in the foreground, because you asked:
+
+```bash
+tsm at ~/code/myproject      # named, `start` run, switched to
+```
+
+Teardown is a tmux hook, installed once from `~/.tmux.conf`:
 
 ```bash
 run-shell "tsm init"
 ```
 
-That sets two global hooks:
+The asymmetry is the design, not an accident. **Creating a session has a natural opt-in point;
+destroying one does not.** Something always asks for a session, and `tsm at` is that request.
+A plain `tmux new-session` at a claimed directory is left alone, because it is a different
+request and tsm has no business rewriting it. A session created via `tsm` should always be torn
+down by `tsm`. This should happen regardless of how it is killed (via `tmux kill-session` or
+from the last pane's shell exiting). There is no one command to hang cleanup off, so tsm hangs
+it off the event instead.
 
-- **`session-created`** — for every session tmux makes, at a claimed directory: name it, run
-  `start` in it, and record it.
-- **`session-closed`** — when it goes away: run `kill`.
+### The hook is global but not universal
 
-So a configuration applies to sessions tsm never touched. All of these get the layout:
+`session-closed` fires for every session tmux closes. Almost all of them stop at the first
+check: was there a cleanup record for this session?
 
-```bash
-tmux new-session -c ~/code/myproject          # from a shell
-tmux new-session -d -c ~/code/myproject       # from a script
-tsm at ~/code/myproject                       # and still this
-```
-
-and the session is killed the ordinary way, with no tsm in the loop:
-
-```bash
-bind-key X kill-session          # kill the current session; its `kill` runs
-```
-
-Nothing outside a claimed directory is affected: a session at a directory no `pattern` claims
-is left exactly as tmux made it, name included.
-
-### What the hook decides
-
-**Naming.** A session tmux named for itself (`0`, `1`, `2`...) is renamed to what
-[`name`](#naming-the-session) answers, or to the directory's derived name. A session you named
-yourself — `tmux new-session -s api`, or `tsm at -p` — keeps its name.
-
-**A name already taken is kept, not resolved.** A hook has no terminal to prompt on, so the
-session stays under the name tmux gave it, says so on the status line and in the log, and is
-built anyway. `tsm at -p` is the way to settle a name interactively; it runs before the session
-exists, where there is still a terminal.
-
-**One session per claimed directory.** A second session created at a directory that already
-has one is not what you want twice — the same name, the same layout, the same `docker compose
-up`. The client that asked for it is moved to the session already there and the duplicate is
-closed. Directories no configuration claims are not deduplicated: two sessions at one
-directory are between you and tmux.
-
-**Opting out.** The session environment is the only channel a hook can read, a hook being a
-child of the tmux server rather than of whoever asked for the session:
+Only `tsm at` writes one, and only after a configuration's `start` has actually run. A session
+tsm did not build (an unclaimed directory, `tsm at -c`, a bare `tmux new-session`) has no
+record, and closes exactly as it would on a server with no tsm on it. The hook is installed
+globally; what it acts on is opt-in.
 
 ```bash
-tmux new-session -e TSM_NO_CONFIG=1 -c ~/code/myproject    # bare session, no layout, no kill
-tsm at ~/code/myproject -c                                 # the same thing
+tsm at ~/code/myproject       # record written; `kill` runs when it closes
+tsm at ~/code/myproject -c    # no configuration applied, no record, no `kill`
+tmux new-session -c ~/code/myproject   # an ordinary tmux session, start to finish
 ```
 
 ### Consequences worth knowing
 
-- **The hooks must be global, and `set-hook -g` clears the array.** If your `~/.tmux.conf`
-  sets `session-created` or `session-closed` with a bare `set-hook -g`, put `run-shell "tsm
-  init"` *after* it: tsm appends, so it is what a later `set-hook -g` would wipe. `tsm init`
-  is idempotent and leaves other hooks on those events alone.
+- **The hook must be global, and `set-hook -g` clears the array.** If your `~/.tmux.conf` sets
+  `session-closed` with a bare `set-hook -g`, put `run-shell "tsm init"` *after* it: tsm
+  appends, so it is what a later `set-hook -g` would wipe. `tsm init` is idempotent and leaves
+  other hooks on that event alone.
+- **Without `tsm init`, `start` still runs and `kill` never does.** `tsm at` says so when it
+  builds a session whose configuration it cannot arrange to clean up, and builds it anyway.
 - **A session's options are gone by `session-closed`.** Neither `@tsm_path` nor the session
-  environment can be read from that hook, so tsm writes the directory to
-  `${XDG_STATE_HOME:-~/.local/state}/tsm/sessions/` when it builds the session and reads it
-  back from there.
+  environment can be read from that hook, which is why the record in
+  `${XDG_STATE_HOME:-~/.local/state}/tsm/sessions/` holds the directory as well as marking the
+  session.
 - **The configuration is resolved again at close.** Editing a `pattern` between opening a
   session and closing it can change which configuration tears it down, or leave it with none.
 - **`tmux kill-server` is not a reliable teardown.** tmux exits without closing its sessions
   one by one, so most of them never fire `session-closed`. Kill sessions, not the server, when
-  `kill` matters.
-- **A detached session is 80x24 when `start` runs.** `tmux new-session -d` builds the layout at
-  that size and tmux rescales it when a client attaches, so percentage splits drift. `tsm at`
-  exists for this: it sizes the session to the client that is about to attach before it
-  creates it. An attached `tmux new-session` is already the right size and needs nothing.
+  `kill` matters. (`tsm init` reaps the records a dead server left behind.)
+- **`tsm at` sizes the session to the client that is about to attach.** tmux creates a detached
+  session at 80x24, so a `start` that splits by percentage would build the layout at the wrong
+  size and drift when the client arrives.
 
 ## Logging
 
