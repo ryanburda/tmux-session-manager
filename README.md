@@ -18,8 +18,9 @@ tsm at "$(mktemp -d)"                        # a fresh scratch session
 ```
 - or even an interactive command:
 ```bash
-tsm at "$(find $HOME type -d | fzf)"         # fuzzy find directories
-tsm at "$(zoxide query -i)"                  # your most-used directories
+tsm at "$(find $HOME type -d | fzf)"                    # fuzzy find directories
+tsm at "$(git worktree list | fzf | awk '{print $1}')"  # worktrees of the current git repo
+tsm at "$(zoxide query -i)"                             # your most-used directories
 ```
 
 ### Session creation
@@ -32,8 +33,10 @@ Once a directory is passed to `tsm at <path>`, every session is created the same
 
     A session is identified by the directory it started at, not by its name. `tsm` records that
     directory on the session in the `@tsm_path` tmux option. `tsm at` compares its `path` argument
-    against every running session's `@tsm_path` to determine if a session exists already. This prevents
-    multiple sessions from being created at the same directory even if a session has been renamed.
+    against every running session's `@tsm_path` to determine if a session exists already.
+
+    This makes `tsm at` idempotent, preventing multiple sessions from being created
+    at the same directory even if a session has been renamed.
 
 2. **Does a configuration claim that directory?**
 
