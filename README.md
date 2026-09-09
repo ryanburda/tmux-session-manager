@@ -11,16 +11,20 @@ The `path` argument can be:
 ```bash
 tsm at "$HOME/code/project_name"
 ```
-- the result of a command:
+- or even the result of a command:
 ```bash
-tsm at "$(git rev-parse --show-toplevel)"    # the root of the repo you are in
-tsm at "$(mktemp -d)"                        # a fresh scratch session
-```
-- or even an interactive command:
-```bash
-tsm at "$(find $HOME type -d | fzf)"                    # fuzzy find directories
-tsm at "$(git worktree list | fzf | awk '{print $1}')"  # worktrees of the current git repo
-tsm at "$(zoxide query -i)"                             # your most-used directories
+# the root of the repo you are currently in
+tsm at "$(git rev-parse --show-toplevel)"
+# a fresh scratch directory
+tsm at "$(mktemp -d)"
+
+# Use a fuzzy finder to make commands interactive
+# fuzzy find directories in your HOME folder
+tsm at "$(find $HOME -type d | fzf)"
+# fuzzy find worktrees of the current git repo
+tsm at "$(git worktree list | fzf | awk '{print $1}')"
+# Search your most-used directories
+tsm at "$(zoxide query -i)"
 ```
 
 ### Session creation
@@ -31,9 +35,10 @@ Once a directory is passed to `tsm at <path>`, every session is created the same
 
     Switch to it.
 
-    A session is identified by the directory it started at, not by its name. `tsm` records that
-    directory on the session in the `@tsm_path` tmux option. `tsm at` compares its `path` argument
-    against every running session's `@tsm_path` to determine if a session exists already.
+    A session is identified by the directory it started at, not by its name. `tsm` records
+    that directory on the session in the `@tsm_path` tmux option and compares against that.
+    Sessions `tsm` did not create have no `@tsm_path` and fall back to tmux's `#{session_path}`,
+    so a plain `tmux new-session` at that directory is found too.
 
     This makes `tsm at` idempotent, preventing multiple sessions from being created
     at the same directory even if a session has been renamed.
@@ -123,29 +128,6 @@ ln -s ~/.local/share/tmux-session-manager/completions/tsm.fish ~/.config/fish/co
 ```
 </details>
 
-<details>
-<summary><strong style="font-size: 1.25em;">tmux Keybindings</strong></summary>
-
-`tsm` is best driven from tmux keybinds in `~/.tmux.conf`:
-
-```bash
-run-shell "tsm init"                                          # required: runs a configuration's `kill` on session close
-bind-key d popup -E 'tsm at "$(find $HOME type -d | fzf)"'    # any directory
-bind-key X kill-session                                       # kill the session; its `kill` hook runs
-```
-
-`tsm at` is how a configuration gets applied: it names the session, runs the configuration's
-`start`, and switches to it. Nothing else does that -- a plain `tmux new-session` at a
-configured directory is an ordinary tmux session, because that is what you asked for.
-
-`run-shell "tsm init"` is what runs a configuration's `kill` afterwards, however the session
-ends. See [Session teardown](#session-teardown).
-
-**NOTE:** if your `~/.tmux.conf` sets `session-closed` with a bare `set-hook -g`, put
-`run-shell "tsm init"` after it -- tsm appends to that hook, and a later `set-hook -g` clears
-it.
-</details>
-
 ## Usage
 
 ```bash
@@ -167,5 +149,3 @@ MIT
 ## Contributing
 
 Contributions are welcome! Please feel free to submit a Pull Request.
-
-[dir-mark]: https://github.com/ryanburda/dir-mark
