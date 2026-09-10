@@ -91,6 +91,11 @@ tsm match [path]
 tsm init
 ```
 
+## Workflow
+
+See [Workflow](docs/workflow.md) for an example of how to integrate `tsm` into
+your day-to-day setup.
+
 ## Install
 
 ```bash
