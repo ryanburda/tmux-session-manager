@@ -45,13 +45,13 @@ Once a directory is passed to `dirsesh at <path>`, every session is created the 
 
     Switch to it.
 
+    This makes `dirsesh at` idempotent, preventing multiple sessions from being created
+    at the same directory even if a session has been renamed.
+
     A session is identified by the directory it started at, not by its name. `dirsesh` records
     that directory on the session in the `@dirsesh_path` tmux option and compares against that.
     Sessions `dirsesh` did not create have no `@dirsesh_path` and fall back to tmux's `#{session_path}`,
     so a plain `tmux new-session` at that directory is found too.
-
-    This makes `dirsesh at` idempotent, preventing multiple sessions from being created
-    at the same directory even if a session has been renamed.
 
 2. **Does a configuration claim that directory?**
 
