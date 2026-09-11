@@ -4,21 +4,21 @@ A session configuration is an executable program that calls `tmux` commands dire
 no DSL and no YAML abstraction, so anything tmux can do a configuration can do, and `man tmux`
 is the reference for all of it.
 
-Configurations live in `${XDG_CONFIG_HOME:-~/.config}/tsm/`. `tsm at` applies the one claiming
-the directory you open; a tmux hook that [`tsm init`](#why-one-hook-tsm-init) installs runs its
+Configurations live in `${XDG_CONFIG_HOME:-~/.config}/dirsesh/`. `dirsesh at` applies the one claiming
+the directory you open; a tmux hook that [`dirsesh init`](#why-one-hook-dirsesh-init) installs runs its
 `kill` when the session closes, however it closes.
 
 ## The contract
 
-tsm runs your program with a verb and reads its answer. It never looks inside the file (it just
+dirsesh runs your program with a verb and reads its answer. It never looks inside the file (it just
 execs it), which is why a configuration can be written in any language, or be a compiled binary:
 
 | Verb | Called when | What it should do |
 | --- | --- | --- |
 | `pattern` | resolving which configuration claims a directory | print an ERE of the directories it claims, on stdout |
 | `name` | naming the session, before it exists | print the session name for the directory given as `$2`, on stdout |
-| `start` | after `tsm at` has created the session | build the layout |
-| `kill` | asynchronously, when the session closes ([`tsm init`](#why-one-hook-tsm-init)) | tear down what `start` built |
+| `start` | after `dirsesh at` has created the session | build the layout |
+| `kill` | asynchronously, when the session closes ([`dirsesh init`](#why-one-hook-dirsesh-init)) | tear down what `start` built |
 
 Three rules make it work in every language:
 
@@ -46,20 +46,20 @@ messages: `work`, `work.sh` and `work.py` are all the configuration `work`. Nest
 the whole path identifies it:
 
 ```
-~/.config/tsm/
+~/.config/dirsesh/
   notes.sh                ->  configuration "notes"
   work/api.fish           ->  configuration "work/api"
   work/web.py             ->  configuration "work/web"
 ```
 
-tsm owns the session's lifecycle: `tsm at` names the session, creates it and runs your `start`
-in it, and a [`session-closed` hook](#why-one-hook-tsm-init) runs your `kill` after tmux closes
+dirsesh owns the session's lifecycle: `dirsesh at` names the session, creates it and runs your `start`
+in it, and a [`session-closed` hook](#why-one-hook-dirsesh-init) runs your `kill` after tmux closes
 it. Everything beyond `pattern` is optional and describes what you want *beyond* a plain
 session named after its directory. The smallest useful configuration:
 
 ```bash
 #!/bin/bash
-# ~/.config/tsm/notes.sh  ->  claims ~/notes, session named "notes"
+# ~/.config/dirsesh/notes.sh  ->  claims ~/notes, session named "notes"
 case "$1" in
   pattern) printf '%s\n' "^$HOME/notes$" ;;
 esac
@@ -68,10 +68,10 @@ esac
 **NOTE:** Session names cannot contain `.` or `:`. tmux reads both as target separators, so a
 session named `my.project` would be created and then be unreachable. Derived names and `name`
 answers are [sanitized](#naming-the-session) rather than refused; a name you type at the
-`-p` prompt is refused, since it is not tsm's to rewrite.
+`-p` prompt is refused, since it is not dirsesh's to rewrite.
 
-**NOTE:** The program runs once per verb, and tsm asks every configuration for its
-`pattern`, so keep the top level cheap: anything expensive there is paid on every `tsm at`.
+**NOTE:** The program runs once per verb, and dirsesh asks every configuration for its
+`pattern`, so keep the top level cheap: anything expensive there is paid on every `dirsesh at`.
 
 ## Pane addressing
 
@@ -110,7 +110,7 @@ window:
 
 ```bash
 #!/bin/bash
-# ~/.config/tsm/myproject.sh   (chmod +x)
+# ~/.config/dirsesh/myproject.sh   (chmod +x)
 
 case "$1" in
   pattern)
@@ -180,7 +180,7 @@ Python:
 
 ```fish
 #!/usr/bin/env fish
-# ~/.config/tsm/notes.fish   (chmod +x)
+# ~/.config/dirsesh/notes.fish   (chmod +x)
 
 # Quoted so that no verb at all expands to one empty argument rather than zero.
 set -l verb "$argv[1]"
@@ -204,7 +204,7 @@ end
 
 ```python
 #!/usr/bin/env python3
-# ~/.config/tsm/notes.py   (chmod +x)
+# ~/.config/dirsesh/notes.py   (chmod +x)
 
 import os
 import subprocess
@@ -244,7 +244,7 @@ if __name__ == "__main__":
     VERBS.get(verb, lambda _: None)(path)
 ```
 
-**NOTE:** A `pattern` is matched by tsm with `grep -E`, so it must be a POSIX extended regular
+**NOTE:** A `pattern` is matched by dirsesh with `grep -E`, so it must be a POSIX extended regular
 expression whatever language printed it. Python's `re`-only syntax (`\d`, lookahead, non-greedy
 `*?`) will not work.
 
@@ -263,7 +263,7 @@ claims:
 
 Only the first line of output is used, whitespace-trimmed. A configuration that does not handle
 `name`, prints nothing, or fails gets the default derivation; a naming scheme with no opinion
-about a particular directory is normal and should not wedge tsm. What it does print is
+about a particular directory is normal and should not wedge dirsesh. What it does print is
 sanitized rather than refused (every character outside `[A-Za-z0-9_-/]` becomes `_`), since
 names usually come from things the configuration does not control: `feature/v1.2` is a
 reasonable thing to hand back, and it arrives as `feature/v1_2`.
@@ -278,10 +278,10 @@ Some useful `name` implementations:
     git -C "$2" branch --show-current 2>/dev/null
     ;;
 
-  # Let a directory name itself; cat fails when there is no .tsm-name, which
+  # Let a directory name itself; cat fails when there is no .dirsesh-name, which
   # is exactly the fallback contract.
   name)
-    cat "$2/.tsm-name" 2>/dev/null
+    cat "$2/.dirsesh-name" 2>/dev/null
     ;;
 
   # Put a whole tree under one prefix. This is also how to make a recurring
@@ -324,7 +324,7 @@ still loses to everything, being the shortest useful pattern there is:
 
 ```bash
 #!/bin/bash
-# ~/.config/tsm/default.sh   (chmod +x), a default for everything
+# ~/.config/dirsesh/default.sh   (chmod +x), a default for everything
 case "$1" in
   pattern) printf '%s\n' ".*" ;;
 esac
@@ -346,12 +346,12 @@ had claimed the directory itself:
 
 ```bash
   start)
-    "$HOME/.config/tsm/work.sh" start                          # the shared layout first
-    docker compose --project-directory "$ROOT" up --detach &   # then this project's services
+    "$HOME/.config/dirsesh/work.sh" start                          # the shared layout first
+    docker compose --project-directory "$ROOT" up --detach &       # then this project's services
     ;;
 
   kill)
-    "$HOME/.config/tsm/work.sh" kill
+    "$HOME/.config/dirsesh/work.sh" kill
     docker compose --project-directory "$ROOT" down
     ;;
 ```
@@ -359,22 +359,22 @@ had claimed the directory itself:
 **NOTE:** An empty `pattern` does not mean "match everything": it reads as declaring no
 pattern, and the file is skipped. Print `.*`.
 
-### Seeing the ranking (`tsm match`)
+### Seeing the ranking (`dirsesh match`)
 
-Precedence depends on every other file too, so it cannot be read off one file. `tsm match`
+Precedence depends on every other file too, so it cannot be read off one file. `dirsesh match`
 answers it for a directory (default: the current one):
 
 ```
-$ tsm match ~/code/work/repo
-26	/home/you/.config/tsm/work.sh
-16	/home/you/.config/tsm/code.sh
-2	/home/you/.config/tsm/default.sh
+$ dirsesh match ~/code/work/repo
+26	/home/you/.config/dirsesh/work.sh
+16	/home/you/.config/dirsesh/code.sh
+2	/home/you/.config/dirsesh/default.sh
 ```
 
 One `<score>\t<file>` per claiming configuration, best first. The first line is the
 configuration that would name and build a session at that path. Nothing on stdout means
 nothing claims the directory; that exits non-zero, so
-`tsm match "$dir" >/dev/null` is a usable test.
+`dirsesh match "$dir" >/dev/null` is a usable test.
 
 It is also the fastest way to find a pattern that is not claiming what you think. For example,
 `^$HOME/code/project/` has a trailing slash, so it claims everything *under* `~/code/project`
@@ -401,26 +401,26 @@ slow commands with `&` so they don't block startup; their output is captured in 
     ;;
 ```
 
-## Why one hook (`tsm init`)
+## Why one hook (`dirsesh init`)
 
-Configurations are applied by `tsm at`, in the foreground, because you asked:
+Configurations are applied by `dirsesh at`, in the foreground, because you asked:
 
 ```bash
-tsm at ~/code/myproject      # named, `start` run, switched to
+dirsesh at ~/code/myproject      # named, `start` run, switched to
 ```
 
 Teardown is a tmux hook, installed once from `~/.tmux.conf`:
 
 ```bash
-run-shell "tsm init"
+run-shell "dirsesh init"
 ```
 
 The asymmetry is the design, not an accident. **Creating a session has a natural opt-in point;
-destroying one does not.** Something always asks for a session, and `tsm at` is that request.
+destroying one does not.** Something always asks for a session, and `dirsesh at` is that request.
 A plain `tmux new-session` at a claimed directory is left alone, because it is a different
-request and tsm has no business rewriting it. A session created via `tsm` should always be torn
-down by `tsm`. This should happen regardless of how it is killed (via `tmux kill-session` or
-from the last pane's shell exiting). There is no one command to hang cleanup off, so tsm hangs
+request and dirsesh has no business rewriting it. A session created via `dirsesh` should always be torn
+down by `dirsesh`. This should happen regardless of how it is killed (via `tmux kill-session` or
+from the last pane's shell exiting). There is no one command to hang cleanup off, so dirsesh hangs
 it off the event instead.
 
 ### The hook is global but not universal
@@ -428,55 +428,55 @@ it off the event instead.
 `session-closed` fires for every session tmux closes. Almost all of them stop at the first
 check: was there a cleanup record for this session?
 
-Only `tsm at` writes one, and only after a configuration's `start` has actually run. A session
-tsm did not build (an unclaimed directory, `tsm at -c`, a bare `tmux new-session`) has no
-record, and closes exactly as it would on a server with no tsm on it. The hook is installed
+Only `dirsesh at` writes one, and only after a configuration's `start` has actually run. A session
+dirsesh did not build (an unclaimed directory, `dirsesh at -c`, a bare `tmux new-session`) has no
+record, and closes exactly as it would on a server with no dirsesh on it. The hook is installed
 globally; what it acts on is opt-in.
 
 ```bash
-tsm at ~/code/myproject       # record written; `kill` runs when it closes
-tsm at ~/code/myproject -c    # no configuration applied, no record, no `kill`
+dirsesh at ~/code/myproject       # record written; `kill` runs when it closes
+dirsesh at ~/code/myproject -c    # no configuration applied, no record, no `kill`
 tmux new-session -c ~/code/myproject   # an ordinary tmux session, start to finish
 ```
 
 ### Consequences worth knowing
 
 - **The hook must be global, and `set-hook -g` clears the array.** If your `~/.tmux.conf` sets
-  `session-closed` with a bare `set-hook -g`, put `run-shell "tsm init"` *after* it: tsm
-  appends, so it is what a later `set-hook -g` would wipe. `tsm init` is idempotent and leaves
+  `session-closed` with a bare `set-hook -g`, put `run-shell "dirsesh init"` *after* it: dirsesh
+  appends, so it is what a later `set-hook -g` would wipe. `dirsesh init` is idempotent and leaves
   other hooks on that event alone.
-- **Without `tsm init`, `start` still runs and `kill` never does.** `tsm at` says so when it
+- **Without `dirsesh init`, `start` still runs and `kill` never does.** `dirsesh at` says so when it
   builds a session whose configuration it cannot arrange to clean up, and builds it anyway.
-- **A session's options are gone by `session-closed`.** Neither `@tsm_path` nor the session
+- **A session's options are gone by `session-closed`.** Neither `@dirsesh_path` nor the session
   environment can be read from that hook, which is why the record in
-  `${XDG_STATE_HOME:-~/.local/state}/tsm/sessions/` holds the directory as well as marking the
+  `${XDG_STATE_HOME:-~/.local/state}/dirsesh/sessions/` holds the directory as well as marking the
   session.
 - **The configuration is resolved again at close.** Editing a `pattern` between opening a
   session and closing it can change which configuration tears it down, or leave it with none.
 - **`tmux kill-server` is not a reliable teardown.** tmux exits without closing its sessions
   one by one, so most of them never fire `session-closed`. Kill sessions, not the server, when
-  `kill` matters. (`tsm init` reaps the records a dead server left behind.)
-- **`tsm at` sizes the session to the client that is about to attach.** tmux creates a detached
+  `kill` matters. (`dirsesh init` reaps the records a dead server left behind.)
+- **`dirsesh at` sizes the session to the client that is about to attach.** tmux creates a detached
   session at 80x24, so a `start` that splits by percentage would build the layout at the wrong
   size and drift when the client arrives.
 
 ## Logging
 
 Output from `start` and `kill` is redirected to
-`${XDG_STATE_HOME:-~/.local/state}/tsm/logs/<session-name>/tsm.log`. A session that matched no
+`${XDG_STATE_HOME:-~/.local/state}/dirsesh/logs/<session-name>/dirsesh.log`. A session that matched no
 configuration, or was created with `-c`, runs no program and gets no log. They are ordinary
 files: `tail -f` one, open it in an editor, or point a picker at the directory.
 
 A `kill` that fails has nowhere to complain to -- the session is already gone -- so its log is
 the place to look when cleanup does not happen.
 
-**NOTE:** Each `tsm.log` is wiped on each start or kill, so it only holds the most recent
+**NOTE:** Each `dirsesh.log` is wiped on each start or kill, so it only holds the most recent
 invocation's output.
 
 **NOTE:** Output from multiple backgrounded processes may interleave. To avoid that, give each
 its own file in the session's log directory:
 
 ```bash
-docker compose up --detach > "$HOME/.local/state/tsm/logs/$SESSION/docker.log" 2>&1 &
-pg_ctl start -l "$HOME/.local/state/tsm/logs/$SESSION/postgres.log" &
+docker compose up --detach > "$HOME/.local/state/dirsesh/logs/$SESSION/docker.log" 2>&1 &
+pg_ctl start -l "$HOME/.local/state/dirsesh/logs/$SESSION/postgres.log" &
 ```

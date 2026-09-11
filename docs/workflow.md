@@ -1,13 +1,13 @@
 # Workflow
 
-`tsm` is adaptable but bare bones. To integrate it into your workflow you'll want to do a bit of setup.
+`dirsesh` is adaptable but bare bones. To integrate it into your workflow you'll want to do a bit of setup.
 
 ## Set up
 
 The examples in the [README](../README.md) show commands substituted directly into calls to
-`tsm at`. That works well for one-liners, but gets messy for anything longer.
+`dirsesh at`. That works well for one-liners, but gets messy for anything longer.
 
-A command passed to `tsm at` just needs to print the path to start a new tmux session at.
+A command passed to `dirsesh at` just needs to print the path to start a new tmux session at.
 Writing that logic once as a script on your `PATH`, instead of inline, keeps it in one place
 and gives it a name you can reuse from a shell alias and a tmux key bind alike.
 
@@ -34,13 +34,13 @@ Take this a step further:
   ```zsh
   # ~/.zshrc
 
-  alias d='tsm at $(dirs)'
+  alias d='dirsesh at $(dirs)'
   ```
 - add a corresponding key bind in your `tmux.conf`:
   ```
   # ~/.config/tmux/tmux.conf
 
-  bind-key d popup -E "tsm at $(dirs)"
+  bind-key d popup -E "dirsesh at $(dirs)"
   ```
 
 Now you have parity for pulling up this directory picker both from a fresh shell with no tmux
@@ -75,7 +75,7 @@ and bind it in `tmux.conf`:
 ```
 # ~/.config/tmux/tmux.conf
 
-bind-key w popup -E 'tsm at $(worktrees)'
+bind-key w popup -E 'dirsesh at $(worktrees)'
 ```
 
 Now you can quickly switch between worktrees of whatever repo you're currently in. Every
@@ -191,7 +191,7 @@ Copy this into your `PATH` (say, at `~/.local/bin/git-brief`) and bind it in `tm
 ```
 # ~/.config/tmux/tmux.conf
 
-bind-key g popup -E "tsm at $(git-brief)"
+bind-key g popup -E "dirsesh at $(git-brief)"
 ```
 
 Because every repository is fetched before it's inspected, this directory picker is not fast, but

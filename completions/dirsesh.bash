@@ -1,9 +1,9 @@
-# Bash completion for tsm (Tmux Session Manager)
+# Bash completion for dirsesh (one tmux session per directory)
 # Source this file in your .bashrc:
-#   source /path/to/tsm.bash
-# Or copy to /etc/bash_completion.d/tsm
+#   source /path/to/dirsesh.bash
+# Or copy to /etc/bash_completion.d/dirsesh
 
-_tsm_completions() {
+_dirsesh_completions() {
     local cur prev cmd subcmds flags
     COMPREPLY=()
     cur="${COMP_WORDS[COMP_CWORD]}"
@@ -33,4 +33,4 @@ _tsm_completions() {
     esac
 }
 
-complete -F _tsm_completions tsm
+complete -F _dirsesh_completions dirsesh

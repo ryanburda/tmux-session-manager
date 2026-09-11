@@ -1,48 +1,48 @@
-# tmux-session-manager
+# tmux-dirsesh
 
-`tsm` launches tmux sessions at directories.
+`dirsesh` launches tmux sessions at directories.
 
 ```bash
-tsm at <path>
+dirsesh at <path>
 ```
 
 The `path` argument can be:
 - a specific path:
 ```bash
-tsm at "$HOME/code/project_name"
+dirsesh at "$HOME/code/project_name"
 ```
 - or even the result of a command:
 ```bash
 # your current working directory
-tsm at "$(pwd)"
+dirsesh at "$(pwd)"
 # the root of the repo you are currently in
-tsm at "$(git rev-parse --show-toplevel)"
+dirsesh at "$(git rev-parse --show-toplevel)"
 # a fresh scratch directory
-tsm at "$(mktemp -d)"
+dirsesh at "$(mktemp -d)"
 
 # Use a fuzzy finder to make commands interactive
 # fuzzy find directories in your HOME folder
-tsm at "$(find $HOME -type d | fzf)"
+dirsesh at "$(find $HOME -type d | fzf)"
 # fuzzy find worktrees of the current git repo
-tsm at "$(git worktree list | fzf | awk '{print $1}')"
+dirsesh at "$(git worktree list | fzf | awk '{print $1}')"
 # Search your most-used directories
-tsm at "$(zoxide query -i)"
+dirsesh at "$(zoxide query -i)"
 ```
 
 ### Session creation
 
-Once a directory is passed to `tsm at <path>`, every session is created the same way:
+Once a directory is passed to `dirsesh at <path>`, every session is created the same way:
 
 1. **Does a session already exist for that directory?**
 
     Switch to it.
 
-    A session is identified by the directory it started at, not by its name. `tsm` records
-    that directory on the session in the `@tsm_path` tmux option and compares against that.
-    Sessions `tsm` did not create have no `@tsm_path` and fall back to tmux's `#{session_path}`,
+    A session is identified by the directory it started at, not by its name. `dirsesh` records
+    that directory on the session in the `@dirsesh_path` tmux option and compares against that.
+    Sessions `dirsesh` did not create have no `@dirsesh_path` and fall back to tmux's `#{session_path}`,
     so a plain `tmux new-session` at that directory is found too.
 
-    This makes `tsm at` idempotent, preventing multiple sessions from being created
+    This makes `dirsesh at` idempotent, preventing multiple sessions from being created
     at the same directory even if a session has been renamed.
 
 2. **Does a configuration claim that directory?**
@@ -57,73 +57,73 @@ Once a directory is passed to `tsm at <path>`, every session is created the same
 
 ### Session teardown
 
-A session built by a configuration's `start` should always get its matching `kill`. `tsm`
+A session built by a configuration's `start` should always get its matching `kill`. `dirsesh`
 therefore hangs teardown off a `session-closed` hook rather than a command, so `kill` is
 invoked whether you kill the session explicitly or its last pane simply exits:
 
 ```bash
 # Add this to ~/.tmux.conf to install the hook
-run-shell "tsm init"
+run-shell "dirsesh init"
 ```
 
 That last case is the one that matters, and it is why there is no session-killing command to
-parallel `tsm at`. A shell exiting closes the session without anything asking `tsm` to.
-Sessions killed outside of `tsm`'s control are still handled correctly.
+parallel `dirsesh at`. A shell exiting closes the session without anything asking `dirsesh` to.
+Sessions killed outside of `dirsesh`'s control are still handled correctly.
 
-The hook fires for every session tmux closes but it acts only on sessions `tsm at` built from
-a configuration. Everything else closes exactly as it would on a server with no `tsm` on it.
+The hook fires for every session tmux closes but it acts only on sessions `dirsesh at` built from
+a configuration. Everything else closes exactly as it would on a server with no `dirsesh` on it.
 
 ## Usage
 
 ```bash
 # Show help message
-tsm
+dirsesh
 
 # Start or switch to session at a directory
-tsm at <path> [-c] [-p]
+dirsesh at <path> [-c] [-p]
   -c, --no-config          # Ignore any configuration claiming that path
   -p, --prompt-name        # Prompt for the session name instead of using the default
 
 # Configurations claiming a path (defaults to the current directory)
-tsm match [path]
+dirsesh match [path]
 
 # Install the hook that cleans up configured sessions (put this in tmux.conf)
-tsm init
+dirsesh init
 ```
 
 ## Workflow
 
-See [Workflow](docs/workflow.md) for an example of how to integrate `tsm` into
+See [Workflow](docs/workflow.md) for an example of how to integrate `dirsesh` into
 your day-to-day setup.
 
 ## Install
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/ryanburda/tmux-session-manager/main/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/ryanburda/tmux-dirsesh/main/install.sh | sh
 ```
 
 The install script:
-- clones the repository to `${XDG_DATA_HOME:-~/.local/share}/tmux-session-manager`
-- symlinks `tsm` into `~/.local/bin`.
+- clones the repository to `${XDG_DATA_HOME:-~/.local/share}/tmux-dirsesh`
+- symlinks `dirsesh` into `~/.local/bin`.
 
 Re-run it any time to update.
 
 <details>
 <summary><strong style="font-size: 1.25em;">Custom Installation</strong></summary>
 
-Two environment variables change where things land: `TSM_HOME` (where the repo is cloned) and
-`BIN_DIR` (where the `tsm` symlink goes).
+Two environment variables change where things land: `DIRSESH_HOME` (where the repo is cloned) and
+`BIN_DIR` (where the `dirsesh` symlink goes).
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/ryanburda/tmux-session-manager/main/install.sh \
-  | TSM_HOME=~/src/tsm BIN_DIR=~/bin sh
+curl -fsSL https://raw.githubusercontent.com/ryanburda/tmux-dirsesh/main/install.sh \
+  | DIRSESH_HOME=~/src/dirsesh BIN_DIR=~/bin sh
 ```
 
-Or manually: clone the repo, symlink `tsm` into a directory on your PATH.
+Or manually: clone the repo, symlink `dirsesh` into a directory on your PATH.
 
 ```bash
-git clone https://github.com/ryanburda/tmux-session-manager.git ~/git/tmux-session-manager
-ln -s ~/git/tmux-session-manager/tsm ~/.local/bin/tsm
+git clone https://github.com/ryanburda/tmux-dirsesh.git ~/git/tmux-dirsesh
+ln -s ~/git/tmux-dirsesh/dirsesh ~/.local/bin/dirsesh
 ```
 </details>
 
@@ -136,20 +136,20 @@ cloned elsewhere.
 **Bash**: add to `~/.bashrc`:
 
 ```bash
-source ~/.local/share/tmux-session-manager/completions/tsm.bash
+source ~/.local/share/tmux-dirsesh/completions/dirsesh.bash
 ```
 
-**Zsh**: add to `~/.zshrc` (or rename `tsm.zsh` to `_tsm` in an existing fpath directory):
+**Zsh**: add to `~/.zshrc` (or rename `dirsesh.zsh` to `_dirsesh` in an existing fpath directory):
 
 ```bash
-fpath=(~/.local/share/tmux-session-manager/completions $fpath)
+fpath=(~/.local/share/tmux-dirsesh/completions $fpath)
 autoload -Uz compinit && compinit
 ```
 
 **Fish**:
 
 ```bash
-ln -s ~/.local/share/tmux-session-manager/completions/tsm.fish ~/.config/fish/completions/
+ln -s ~/.local/share/tmux-dirsesh/completions/dirsesh.fish ~/.config/fish/completions/
 ```
 </details>
 

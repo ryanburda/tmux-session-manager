@@ -1,31 +1,31 @@
 #!/bin/bash
 
-CONFIG_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/tsm"
-STATE_DIR="${XDG_STATE_HOME:-$HOME/.local/state}/tsm"
+CONFIG_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/dirsesh"
+STATE_DIR="${XDG_STATE_HOME:-$HOME/.local/state}/dirsesh"
 LOG_DIR="$STATE_DIR/logs"
 RECORD_DIR="$STATE_DIR/sessions"
 mkdir -p "$CONFIG_DIR" "$LOG_DIR"
 
 # The internal verb the tmux hook calls back on. It is also the string
-# `tsm init` greps for to recognise a hook it installed before.
+# `dirsesh init` greps for to recognise a hook it installed before.
 HOOK_CLOSED=_session_closed
 
 usage() {
   cat <<'EOF'
-Tmux Session Manager
+dirsesh - one tmux session per directory
 
 Usage:
-  tsm                                  # Show help message
+  dirsesh                                  # Show help message
 
-  tsm at <path> [-c] [-p]              # Start or switch to session at a directory
-    -c, --no-config                    # Ignore any configuration claiming that path
-    -p, --prompt-name                  # Prompt for the session name instead of using the default
+  dirsesh at <path> [-c] [-p]              # Start or switch to session at a directory
+    -c, --no-config                        # Ignore any configuration claiming that path
+    -p, --prompt-name                      # Prompt for the session name instead of using the default
 
-  tsm match [path]                     # Configurations claiming a path (defaults to the current directory)
+  dirsesh match [path]                     # Configurations claiming a path (defaults to the current directory)
 
-  tsm init                             # Install the hook that cleans up configured sessions (put this in tmux.conf)
+  dirsesh init                             # Install the hook that cleans up configured sessions (put this in tmux.conf)
 
-See https://github.com/ryanburda/tmux-session-manager for more documentation
+See https://github.com/ryanburda/tmux-dirsesh for more documentation
 EOF
 }
 
@@ -55,9 +55,9 @@ switch_or_attach() {
 }
 
 self_path() {
-  # Absolute path to this program. `tsm init` bakes it into the tmux hook:
+  # Absolute path to this program. `dirsesh init` bakes it into the tmux hook:
   # the server's PATH is whatever it inherited when it started, which need
-  # not hold the directory tsm was installed in.
+  # not hold the directory dirsesh was installed in.
   local self="$0"
   case "$self" in
     */*) ;;
@@ -71,7 +71,7 @@ session_record() {
   # Path of a session's cleanup record: the file whose existence says a
   # configuration built this session and is owed its `kill` when it closes.
   # It holds the directory the session was started at, which the hook cannot
-  # read off the session itself -- tmux has freed @tsm_path and the session
+  # read off the session itself -- tmux has freed @dirsesh_path and the session
   # environment by the time session-closed fires.
   #
   # Keyed by session id under the server's pid: ids restart at $0 with every
@@ -86,10 +86,10 @@ session_record() {
 
 session_paths() {
   # Emit "<session name>\t<path>" for every running session. The path is the
-  # @tsm_path recorded at creation; #{session_path} is the fallback for
-  # sessions tsm did not create (it drifts as the first pane cds around,
-  # which is why @tsm_path exists).
-  tmux list-sessions -F $'#{session_name}\t#{@tsm_path}\t#{session_path}' 2>/dev/null \
+  # @dirsesh_path recorded at creation; #{session_path} is the fallback for
+  # sessions dirsesh did not create (it drifts as the first pane cds around,
+  # which is why @dirsesh_path exists).
+  tmux list-sessions -F $'#{session_name}\t#{@dirsesh_path}\t#{session_path}' 2>/dev/null \
     | while IFS=$'\t' read -r name recorded fallback; do
         printf '%s\t%s\n' "$name" "${recorded:-$fallback}"
       done
@@ -136,7 +136,7 @@ client_size() {
   width=$(tmux display-message -p '#{client_width}' 2>/dev/null)
   height=$(tmux display-message -p '#{client_height}' 2>/dev/null)
 
-  # Outside tmux, fall back to the terminal tsm was invoked from.
+  # Outside tmux, fall back to the terminal dirsesh was invoked from.
   if [ -z "$width" ] || [ -z "$height" ]; then
     read -r height width < <({ stty size < /dev/tty; } 2>/dev/null)
   fi
@@ -211,7 +211,7 @@ default_session_name() {
 
 config_files() {
   # Paths of the configuration files under $CONFIG_DIR, one per line.
-  # A configuration is an executable program; tsm runs it with a verb and
+  # A configuration is an executable program; dirsesh runs it with a verb and
   # reads its answer.
   #
   # -L: configurations are commonly symlinks. -perm -u+x: -executable is
@@ -242,13 +242,13 @@ config_name_for_file() {
 
 run_config() {
   # Run a configuration with a verb: pattern, name, start or kill. The
-  # contract is argv in, stdout and exit status out; tsm never looks inside
+  # contract is argv in, stdout and exit status out; dirsesh never looks inside
   # the file. A verb the program does not handle must exit 0. Only `pattern`
   # and `name` treat stdout as an answer; for `start` and `kill` it is the
   # session log, and callers redirect it there.
   #
   # set -m gives background jobs their own process group; the subshell keeps
-  # a configuration that exits from taking tsm with it.
+  # a configuration that exits from taking dirsesh with it.
   #
   # Args:
   #   $1: file: path to the configuration
@@ -385,7 +385,7 @@ session_name_prompt() {
 
     # `.` and `:` are tmux target separators; a name holding either could be
     # created but never targeted again. Rejected rather than rewritten: a
-    # typed name is not tsm's to change. `/` is fine (repo/worktree).
+    # typed name is not dirsesh's to change. `/` is fine (repo/worktree).
     case "$candidate" in
       *[:.]*)
         printf "$(tput setaf 1)Session names cannot contain ':' or '.'$(tput sgr0)\n" >&2
@@ -406,12 +406,12 @@ session_name_prompt() {
 # api functions #
 #################
 uninstall_hook() {
-  # Drop every element of a global tmux hook that calls back on one of tsm's
+  # Drop every element of a global tmux hook that calls back on one of dirsesh's
   # internal verbs. Anyone else's hooks on that event are left alone.
   #
   # Args:
   #   $1: hook: the tmux hook name
-  #   $2: verb: the tsm verb to match
+  #   $2: verb: the dirsesh verb to match
   local hook="$1" verb="$2"
 
   # Unsetting an array element leaves the others at their own indexes, so the
@@ -424,13 +424,13 @@ uninstall_hook() {
 }
 
 install_hook() {
-  # Point a global tmux hook at one of tsm's internal verbs. Appended, so
-  # anyone else's hooks on it survive; any hook a previous `tsm init` left on
+  # Point a global tmux hook at one of dirsesh's internal verbs. Appended, so
+  # anyone else's hooks on it survive; any hook a previous `dirsesh init` left on
   # it is dropped first, so re-sourcing tmux.conf does not stack duplicates.
   #
   # Args:
   #   $1: hook: the tmux hook name
-  #   $2: verb: the tsm verb it calls back on
+  #   $2: verb: the dirsesh verb it calls back on
   #   $3: self: absolute path to this program
   local hook="$1" verb="$2" self="$3"
 
@@ -441,7 +441,7 @@ install_hook() {
 }
 
 cleanup_hook_installed() {
-  # Whether `tsm init` has run on this server. Without the hook a session is
+  # Whether `dirsesh init` has run on this server. Without the hook a session is
   # still built exactly as asked; it just never gets torn down, which is a
   # quiet way to leak whatever `kill` was going to remove.
   #
@@ -454,37 +454,37 @@ cleanup_hook_installed() {
 }
 
 init_hook() {
-  # Install the one tmux hook tsm works through. Meant for tmux.conf, where
+  # Install the one tmux hook dirsesh works through. Meant for tmux.conf, where
   # it runs once per server:
   #
-  #   run-shell "tsm init"
+  #   run-shell "dirsesh init"
   #
   # session-closed runs a configuration's `kill` when the session it built
   # goes away, however it goes away.
   #
-  # This is the only thing tsm does behind your back, and it is the only
+  # This is the only thing dirsesh does behind your back, and it is the only
   # thing it has to. Creating a session always has someone asking for it:
-  # `tsm at` is the request, and a plain `tmux new-session` is a different
-  # request that tsm has no business rewriting. Destroying one does not.
+  # `dirsesh at` is the request, and a plain `tmux new-session` is a different
+  # request that dirsesh has no business rewriting. Destroying one does not.
   # `X`, a kill picker, the last pane exiting, `tmux kill-server`, a client
   # attached from somewhere else -- there is no single command to hang
   # cleanup off, so it hangs off the event instead.
   #
   # It stays opt-in all the same: the hook does nothing for a session that
-  # has no cleanup record, and only `tsm at` writes one. A session tsm did
-  # not build closes exactly as it did before tsm was installed.
+  # has no cleanup record, and only `dirsesh at` writes one. A session dirsesh did
+  # not build closes exactly as it did before dirsesh was installed.
   #
   # The hook is global. A session's own options are already freed when
   # session-closed fires, so a hook set on the session never runs at all.
   local self
   if ! self=$(self_path); then
-    notify "Error: could not resolve the path to tsm"
+    notify "Error: could not resolve the path to dirsesh"
     exit 1
   fi
 
   install_hook session-closed "$HOOK_CLOSED" "$self" || exit 1
 
-  # An earlier tsm drove session creation from a hook too. A server still
+  # An earlier dirsesh drove session creation from a hook too. A server still
   # carrying it would call a verb this version no longer answers, once per
   # session created, so it is taken off here rather than left to error.
   uninstall_hook session-created _session_created
@@ -521,11 +521,11 @@ session_closed() {
   record=$(session_record "$pid" "$id")
 
   # No record: no configuration built this session -- the path was
-  # unclaimed, -c was given, or `tsm at` was never involved. Nothing is owed.
+  # unclaimed, -c was given, or `dirsesh at` was never involved. Nothing is owed.
   #
   # Every session tmux closes reaches this line, and this is where nearly all
-  # of them stop. Only `tsm at` writes a record, so a global hook stays an
-  # opt-in one: a session tsm did not build closes exactly as it would have
+  # of them stop. Only `dirsesh at` writes a record, so a global hook stays an
+  # opt-in one: a session dirsesh did not build closes exactly as it would have
   # on a vanilla server.
   [ -f "$record" ] || exit 0
 
@@ -538,7 +538,7 @@ session_closed() {
   session_file=$(matching_config_for_root "$root") || exit 0
 
   local log_dir="$LOG_DIR/$session"
-  local log_file="$log_dir/tsm.log"
+  local log_file="$log_dir/dirsesh.log"
   mkdir -p "$log_dir"
   echo "[$(date '+%Y-%m-%d %H:%M:%S')] Killing session '$session' ($(config_name_for_file "$session_file"))" > "$log_file"
 
@@ -587,10 +587,10 @@ session_at() {
   # Switch to the session already open at a directory, or create one there.
   #
   # Everything a configuration does happens here, in the foreground of an
-  # explicit `tsm at`: the session is named, built and recorded before this
+  # explicit `dirsesh at`: the session is named, built and recorded before this
   # returns. That is deliberate. Creating a session always has someone asking
-  # for it, and `tsm at` is that request -- a plain `tmux new-session` is a
-  # different request, and tsm leaves it alone.
+  # for it, and `dirsesh at` is that request -- a plain `tmux new-session` is a
+  # different request, and dirsesh leaves it alone.
   #
   # Args:
   #   $1: path: the directory to start the session at
@@ -640,7 +640,7 @@ session_at() {
   # exactly as asked and only the teardown is lost, so this is said rather
   # than fatal.
   if [ -n "$matching_file" ] && ! cleanup_hook_installed; then
-    notify "tsm: no session-closed hook; '$(config_name_for_file "$matching_file")' kill will not run. Add 'run-shell \"tsm init\"' to your tmux.conf"
+    notify "dirsesh: no session-closed hook; '$(config_name_for_file "$matching_file")' kill will not run. Add 'run-shell \"dirsesh init\"' to your tmux.conf"
   fi
 
   # The configuration's name if it has an opinion, the directory's otherwise.
@@ -686,12 +686,12 @@ session_at() {
   # The trailing `:` is load-bearing: set-option takes a target pane, and
   # `=name` alone is read as a pane target and fails to resolve, while
   # `=name:` is that session's current pane.
-  tmux set-option -t "=$session_name:" @tsm_path "$selected"
+  tmux set-option -t "=$session_name:" @dirsesh_path "$selected"
 
   if [ -n "$matching_file" ]; then
     # A session no configuration claimed runs no script, so it gets no log.
     local log_dir="$LOG_DIR/$session_name"
-    local log_file="$log_dir/tsm.log"
+    local log_file="$log_dir/dirsesh.log"
     mkdir -p "$log_dir"
     echo "[$(date '+%Y-%m-%d %H:%M:%S')] Starting session '$session_name' ($(config_name_for_file "$matching_file"))" > "$log_file"
 
@@ -726,7 +726,7 @@ at_path() {
       -c | --no-config) session_flags+=(--no-config) ;;
       -p | --prompt-name) session_flags+=(--prompt-name) ;;
       -*)
-        notify "Error: Unknown option '$arg' for 'tsm at'"
+        notify "Error: Unknown option '$arg' for 'dirsesh at'"
         exit 1
         ;;
       *) paths+=("$arg") ;;
@@ -734,12 +734,12 @@ at_path() {
   done
 
   if [ "${#paths[@]}" -gt 1 ]; then
-    notify "Error: 'tsm at' takes one directory"
+    notify "Error: 'dirsesh at' takes one directory"
     exit 1
   fi
 
   # No directory is the answer a chooser gives when it declines -- pressing
-  # escape leaves `tsm at "$(find $HOME -type d | fzf)"` with an empty
+  # escape leaves `dirsesh at "$(find $HOME -type d | fzf)"` with an empty
   # argument, and an unquoted substitution leaves it with none at all.
   # Neither is an error, and there is nothing to open.
   [ -n "${paths[0]:-}" ] || exit 0

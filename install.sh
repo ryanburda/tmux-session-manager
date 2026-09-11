@@ -1,16 +1,16 @@
 #!/bin/sh
-# Install tmux-session-manager: symlink `tsm` into a directory on PATH.
+# Install tmux-dirsesh: symlink `dirsesh` into a directory on PATH.
 #
-#   curl -fsSL https://raw.githubusercontent.com/ryanburda/tmux-session-manager/main/install.sh | sh
+#   curl -fsSL https://raw.githubusercontent.com/ryanburda/tmux-dirsesh/main/install.sh | sh
 #
 # Environment overrides:
-#   TSM_HOME  where the repo is cloned  (default: ~/.local/share/tmux-session-manager)
-#   BIN_DIR   where symlinks are placed (default: ~/.local/bin)
+#   DIRSESH_HOME  where the repo is cloned  (default: ~/.local/share/tmux-dirsesh)
+#   BIN_DIR       where symlinks are placed (default: ~/.local/bin)
 
 set -eu
 
-REPO_URL=https://github.com/ryanburda/tmux-session-manager.git
-TSM_HOME=${TSM_HOME:-"${XDG_DATA_HOME:-$HOME/.local/share}/tmux-session-manager"}
+REPO_URL=https://github.com/ryanburda/tmux-dirsesh.git
+DIRSESH_HOME=${DIRSESH_HOME:-"${XDG_DATA_HOME:-$HOME/.local/share}/tmux-dirsesh"}
 BIN_DIR=${BIN_DIR:-"$HOME/.local/bin"}
 
 die() {
@@ -22,22 +22,22 @@ command -v git > /dev/null 2>&1 || die "git is required but was not found on PAT
 command -v tmux > /dev/null 2>&1 || die "tmux is required but was not found on PATH"
 
 # Fetch (or update) the source checkout that the symlink points at.
-if [ -d "$TSM_HOME/.git" ]; then
-    echo "Updating existing checkout at $TSM_HOME"
-    git -C "$TSM_HOME" fetch --quiet origin
-    git -C "$TSM_HOME" reset --quiet --hard origin/HEAD
-elif [ -e "$TSM_HOME" ]; then
-    die "$TSM_HOME exists but is not a git checkout; move it aside and retry"
+if [ -d "$DIRSESH_HOME/.git" ]; then
+    echo "Updating existing checkout at $DIRSESH_HOME"
+    git -C "$DIRSESH_HOME" fetch --quiet origin
+    git -C "$DIRSESH_HOME" reset --quiet --hard origin/HEAD
+elif [ -e "$DIRSESH_HOME" ]; then
+    die "$DIRSESH_HOME exists but is not a git checkout; move it aside and retry"
 else
-    echo "Cloning $REPO_URL into $TSM_HOME"
-    mkdir -p "$(dirname "$TSM_HOME")"
-    git clone --quiet "$REPO_URL" "$TSM_HOME"
+    echo "Cloning $REPO_URL into $DIRSESH_HOME"
+    mkdir -p "$(dirname "$DIRSESH_HOME")"
+    git clone --quiet "$REPO_URL" "$DIRSESH_HOME"
 fi
 
 mkdir -p "$BIN_DIR"
 
-src="$TSM_HOME/tsm"
-dest="$BIN_DIR/tsm"
+src="$DIRSESH_HOME/dirsesh"
+dest="$BIN_DIR/dirsesh"
 
 [ -f "$src" ] || die "expected $src to exist"
 
@@ -61,7 +61,7 @@ case ":$PATH:" in
 esac
 
 echo
-echo "Done. Run 'tsm help' to see its usage."
+echo "Done. Run 'dirsesh help' to see its usage."
 echo
 echo "Shell completions are not installed by this script; see the Shell Completions"
-echo "section of $TSM_HOME/README.md for the one-liner for your shell."
+echo "section of $DIRSESH_HOME/README.md for the one-liner for your shell."
