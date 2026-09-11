@@ -34,8 +34,7 @@ EOF
 ####################
 notify() {
   # Show a message: tmux display-message inside tmux, stderr otherwise.
-  # stderr because several callers run inside a command substitution whose
-  # stdout is their return value.
+  # stderr because several callers run inside a command substitution whose stdout is their return value.
   local msg="$1"
   if [ -n "$TMUX" ]; then
     tmux display-message "$msg"
@@ -161,34 +160,32 @@ default_session_name() {
   #   $1: path: directory to derive the session name from
   local path="$1"
 
-  local git_dir
-  git_dir=$(git -C "$path" rev-parse --absolute-git-dir 2>/dev/null)
+  # The directory's own leaf. This is the whole answer unless $path turns out to be a worktree.
+  local name=$(sanitize_session_name "$(basename "$path")")
 
-  # A linked worktree's git dir is <common dir>/worktrees/<name> and holds a
-  # gitdir file. Both are tested: inside a subdirectory of an ordinary repo,
-  # rev-parse also answers absolutely.
+  # Is $path a linked worktree? Its git dir is <common dir>/worktrees/<name>
+  # and holds a gitdir file. Both are tested: inside a subdirectory of an
+  # ordinary repo, rev-parse also answers absolutely.
+  local git_dir=$(git -C "$path" rev-parse --absolute-git-dir 2>/dev/null)
   if [ -n "$git_dir" ] && [ -f "$git_dir/gitdir" ] &&
     [ "$(basename "$(dirname "$git_dir")")" = "worktrees" ]; then
-    local repo_dir
-    repo_dir=$(dirname "$(dirname "$git_dir")")
-    local repo_leaf
-    repo_leaf=$(basename "$repo_dir")
 
-    # Step over conventional bare-repo wrappers: worktrees of
-    # ~/code/api/.bare belong to `api`, not `.bare`.
-    local repo_name
-    if [ "$repo_leaf" = ".bare" ] || [ "$repo_leaf" = ".git" ]; then
-      repo_name=$(basename "$(dirname "$repo_dir")")
-    else
-      repo_name="$repo_leaf"
-    fi
-
+    # It is: prefix $name with the repo's own leaf, taken from <common dir>.
     # Sanitized separately, so the joining `/` is the only one: a worktree
     # directory named v1.2 would otherwise put a `.` in the name.
-    echo "$(sanitize_session_name "$repo_name")/$(sanitize_session_name "$(basename "$path")")"
-  else
-    sanitize_session_name "$(basename "$path")"
+    local common_dir=$(dirname "$(dirname "$git_dir")")
+    local repo_leaf=$(basename "$common_dir")
+
+    # Step over conventional bare-repo wrappers: worktrees of ~/code/api/.bare
+    # belong to `api`, not `.bare`.
+    case "$repo_leaf" in
+      .bare | .git) repo_leaf=$(basename "$(dirname "$common_dir")") ;;
+    esac
+
+    name="$(sanitize_session_name "$repo_leaf")/$name"
   fi
+
+  echo "$name"
 }
 
 config_files() {
