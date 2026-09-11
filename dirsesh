@@ -12,7 +12,7 @@ HOOK_CLOSED=_session_closed
 
 usage() {
   cat <<'EOF'
-dirsesh - one tmux session per directory
+dirsesh - One configurable tmux session per directory
 
 Usage:
   dirsesh                                        # Show help message

@@ -1,5 +1,8 @@
 # tmux-dirsesh
 
+_One configurable tmux session per directory_
+
+
 `dirsesh` launches tmux sessions at directories.
 
 ```bash
@@ -7,12 +10,16 @@ dirsesh at <path>
 ```
 
 The `path` argument can be:
-- a specific path:
 ```bash
+# a specific path:
+#
+# the location of a project
 dirsesh at "$HOME/code/project_name"
-```
-- or even the result of a command:
-```bash
+# your root directory
+dirsesh at /
+
+# the result of a command:
+#
 # your current working directory
 dirsesh at "$(pwd)"
 # the root of the repo you are currently in
@@ -20,7 +27,8 @@ dirsesh at "$(git rev-parse --show-toplevel)"
 # a fresh scratch directory
 dirsesh at "$(mktemp -d)"
 
-# Use a fuzzy finder to make commands interactive
+# or the result of an interactive command/fuzzy finder:
+#
 # fuzzy find directories in your HOME folder
 dirsesh at "$(find $HOME -type d | fzf)"
 # fuzzy find worktrees of the current git repo
@@ -76,19 +84,18 @@ a configuration. Everything else closes exactly as it would on a server with no 
 ## Usage
 
 ```bash
-# Show help message
-dirsesh
+dirsesh - One configurable tmux session per directory
 
-# Start or switch to session at a directory
-dirsesh at <path> [-noconfig] [-name[=NAME]]
-  -noconfig                # Ignore any configuration claiming that path
-  -name[=NAME]             # Name the session; prompts for one if NAME is not given
+Usage:
+  dirsesh                                        # Show help message
 
-# Configurations claiming a path (defaults to the current directory)
-dirsesh match [path]
+  dirsesh at <path> [-noconfig] [-name[=NAME]]   # Start or switch to session at a directory
+    -noconfig                                    # Ignore any configuration claiming that path
+    -name[=NAME]                                 # Name the session; prompts for one if NAME is not given
 
-# Install the hook that cleans up configured sessions (put this in tmux.conf)
-dirsesh init
+  dirsesh match [path]                           # Configurations claiming a path (defaults to the current directory)
+
+  dirsesh init                                   # Install the hook that cleans up configured sessions (put this in tmux.conf)
 ```
 
 ## Workflow
