@@ -14,5 +14,5 @@ complete -c dirsesh -n '__fish_use_subcommand' -a help -d 'Show help message'
 # Subcommand arguments
 # `dirsesh at` takes a directory and the session flags
 complete -c dirsesh -n '__fish_seen_subcommand_from at' -ra '(__fish_complete_directories)'
-complete -c dirsesh -n '__fish_seen_subcommand_from at' -xa '-c --no-config -p --prompt-name'
+complete -c dirsesh -n '__fish_seen_subcommand_from at' -xa '-noconfig -name'
 complete -c dirsesh -n '__fish_seen_subcommand_from match' -ra '(__fish_complete_directories)'

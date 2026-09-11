@@ -67,8 +67,8 @@ esac
 
 **NOTE:** Session names cannot contain `.` or `:`. tmux reads both as target separators, so a
 session named `my.project` would be created and then be unreachable. Derived names and `name`
-answers are [sanitized](#naming-the-session) rather than refused; a name you type at the
-`-p` prompt is refused, since it is not dirsesh's to rewrite.
+answers are [sanitized](#naming-the-session) rather than refused; a name you give to `-name`
+(typed directly, or at its prompt) is refused, since it is not dirsesh's to rewrite.
 
 **NOTE:** The program runs once per verb, and dirsesh asks every configuration for its
 `pattern`, so keep the top level cheap: anything expensive there is paid on every `dirsesh at`.
@@ -292,8 +292,9 @@ Some useful `name` implementations:
     ;;
 ```
 
-**NOTE:** the `-p` flag beats `name`: the flag is the last word, though it still *offers* what
-`name` returned, so pressing enter accepts it.
+**NOTE:** `-name` beats `name` either way. Given a name outright (`-name=code`), that name is
+used as typed and `name` is never consulted. Given bare (`-name`), it prompts instead, offering
+what `name` returned as the default, so pressing enter accepts it.
 
 ## Claiming directories
 
@@ -429,14 +430,14 @@ it off the event instead.
 check: was there a cleanup record for this session?
 
 Only `dirsesh at` writes one, and only after a configuration's `start` has actually run. A session
-dirsesh did not build (an unclaimed directory, `dirsesh at -c`, a bare `tmux new-session`) has no
+dirsesh did not build (an unclaimed directory, `dirsesh at -noconfig`, a bare `tmux new-session`) has no
 record, and closes exactly as it would on a server with no dirsesh on it. The hook is installed
 globally; what it acts on is opt-in.
 
 ```bash
-dirsesh at ~/code/myproject       # record written; `kill` runs when it closes
-dirsesh at ~/code/myproject -c    # no configuration applied, no record, no `kill`
-tmux new-session -c ~/code/myproject   # an ordinary tmux session, start to finish
+dirsesh at ~/code/myproject             # record written; `kill` runs when it closes
+dirsesh at ~/code/myproject -noconfig   # no configuration applied, no record, no `kill`
+tmux new-session -c ~/code/myproject    # an ordinary tmux session, start to finish
 ```
 
 ### Consequences worth knowing
@@ -464,7 +465,7 @@ tmux new-session -c ~/code/myproject   # an ordinary tmux session, start to fini
 
 Output from `start` and `kill` is redirected to
 `${XDG_STATE_HOME:-~/.local/state}/dirsesh/logs/<session-name>/dirsesh.log`. A session that matched no
-configuration, or was created with `-c`, runs no program and gets no log. They are ordinary
+configuration, or was created with `-noconfig`, runs no program and gets no log. They are ordinary
 files: `tail -f` one, open it in an editor, or point a picker at the directory.
 
 A `kill` that fails has nowhere to complain to -- the session is already gone -- so its log is

@@ -80,9 +80,9 @@ a configuration. Everything else closes exactly as it would on a server with no 
 dirsesh
 
 # Start or switch to session at a directory
-dirsesh at <path> [-c] [-p]
-  -c, --no-config          # Ignore any configuration claiming that path
-  -p, --prompt-name        # Prompt for the session name instead of using the default
+dirsesh at <path> [-noconfig] [-name[=NAME]]
+  -noconfig                # Ignore any configuration claiming that path
+  -name[=NAME]             # Name the session; prompts for one if NAME is not given
 
 # Configurations claiming a path (defaults to the current directory)
 dirsesh match [path]

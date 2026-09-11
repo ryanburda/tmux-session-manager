@@ -22,7 +22,7 @@ _dirsesh_completions() {
     case "$cmd" in
         at)
             # A directory and the session flags, in either order.
-            flags="-c --no-config -p --prompt-name"
+            flags="-noconfig -name"
             COMPREPLY=($(compgen -d -W "$flags" -- "$cur"))
             return 0
             ;;

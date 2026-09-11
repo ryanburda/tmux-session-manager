@@ -32,7 +32,7 @@ _dirsesh() {
         at)
             _alternative \
                 'directories:directory:_files -/' \
-                'options:option:(-c --no-config -p --prompt-name)'
+                'options:option:(-noconfig -name)'
             ;;
         match)
             _files -/

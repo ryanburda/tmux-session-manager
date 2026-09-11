@@ -15,15 +15,15 @@ usage() {
 dirsesh - one tmux session per directory
 
 Usage:
-  dirsesh                                  # Show help message
+  dirsesh                                        # Show help message
 
-  dirsesh at <path> [-c] [-p]              # Start or switch to session at a directory
-    -c, --no-config                        # Ignore any configuration claiming that path
-    -p, --prompt-name                      # Prompt for the session name instead of using the default
+  dirsesh at <path> [-noconfig] [-name[=NAME]]   # Start or switch to session at a directory
+    -noconfig                                    # Ignore any configuration claiming that path
+    -name[=NAME]                                 # Name the session; prompts for one if NAME is not given
 
-  dirsesh match [path]                     # Configurations claiming a path (defaults to the current directory)
+  dirsesh match [path]                           # Configurations claiming a path (defaults to the current directory)
 
-  dirsesh init                             # Install the hook that cleans up configured sessions (put this in tmux.conf)
+  dirsesh init                                   # Install the hook that cleans up configured sessions (put this in tmux.conf)
 
 See https://github.com/ryanburda/tmux-dirsesh for more documentation
 EOF
@@ -149,24 +149,6 @@ client_size() {
   [ "$width" -gt 0 ] && [ "$height" -gt 0 ] || return 1
 
   echo "$width $height"
-}
-
-expand_short_flags() {
-  # Split clustered short flags (-cp -> -c -p) into EXPANDED_ARGS so the
-  # subcommand parsers see one flag per argument. Everything else passes
-  # through untouched.
-  EXPANDED_ARGS=()
-  local arg i
-  for arg in "$@"; do
-    case "$arg" in
-      -[!-]*)
-        for (( i = 1; i < ${#arg}; i++ )); do
-          EXPANDED_ARGS+=("-${arg:i:1}")
-        done
-        ;;
-      *) EXPANDED_ARGS+=("$arg") ;;
-    esac
-  done
 }
 
 default_session_name() {
@@ -521,7 +503,7 @@ session_closed() {
   record=$(session_record "$pid" "$id")
 
   # No record: no configuration built this session -- the path was
-  # unclaimed, -c was given, or `dirsesh at` was never involved. Nothing is owed.
+  # unclaimed, -noconfig was given, or `dirsesh at` was never involved. Nothing is owed.
   #
   # Every session tmux closes reaches this line, and this is where nearly all
   # of them stop. Only `dirsesh at` writes a record, so a global hook stays an
@@ -594,15 +576,16 @@ session_at() {
   #
   # Args:
   #   $1: path: the directory to start the session at
-  #   $@: --no-config, --prompt-name
+  #   $@: -noconfig, -name (prompts for a name), -name=VALUE (takes the name outright)
   local selected="$1"
   shift
 
-  local no_config="" prompt_name="" arg
+  local no_config="" name_mode="" name_value="" arg
   for arg in "$@"; do
     case "$arg" in
-      --no-config) no_config=1 ;;
-      --prompt-name) prompt_name=1 ;;
+      -noconfig) no_config=1 ;;
+      -name) name_mode=prompt ;;
+      -name=*) name_mode=value; name_value="${arg#-name=}" ;;
     esac
   done
 
@@ -621,7 +604,7 @@ session_at() {
   # A session is identified by the directory it was started at, not by its
   # name: naming a directory that already has a session returns to it,
   # whatever it has been renamed to. Nothing is being created, so this is
-  # also the answer -p gets.
+  # also the answer -name's value gets, given or prompted-for.
   local existing
   if existing=$(session_for_path "$selected"); then
     switch_or_attach "$existing"
@@ -629,7 +612,7 @@ session_at() {
   fi
 
   # A configuration may claim the path with `pattern`, naming the session
-  # (`name`) and building it (`start`). -c opts out of both.
+  # (`name`) and building it (`start`). -noconfig opts out of both.
   local matching_file=""
   if [ -z "$no_config" ]; then
     matching_file=$(matching_config_for_root "$selected") || matching_file=""
@@ -648,30 +631,52 @@ session_at() {
   [ -n "$matching_file" ] && session_name=$(config_session_name "$matching_file" "$selected")
   [ -n "$session_name" ] || session_name=$(default_session_name "$selected")
 
-  if [ -n "$prompt_name" ]; then
-    # -p is the last word: the rules still make the suggestion, but anything
-    # typed over it wins. session_name_prompt returns rather than exits
-    # because an exit inside a command substitution only ends the subshell.
-    session_name=$(session_name_prompt "$selected" "$session_name") || exit 1
-  else
-    # The path is not open (settled above), so a session already holding this
-    # name is a genuine collision: two directories whose names landed on the
-    # same string. Switching there would go somewhere that was not asked for,
-    # so report it and ask for a name.
-    if tmux has-session -t "=$session_name" 2>/dev/null; then
-      local taken="$session_name" existing_path
-      existing_path=$(path_for_session "$taken")
-      report_name_collision "$taken" "$selected" "$existing_path"
-
-      # quiet: the report already put the path on stderr.
-      session_name=$(session_name_prompt "$selected" "$taken" quiet) || {
-        # The prompt's error goes to stderr, which has nowhere to land under
-        # tmux's run-shell; notify becomes a tmux message there.
-        notify "Error: session '$taken' is already open at ${existing_path:-an unknown path}; $selected needs a name of its own"
+  case "$name_mode" in
+    value)
+      # A name given outright is not dirsesh's to rewrite -- same rule the
+      # prompt applies below: refused rather than sanitized. Given directly
+      # rather than at a prompt, a collision is also refused rather than
+      # asked about again: the point of handing over a name is to skip the
+      # interactive path (an interactive command is often what runs next).
+      case "$name_value" in
+        *[:.]*)
+          notify "Error: Session names cannot contain ':' or '.'"
+          exit 1
+          ;;
+      esac
+      if tmux has-session -t "=$name_value" 2>/dev/null; then
+        notify "Error: session '$name_value' is already open at $(path_for_session "$name_value")"
         exit 1
-      }
-    fi
-  fi
+      fi
+      session_name="$name_value"
+      ;;
+    prompt)
+      # -name with no value is the last word: the rules still make the
+      # suggestion, but anything typed over it wins. session_name_prompt
+      # returns rather than exits because an exit inside a command
+      # substitution only ends the subshell.
+      session_name=$(session_name_prompt "$selected" "$session_name") || exit 1
+      ;;
+    *)
+      # The path is not open (settled above), so a session already holding this
+      # name is a genuine collision: two directories whose names landed on the
+      # same string. Switching there would go somewhere that was not asked for,
+      # so report it and ask for a name.
+      if tmux has-session -t "=$session_name" 2>/dev/null; then
+        local taken="$session_name" existing_path
+        existing_path=$(path_for_session "$taken")
+        report_name_collision "$taken" "$selected" "$existing_path"
+
+        # quiet: the report already put the path on stderr.
+        session_name=$(session_name_prompt "$selected" "$taken" quiet) || {
+          # The prompt's error goes to stderr, which has nowhere to land under
+          # tmux's run-shell; notify becomes a tmux message there.
+          notify "Error: session '$taken' is already open at ${existing_path:-an unknown path}; $selected needs a name of its own"
+          exit 1
+        }
+      fi
+      ;;
+  esac
 
   local width height
   read -r width height < <(client_size)
@@ -720,11 +725,9 @@ session_at() {
 at_path() {
   # Start a session at a directory, or switch to the session already open there
   local session_flags=() paths=() arg
-  expand_short_flags "$@"
-  for arg in "${EXPANDED_ARGS[@]}"; do
+  for arg in "$@"; do
     case "$arg" in
-      -c | --no-config) session_flags+=(--no-config) ;;
-      -p | --prompt-name) session_flags+=(--prompt-name) ;;
+      -noconfig | -name | -name=*) session_flags+=("$arg") ;;
       -*)
         notify "Error: Unknown option '$arg' for 'dirsesh at'"
         exit 1
