@@ -6,7 +6,7 @@ _One configurable tmux session per directory_
 `dirsesh` launches tmux sessions at directories.
 
 ```bash
-dirsesh at <path>
+dirsesh at [path]
 ```
 
 The `path` argument can be:
@@ -36,6 +36,15 @@ dirsesh at "$(git worktree list | fzf | awk '{print $1}')"
 # Search your most-used directories
 dirsesh at "$(zoxide query -i)"
 ```
+
+Or leave `path` blank and dirsesh will fuzzy-find one for you:
+
+```bash
+dirsesh at
+```
+
+The default command walks `$HOME` (up to 5 levels deep, skipping hidden directories)
+for git repos and hands them to `fzf`.
 
 ### Session creation
 
@@ -89,7 +98,8 @@ dirsesh - One configurable tmux session per directory
 Usage:
   dirsesh                                        # Show help message
 
-  dirsesh at <path> [-noconfig] [-name[=NAME]]   # Start or switch to session at a directory
+  dirsesh at [path] [-noconfig] [-name[=NAME]]   # Start or switch to session at a directory
+    path                                         # Defaults to a fuzzy-find of git repos under $HOME
     -noconfig                                    # Ignore any configuration claiming that path
     -name[=NAME]                                 # Name the session; prompts for one if NAME is not given
 
