@@ -90,6 +90,13 @@ Sessions killed outside of `dirsesh`'s control are still handled correctly.
 The hook fires for every session tmux closes but it acts only on sessions `dirsesh at` built from
 a configuration. Everything else closes exactly as it would on a server with no `dirsesh` on it.
 
+### Goal
+
+`dirsesh at [path]` is designed to be a convenient wrapper around `tmux new-session -c <path>` where:
+- sessions for paths that already exist are switched to instead of recreated
+- configuration scripts are applied at session creation based on the directory
+- tear down scripts are automatically run no matter how the session is killed
+
 ## Usage
 
 ```bash
